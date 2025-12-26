@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HyperMatch vs Idiomorph - Element Identity Comparison</title>
+  <link rel="stylesheet" href="demo.css">
+</head>
+<body>
+  <header class="hero">
+    <h1>HyperMatch vs Idiomorph</h1>
+    <p class="subtitle">Element Identity Preservation Comparison</p>
+    <p class="description">
+      30 DOM manipulation scenarios comparing which elements are <span class="preserved">preserved</span>
+      vs <span class="replaced">replaced</span> during morphing.
+    </p>
+    <div class="summary-header">
+      <div class="score idiomorph-score">
+        <span class="label">Idiomorph</span>
+        <span class="value" id="idiomorph-total">0/30</span>
+      </div>
+      <div class="score hypermatch-score">
+        <span class="label">HyperMatch</span>
+        <span class="value" id="hypermatch-total">0/30</span>
+      </div>
+    </div>
+  </header>
+
+  <main id="scenarios-container">
+    <!-- Scenarios will be injected by JavaScript -->
+  </main>
+
+  <footer class="summary">
+    <h2>Summary</h2>
+    <div class="summary-grid">
+      <div class="summary-card">
+        <h3>Idiomorph</h3>
+        <div class="big-number" id="idiomorph-final">0/30</div>
+        <p>scenarios fully preserved</p>
+      </div>
+      <div class="summary-card highlight">
+        <h3>HyperMatch</h3>
+        <div class="big-number" id="hypermatch-final">0/30</div>
+        <p>scenarios fully preserved</p>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Load original Idiomorph first -->
+  <script src="/reference/src/idiomorph.js"></script>
+  <script>
+    window.OriginalIdiomorph = window.Idiomorph;
+  </script>
+
+  <!-- Load HyperMatch (enhanced Idiomorph) -->
+  <script src="/src/idiomorph.js"></script>
+  <script>
+    window.HyperMatch = window.Idiomorph;
+  </script>
+
+  <script src="demo.js"></script>
+</body>
+</html>
