@@ -178,8 +178,16 @@ var Idiomorph = (function () {
     }
 
     function getClasses(el) {
-      if (!el.className || typeof el.className !== 'string') return '';
-      return el.className.split(/\s+/).filter(Boolean).sort().join(' ');
+      // Prefer classList (works for both HTML and SVG elements)
+      if (el.classList && el.classList.length > 0) {
+        return Array.from(el.classList).sort().join(' ');
+      }
+      // Fallback to getAttribute for older browsers or edge cases
+      const classAttr = el.getAttribute?.('class');
+      if (classAttr) {
+        return classAttr.split(/\s+/).filter(Boolean).sort().join(' ');
+      }
+      return '';
     }
 
     function getAttributes(el) {

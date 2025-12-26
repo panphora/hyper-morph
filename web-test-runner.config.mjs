@@ -18,7 +18,10 @@ let config = {
       <script src="/test/lib/wait-for.js"></script>
       <script src="/node_modules/sinon/pkg/sinon.js"></script>
 
+      <script src="/reference/idiomorph/src/idiomorph.js"></script>
+      <script>window.OriginalIdiomorph = window.Idiomorph;</script>
       <script src="/src/idiomorph.js"></script>
+      <script>window.HyperMatch = window.Idiomorph;</script>
       <script src="/node_modules/htmx.org/dist/htmx.js"></script>
       <script src="/src/idiomorph-htmx.js"></script>
       <script src="/test/lib/morphdom.js"></script>

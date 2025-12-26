@@ -297,6 +297,31 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+// Create a signature to identify an element by its content characteristics
+function getElementSignature(el) {
+  const parts = [el.tagName];
+
+  // Add sorted classes
+  if (el.classList && el.classList.length > 0) {
+    parts.push('.' + Array.from(el.classList).sort().join('.'));
+  }
+
+  // Add key attributes that identify elements
+  ['id', 'href', 'src', 'name', 'type', 'role', 'alt'].forEach(attr => {
+    const val = el.getAttribute(attr);
+    if (val) parts.push(`[${attr}=${val}]`);
+  });
+
+  // Only add text content for leaf elements (no child elements)
+  // This prevents parent signatures from changing when children are reordered
+  if (el.children.length === 0) {
+    const text = el.textContent.trim().slice(0, 64);
+    if (text) parts.push(`"${text}"`);
+  }
+
+  return parts.join('|');
+}
+
 // Format HTML with indentation
 function formatHtml(html) {
   let formatted = '';
@@ -326,17 +351,19 @@ function runMorph(scenario, library) {
   document.body.appendChild(container);
   container.innerHTML = scenario.before;
 
-  // Get elements to track
-  const allElements = container.querySelectorAll(scenario.trackSelector);
+  // Query from the root element, not the container, to avoid selector matching the container's children
+  const root = container.children[0];
+
+  // Get elements to track - store element reference and its signature
+  const allElements = root.querySelectorAll(scenario.trackSelector);
   const trackedElements = [];
 
-  scenario.trackIndices.forEach((index, i) => {
+  scenario.trackIndices.forEach((index) => {
     const el = allElements[index];
     if (el) {
-      el.setAttribute('data-track-id', `track-${i}`);
       trackedElements.push({
         element: el,
-        id: `track-${i}`,
+        signature: getElementSignature(el),
         html: el.outerHTML
       });
     }
@@ -349,17 +376,22 @@ function runMorph(scenario, library) {
     console.error('Morph error:', e);
   }
 
-  // Check results
+  // Check results - find elements by signature and verify same DOM node
   const results = [];
   let preserved = 0;
+  const newRoot = container.children[0];
+  const afterElements = Array.from(newRoot.querySelectorAll(scenario.trackSelector));
 
-  trackedElements.forEach(({ element, id, html }) => {
-    const found = container.querySelector(`[data-track-id="${id}"]`);
-    const wasPreserved = found === element;
+  trackedElements.forEach(({ element, signature, html }) => {
+    // Find element with matching signature in the morphed DOM
+    const matchingElement = afterElements.find(el => getElementSignature(el) === signature);
+
+    // Element is preserved only if we found a match AND it's the same DOM node
+    const wasPreserved = matchingElement !== null && matchingElement === element;
     if (wasPreserved) preserved++;
 
     results.push({
-      html: html.replace(` data-track-id="${id}"`, ''),
+      html: html,
       preserved: wasPreserved
     });
   });

@@ -130,12 +130,21 @@ function hash(str) {
 
 /**
  * Extract sorted class list
+ * Works for both HTML elements (className is string) and SVG elements (className is SVGAnimatedString)
  * @param {Element} el
  * @returns {string}
  */
 function getClasses(el) {
-  if (!el.className || typeof el.className !== 'string') return '';
-  return el.className.split(/\s+/).filter(Boolean).sort().join(' ');
+  // Prefer classList (works for both HTML and SVG in modern browsers)
+  if (el.classList && el.classList.length > 0) {
+    return Array.from(el.classList).sort().join(' ');
+  }
+  // Fallback to getAttribute for older browsers or edge cases
+  const classAttr = el.getAttribute?.('class');
+  if (classAttr) {
+    return classAttr.split(/\s+/).filter(Boolean).sort().join(' ');
+  }
+  return '';
 }
 
 /**
@@ -438,6 +447,19 @@ function findMatch(newEl, oldRoot, config, metaCache, indexCache) {
 
   const index = buildIndex(oldRoot, config, metaCache, indexCache);
   const newMeta = getMeta(newEl, config, metaCache);
+
+  // Compute domIndex for drift penalty if not already set
+  // Use sibling count as position estimate (aligns scoring with computeMatches)
+  if (typeof newMeta.domIndex !== 'number') {
+    let idx = 0;
+    let sibling = newEl.previousElementSibling;
+    while (sibling) {
+      idx++;
+      sibling = sibling.previousElementSibling;
+    }
+    newMeta.domIndex = idx;
+  }
+
   const allCandidates = index.get(newMeta.signature) || [];
 
   // Filter out ID elements if excludeIds is enabled
