@@ -1,53 +1,116 @@
-# Idiomorph + HyperMatch Integration
+# hyper-match
 
-This repository contains an enhanced fork of [Idiomorph](https://github.com/bigskysoftware/idiomorph) with integrated content-based element matching via HyperMatch.
+Intelligent DOM element matching for morphing. An enhanced [Idiomorph](https://github.com/bigskysoftware/idiomorph) with content-based matching.
 
-## Overview
+## The Problem
 
-Idiomorph is a DOM morphing library that intelligently updates the DOM by matching elements between old and new trees. The original algorithm relies primarily on:
-- **ID-based matching** - Elements with matching IDs are paired
-- **Soft matching** - Elements with the same tag/nodeType are paired positionally
+When morphing DOM trees, we must decide which old elements correspond to which new elements. Without explicit IDs, positional matching fails:
 
-This fork adds **HyperMatch** as a primary matching strategy for anonymous elements (elements without IDs), providing content-based matching that considers:
-- Element signatures (tag + classes + key attributes)
-- Structural paths relative to landmarks
-- Text content similarity
+```html
+<!-- Old -->
+<ul>
+  <li>Apple</li>
+  <li>Banana</li>
+</ul>
 
-## Structure
+<!-- New (prepended) -->
+<ul>
+  <li>NEW</li>     <!-- positional match → "Apple" becomes "NEW" ❌ -->
+  <li>Apple</li>
+  <li>Banana</li>
+</ul>
+```
+
+Result: Focus lost, animations break, component state resets.
+
+## The Solution
+
+HyperMatch identifies elements by content-based **signatures** and structural **paths**:
 
 ```
-├── src/           # Idiomorph fork with HyperMatch integration
-├── reference/     # Original Idiomorph (unmodified) for comparison
-└── docs/          # Design documents and integration plans
+┌─────────────────────────────────────────────────────────────────┐
+│                         HOW IT WORKS                             │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│   OLD TREE                          NEW TREE                     │
+│                                                                  │
+│   ┌──────────┐                      ┌──────────┐                │
+│   │ sig: a3f │◄──── SIGNATURE ─────►│ sig: a3f │                │
+│   │ path: #m │      LOOKUP          │ path: #m │                │
+│   └──────────┘                      └──────────┘                │
+│        │                                  │                      │
+│        └──────────► SCORE PAIR ◄──────────┘                      │
+│                    ┌──────────┐                                  │
+│                    │ sig=+100 │                                  │
+│                    │path=+30  │                                  │
+│                    │text=+20  │                                  │
+│                    │conf=150  │                                  │
+│                    └────┬─────┘                                  │
+│                         │                                        │
+│                         ▼                                        │
+│                 confidence ≥ 101?                                │
+│                    YES → MATCH ✓                                 │
+│                    NO  → RECREATE                                │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
 ```
-
-## Key Changes
-
-The HyperMatch integration modifies Idiomorph's matching priority:
-
-1. **ID set match** (unchanged) - Elements with matching IDs in subtree
-2. **HyperMatch** (new) - Content-based matching for anonymous elements
-3. **Soft match** (unchanged) - Same tag/nodeType as fallback
-
-### Safety Features
-
-- Elements with `id` attributes are excluded from HyperMatch (deferred to Idiomorph's ID logic)
-- Text content mismatches prevent matching (avoids wrong element reuse)
-- Duplicate ID safety is preserved from original Idiomorph
 
 ## Usage
 
 ```bash
 cd src
 npm install
-npm test
+npm test  # 169 tests passing
 ```
 
-## Tests
+```javascript
+import Idiomorph from './src/idiomorph.js';
 
-All 169 original Idiomorph tests pass with the HyperMatch integration.
+// Just use Idiomorph normally - HyperMatch is integrated
+Idiomorph.morph(oldElement, newElement);
+```
+
+## Scoring Model
+
+| Factor | Score | Description |
+|--------|-------|-------------|
+| Signature match | +100 | Same tag + classes + key attributes |
+| Path segment | +10 each | Matching ancestors (up to 4) |
+| Text match | +20 | Leaf node text content matches |
+| Text mismatch | -25 | Text differs or asymmetric |
+| Unique candidate | +50 | Only one candidate (when text matches) |
+
+**Threshold:** Confidence ≥ 101 required. Signature alone isn't enough.
+
+## Matching Priority
+
+1. **ID set match** — Elements with matching IDs in subtree (Idiomorph)
+2. **HyperMatch** — Content-based matching for anonymous elements
+3. **Soft match** — Same tag/nodeType as fallback (Idiomorph)
+
+Elements with `id` attributes are excluded from HyperMatch and handled by Idiomorph's ID logic.
+
+## Structure
+
+```
+├── src/           # Idiomorph + HyperMatch integration
+├── reference/     # Original Idiomorph for comparison
+└── docs/          # Detailed documentation
+    ├── hyper-match.md           # Algorithm details
+    ├── INTEGRATION-PLAN.md      # Integration design
+    └── ...
+```
+
+## Documentation
+
+- [HyperMatch Algorithm](./docs/hyper-match.md) — Detailed scoring, paths, signatures
+- [Problem Analysis](./docs/problem-analysis.md) — Why DOM matching is hard
+- [Integration Plan](./docs/INTEGRATION-PLAN.md) — How HyperMatch integrates with Idiomorph
 
 ## Related
 
-- [hyper-match](../hyper-match) - Standalone HyperMatch library
-- [Idiomorph](https://github.com/bigskysoftware/idiomorph) - Original library
+- [Idiomorph](https://github.com/bigskysoftware/idiomorph) — Original library by Big Sky Software
+
+## License
+
+BSD 2-Clause (same as Idiomorph)
