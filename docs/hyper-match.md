@@ -60,7 +60,7 @@ Each element gets a content-based **signature** and a structural **path**. Match
 |--------|-------|-------------|
 | Signature match | +100 | Same tag + classes + key attributes |
 | Path segment | +10 each | Matching ancestors (up to 4) |
-| Text match | +20 | Leaf node text content matches |
+| Text match | +20 | Element textContent matches (includes descendants) |
 | Text mismatch | -25 | Text content differs (or one has text, other doesn't) |
 | Unique candidate | +50 | Only one element with this signature (only if text matches) |
 | Position drift | -1 each | Index difference in document order (max -20) |
@@ -167,6 +167,40 @@ const HYPER_CONFIG = {
 - **Full matching**: O(n log n) for greedy sorted assignment
 
 For large trees (1000+ elements), the overhead is typically <10ms.
+
+## Caching
+
+HyperMatch caches element metadata (signatures, paths, text hints) and indexes for performance. This means:
+
+- **Within a single morph**: Caches provide fast repeated lookups
+- **Across multiple morphs**: Stale caches can cause incorrect matches if the DOM changed
+
+### Safe Usage Patterns
+
+**Option 1: Session API (recommended)**
+
+```javascript
+const matcher = createMatcher();
+
+// Each session() call creates fresh caches
+const { computeMatches } = matcher.session();
+const matches = computeMatches(oldRoot, newRoot);
+```
+
+**Option 2: Manual invalidation**
+
+```javascript
+const matcher = createMatcher();
+
+// First morph
+matcher.computeMatches(oldRoot, newRoot);
+
+// After DOM changes, invalidate before next morph
+matcher.invalidate(oldRoot);
+matcher.computeMatches(oldRoot, newRoot);
+```
+
+The session API is preferred because it eliminates the risk of forgetting to invalidate.
 
 ## Limitations
 
