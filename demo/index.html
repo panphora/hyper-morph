@@ -52,12 +52,7 @@
     window.OriginalIdiomorph = window.Idiomorph;
   </script>
 
-  <!-- Load HyperMatch (enhanced Idiomorph) -->
-  <script src="/src/idiomorph.js"></script>
-  <script>
-    window.HyperMatch = window.Idiomorph;
-  </script>
-
-  <script src="demo.js"></script>
+  <!-- Load demo as module (imports HyperMatch) -->
+  <script type="module" src="demo.js"></script>
 </body>
 </html>

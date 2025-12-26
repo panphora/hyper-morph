@@ -1,6 +1,9 @@
 // 30 DOM Manipulation Scenarios for Demo
 // Extracted from src/test/comparison.js
 
+import HyperMatch from '/src/hyper-match.js';
+window.HyperMatch = HyperMatch;
+
 const scenarios = [
   // SIMPLE OPERATIONS (1-10)
   {

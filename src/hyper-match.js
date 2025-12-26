@@ -1,693 +1,1457 @@
-/**
- * hyper-match — Intelligent DOM Element Matching
- *
- * A content-addressable matching algorithm for DOM morphing. Finds corresponding
- * elements between two DOM trees without requiring explicit IDs or keys.
- *
- * PROBLEM:
- *   When morphing DOM trees, we must decide which old elements correspond to
- *   which new elements. Without explicit IDs, positional matching fails on
- *   reorders and prepends — causing lost focus, broken animations, and reset state.
- *
- * SOLUTION:
- *   Each element gets a content-based "signature" (hash of tag + classes + attrs)
- *   and a structural "path" (position relative to landmarks). Matches are scored
- *   by signature equality + path similarity. High confidence = accept, low = reject.
- *
- * ┌─────────────────────────────────────────────────────────────────────────────┐
- * │                              HOW IT WORKS                                    │
- * ├─────────────────────────────────────────────────────────────────────────────┤
- * │                                                                              │
- * │   OLD TREE                          NEW TREE                                │
- * │   ────────                          ────────                                │
- * │                                                                              │
- * │   ┌──────────┐                      ┌──────────┐                            │
- * │   │ Element  │──┐                ┌──│ Element  │                            │
- * │   └──────────┘  │                │  └──────────┘                            │
- * │        │        │                │        │                                 │
- * │        ▼        │                │        ▼                                 │
- * │   ┌──────────┐  │   SIGNATURE    │  ┌──────────┐                            │
- * │   │ sig: a3f │◄─┼───LOOKUP───────┼─►│ sig: a3f │                            │
- * │   │ path: #m │  │                │  │ path: #m │                            │
- * │   └──────────┘  │                │  └──────────┘                            │
- * │        │        │                │        │                                 │
- * │        ▼        │   SCORE PAIR   │        ▼                                 │
- * │   ┌──────────┐  │  ┌──────────┐  │  ┌──────────┐                            │
- * │   │ sig: b7x │◄─┴─►│ sig=+100 │◄─┴─►│ sig: b7x │                            │
- * │   │ path: #s │     │path=+30  │     │ path: #s │                            │
- * │   └──────────┘     │conf=130  │     └──────────┘                            │
- * │                    └──────────┘                                             │
- * │                         │                                                   │
- * │                         ▼                                                   │
- * │                 confidence ≥ 101?                                           │
- * │                    YES → MATCH                                              │
- * │                    NO  → RECREATE                                           │
- * │                                                                              │
- * └─────────────────────────────────────────────────────────────────────────────┘
- *
- * SCORING MODEL:
- *   Base:    signature match     +100  (required — same tag/classes/attrs)
- *   Bonus:   path segment match  +10   (per matching ancestor, max 4)
- *   Bonus:   text hint match     +20   (element textContent, includes descendants)
- *   Bonus:   unique candidate    +50   (only one element with this signature, if text matches)
- *   Penalty: position drift      -1    (per index difference)
- *
- *   Accept if confidence ≥ 101. Signature alone isn't sufficient — requires additional signal.
- *
- * CACHING:
- *   Metadata and indexes are cached per matcher instance for performance within a morph.
- *   For safety across multiple morphs, use session() which creates fresh caches per call,
- *   or call invalidate(root) after DOM mutations.
- *
- * USAGE:
- *   const matcher = createMatcher();
- *
- *   // Option 1: Session API (recommended for morphing — fresh caches per morph)
- *   const { computeMatches } = matcher.session();
- *   const matches = computeMatches(oldRoot, newRoot);
- *
- *   // Option 2: Direct API (reuses caches — call invalidate() after DOM changes)
- *   const match = matcher.findMatch(newElement, oldRoot);
- *   if (match) {
- *     // match.element is the corresponding old element
- *     // match.confidence is the score (0-200+)
- *   }
- *   matcher.invalidate(oldRoot);  // Call after DOM mutations
- *
- * INTEGRATION WITH IDIOMORPH:
- *   Hook into findBestMatch. If hyper-match returns high confidence, use it.
- *   Otherwise fall back to Idiomorph's default positional matching.
- *
- * @module hyper-match
- */
+import { createMatcher } from './hyper-match-matcher.js';
 
-// =============================================================================
-// CONFIGURATION
-// =============================================================================
-
-const DEFAULT_CONFIG = {
-  // Signature: what makes an element "the same"
-  includeClasses: true,
-  includeAttributes: ['href', 'src', 'name', 'type', 'role', 'aria-label', 'alt', 'title'],
-  excludeAttributePrefixes: ['data-morph-', 'data-hyper-', 'data-im-'],
-  textHintLength: 64,
-  excludeIds: true,  // Skip elements with id attributes (let ID-based matching handle them)
-
-  // Path: structural address for disambiguation
-  maxPathDepth: 4,
-  landmarks: ['HEADER', 'NAV', 'MAIN', 'ASIDE', 'FOOTER', 'SECTION', 'ARTICLE'],
-
-  // Scoring weights
-  weights: {
-    signature: 100,
-    pathSegment: 10,
-    textMatch: 20,
-    textMismatch: 25,  // Penalty when text differs or asymmetric (one has text, other doesn't)
-    uniqueCandidate: 50,
-    positionPenalty: 1,
-  },
-
-  // Thresholds (101 requires at least one signal beyond signature match)
-  minConfidence: 101,
-};
-
-// =============================================================================
-// SIGNATURE COMPUTATION
-// =============================================================================
+// Create a matcher instance for use in morphing
+const HyperMatchMatcher = createMatcher();
 
 /**
- * Fast non-cryptographic hash (djb2 algorithm)
- * @param {string} str
- * @returns {string}
+ * @typedef {object} ConfigHead
+ *
+ * @property {'merge' | 'append' | 'morph' | 'none'} [style]
+ * @property {boolean} [block]
+ * @property {boolean} [ignore]
+ * @property {function(Element): boolean} [shouldPreserve]
+ * @property {function(Element): boolean} [shouldReAppend]
+ * @property {function(Element): boolean} [shouldRemove]
+ * @property {function(Element, {added: Node[], kept: Element[], removed: Element[]}): void} [afterHeadMorphed]
  */
-function hash(str) {
-  let h = 5381;
-  for (let i = 0; i < str.length; i++) {
-    h = ((h << 5) + h) ^ str.charCodeAt(i);
-  }
-  return Math.abs(h).toString(36);
-}
 
 /**
- * Extract sorted class list
- * Works for both HTML elements (className is string) and SVG elements (className is SVGAnimatedString)
- * @param {Element} el
- * @returns {string}
+ * @typedef {object} ConfigCallbacks
+ *
+ * @property {function(Node): boolean} [beforeNodeAdded]
+ * @property {function(Node): void} [afterNodeAdded]
+ * @property {function(Element, Node): boolean} [beforeNodeMorphed]
+ * @property {function(Element, Node): void} [afterNodeMorphed]
+ * @property {function(Element): boolean} [beforeNodeRemoved]
+ * @property {function(Element): void} [afterNodeRemoved]
+ * @property {function(string, Element, "update" | "remove"): boolean} [beforeAttributeUpdated]
  */
-function getClasses(el) {
-  // Prefer classList (works for both HTML and SVG in modern browsers)
-  if (el.classList && el.classList.length > 0) {
-    return Array.from(el.classList).sort().join(' ');
-  }
-  // Fallback to getAttribute for older browsers or edge cases
-  const classAttr = el.getAttribute?.('class');
-  if (classAttr) {
-    return classAttr.split(/\s+/).filter(Boolean).sort().join(' ');
-  }
-  return '';
-}
 
 /**
- * Extract allowed attributes as sorted string
- * @param {Element} el
- * @param {object} config
- * @returns {string}
+ * @typedef {object} Config
+ *
+ * @property {'outerHTML' | 'innerHTML'} [morphStyle]
+ * @property {boolean} [ignoreActive]
+ * @property {boolean} [ignoreActiveValue]
+ * @property {boolean} [restoreFocus]
+ * @property {ConfigCallbacks} [callbacks]
+ * @property {ConfigHead} [head]
  */
-function getAttributes(el, config) {
-  const attrs = [];
-  for (const attr of el.attributes || []) {
-    const name = attr.name;
-    if (name === 'id' || name === 'class') continue;
-    if (config.excludeAttributePrefixes.some(p => name.startsWith(p))) continue;
-    if (config.includeAttributes.includes(name)) {
-      attrs.push(`${name}=${attr.value}`);
-    }
-  }
-  return attrs.sort().join('|');
-}
 
 /**
- * Get text content hint for element matching.
- * Uses textContent which includes all descendant text — intentional for matching
- * container elements by their full content (e.g., cards, list items with nested markup).
- * Note: This means nested text changes will affect parent element matching.
- * @param {Element} el
- * @param {object} config
- * @returns {string}
+ * @typedef {function} NoOp
+ *
+ * @returns {void}
  */
-function getTextHint(el, config) {
-  const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
-  return text.slice(0, config.textHintLength);
-}
 
 /**
- * Compute content-based signature for an element
- * @param {Element} el
- * @param {object} config
- * @returns {string}
+ * @typedef {object} ConfigHeadInternal
+ *
+ * @property {'merge' | 'append' | 'morph' | 'none'} style
+ * @property {boolean} [block]
+ * @property {boolean} [ignore]
+ * @property {(function(Element): boolean) | NoOp} shouldPreserve
+ * @property {(function(Element): boolean) | NoOp} shouldReAppend
+ * @property {(function(Element): boolean) | NoOp} shouldRemove
+ * @property {(function(Element, {added: Node[], kept: Element[], removed: Element[]}): void) | NoOp} afterHeadMorphed
  */
-function computeSignature(el, config) {
-  const parts = [el.tagName];
-  if (config.includeClasses) parts.push(getClasses(el));
-  parts.push(getAttributes(el, config));
-  return hash(parts.join('|'));
-}
-
-// =============================================================================
-// PATH COMPUTATION
-// =============================================================================
 
 /**
- * Get nth-of-type index (1-based, like CSS)
- * @param {Element} el
- * @returns {number}
+ * @typedef {object} ConfigCallbacksInternal
+ *
+ * @property {(function(Node): boolean) | NoOp} beforeNodeAdded
+ * @property {(function(Node): void) | NoOp} afterNodeAdded
+ * @property {(function(Node, Node): boolean) | NoOp} beforeNodeMorphed
+ * @property {(function(Node, Node): void) | NoOp} afterNodeMorphed
+ * @property {(function(Node): boolean) | NoOp} beforeNodeRemoved
+ * @property {(function(Node): void) | NoOp} afterNodeRemoved
+ * @property {(function(string, Element, "update" | "remove"): boolean) | NoOp} beforeAttributeUpdated
  */
-function getNthOfType(el) {
-  const tag = el.tagName;
-  let index = 1;
-  let sibling = el.previousElementSibling;
-  while (sibling) {
-    if (sibling.tagName === tag) index++;
-    sibling = sibling.previousElementSibling;
-  }
-  return index;
-}
 
 /**
- * Check if element is a landmark (stable reference point)
- * @param {Element} el
- * @param {object} config
- * @returns {boolean}
+ * @typedef {object} ConfigInternal
+ *
+ * @property {'outerHTML' | 'innerHTML'} morphStyle
+ * @property {boolean} [ignoreActive]
+ * @property {boolean} [ignoreActiveValue]
+ * @property {boolean} [restoreFocus]
+ * @property {ConfigCallbacksInternal} callbacks
+ * @property {ConfigHeadInternal} head
  */
-function isLandmark(el, config) {
-  if (el.id) return true;
-  if (el.getAttribute?.('role')) return true;
-  return config.landmarks.includes(el.tagName);
-}
 
 /**
- * Get landmark identifier
- * @param {Element} el
- * @returns {string}
+ * @typedef {Object} IdSets
+ * @property {Set<string>} persistentIds
+ * @property {Map<Node, Set<string>>} idMap
  */
-function getLandmarkToken(el) {
-  if (el.id) return `#${el.id}`;
-  const role = el.getAttribute?.('role');
-  if (role) return `@${role}`;
-  return el.tagName;
-}
 
 /**
- * Compute structural path from element to nearest landmark
- * @param {Element} el
- * @param {object} config
- * @returns {string[]}
+ * @typedef {Function} Morph
+ *
+ * @param {Element | Document} oldNode
+ * @param {Element | Node | HTMLCollection | Node[] | string | null} newContent
+ * @param {Config} [config]
+ * @returns {undefined | Node[]}
  */
-function computePath(el, config) {
-  const segments = [];
-  let current = el;
 
-  while (current && current.tagName && segments.length < config.maxPathDepth) {
-    const segment = `${current.tagName}:${getNthOfType(current)}`;
-    segments.unshift(segment);
-
-    if (current !== el && isLandmark(current, config)) {
-      segments.unshift(getLandmarkToken(current));
-      break;
-    }
-    current = current.parentElement;
-  }
-
-  return segments;
-}
-
+// base IIFE to define idiomorph
 /**
- * Count matching path segments from the end (leaf toward root)
- * @param {string[]} pathA
- * @param {string[]} pathB
- * @returns {number}
+ *
+ * @type {{defaults: ConfigInternal, morph: Morph}}
  */
-function pathSimilarity(pathA, pathB) {
-  let matches = 0;
-  let i = pathA.length - 1;
-  let j = pathB.length - 1;
+var Idiomorph = (function () {
+  "use strict";
 
-  while (i >= 0 && j >= 0) {
-    if (pathA[i] !== pathB[j]) break;
-    matches++;
-    i--;
-    j--;
-  }
+  /**
+   * @typedef {object} MorphContext
+   *
+   * @property {Element} target
+   * @property {Element} newContent
+   * @property {ConfigInternal} config
+   * @property {ConfigInternal['morphStyle']} morphStyle
+   * @property {ConfigInternal['ignoreActive']} ignoreActive
+   * @property {ConfigInternal['ignoreActiveValue']} ignoreActiveValue
+   * @property {ConfigInternal['restoreFocus']} restoreFocus
+   * @property {Map<Node, Set<string>>} idMap
+   * @property {Set<string>} persistentIds
+   * @property {ConfigInternal['callbacks']} callbacks
+   * @property {ConfigInternal['head']} head
+   * @property {HTMLDivElement} pantry
+   * @property {Element[]} activeElementAndParents
+   * @property {Map<Element, Element>} hyperMatches - hyper-match results (newEl -> oldEl)
+   * @property {Set<Element>} hyperMatchedOldElements - old elements that are hyper-matched
+   */
 
-  return matches;
-}
+  //=============================================================================
+  // AND NOW IT BEGINS...
+  //=============================================================================
 
-// =============================================================================
-// ELEMENT METADATA
-// =============================================================================
-
-/**
- * Get or compute metadata for an element
- * @param {Element} el
- * @param {object} config
- * @param {WeakMap} metaCache
- * @returns {{ signature: string, path: string[], textHint: string }}
- */
-function getMeta(el, config, metaCache) {
-  if (metaCache.has(el)) return metaCache.get(el);
-
-  const meta = {
-    signature: computeSignature(el, config),
-    path: computePath(el, config),
-    textHint: getTextHint(el, config),
+  const noOp = () => {};
+  /**
+   * Default configuration values, updatable by users now
+   * @type {ConfigInternal}
+   */
+  const defaults = {
+    morphStyle: "outerHTML",
+    callbacks: {
+      beforeNodeAdded: noOp,
+      afterNodeAdded: noOp,
+      beforeNodeMorphed: noOp,
+      afterNodeMorphed: noOp,
+      beforeNodeRemoved: noOp,
+      afterNodeRemoved: noOp,
+      beforeAttributeUpdated: noOp,
+    },
+    head: {
+      style: "merge",
+      shouldPreserve: (elt) => elt.getAttribute("im-preserve") === "true",
+      shouldReAppend: (elt) => elt.getAttribute("im-re-append") === "true",
+      shouldRemove: noOp,
+      afterHeadMorphed: noOp,
+    },
+    restoreFocus: true,
   };
 
-  metaCache.set(el, meta);
-  return meta;
-}
-
-// =============================================================================
-// INDEX BUILDING
-// =============================================================================
-
-/**
- * Build signature -> elements index for a root
- * @param {Element} root
- * @param {object} config
- * @param {WeakMap} metaCache
- * @param {WeakMap} indexCache
- * @returns {Map<string, Element[]>}
- */
-function buildIndex(root, config, metaCache, indexCache) {
-  if (indexCache.has(root)) return indexCache.get(root);
-
-  const index = new Map();
-  const elements = root.querySelectorAll('*');
-
-  let domIndex = 0;
-  for (const el of elements) {
-    const meta = getMeta(el, config, metaCache);
-    meta.domIndex = domIndex++;
-
-    if (!index.has(meta.signature)) {
-      index.set(meta.signature, []);
-    }
-    index.get(meta.signature).push(el);
-  }
-
-  indexCache.set(root, index);
-  return index;
-}
-
-/**
- * Clear cached data for a root and its descendants (call after DOM changes)
- * @param {Element} root
- * @param {WeakMap} metaCache
- * @param {WeakMap} indexCache
- */
-function invalidateRoot(root, metaCache, indexCache) {
-  indexCache.delete(root);
-
-  // Clear metadata for all descendants
-  metaCache.delete(root);
-  const elements = root.querySelectorAll('*');
-  for (const el of elements) {
-    metaCache.delete(el);
-  }
-}
-
-// =============================================================================
-// SCORING
-// =============================================================================
-
-/**
- * Score a candidate pair
- * @param {Element} newEl
- * @param {Element} oldEl
- * @param {object} config
- * @param {WeakMap} metaCache
- * @param {{ candidateCount: number }} context
- * @returns {{ score: number, breakdown: object }}
- */
-function scorePair(newEl, oldEl, config, metaCache, context) {
-  const newMeta = getMeta(newEl, config, metaCache);
-  const oldMeta = getMeta(oldEl, config, metaCache);
-  const weights = config.weights;
-
-  const breakdown = {};
-  let score = 0;
-
-  // Signature match (required baseline)
-  if (newMeta.signature !== oldMeta.signature) {
-    return { score: 0, breakdown: { rejected: 'signature mismatch' } };
-  }
-  score += weights.signature;
-  breakdown.signature = weights.signature;
-
-  // Path similarity bonus
-  const pathMatch = pathSimilarity(newMeta.path, oldMeta.path);
-  const pathScore = pathMatch * weights.pathSegment;
-  score += pathScore;
-  breakdown.path = pathScore;
-
-  // Text hint: bonus if matching, penalty if differs or asymmetric
-  let textMatches = true;
-  if (newMeta.textHint && oldMeta.textHint) {
-    // Both have text
-    if (newMeta.textHint === oldMeta.textHint) {
-      score += weights.textMatch;
-      breakdown.text = weights.textMatch;
-    } else {
-      score -= weights.textMismatch;
-      breakdown.text = -weights.textMismatch;
-      textMatches = false;
-    }
-  } else if (newMeta.textHint !== oldMeta.textHint) {
-    // One has text, the other doesn't - penalize asymmetric text
-    score -= weights.textMismatch;
-    breakdown.text = -weights.textMismatch;
-    textMatches = false;
-  }
-
-  // Unique candidate bonus (only when text matches or both empty)
-  if (context.candidateCount === 1 && textMatches) {
-    score += weights.uniqueCandidate;
-    breakdown.unique = weights.uniqueCandidate;
-  }
-
-  // Position drift penalty
-  if (typeof newMeta.domIndex === 'number' && typeof oldMeta.domIndex === 'number') {
-    const drift = Math.abs(newMeta.domIndex - oldMeta.domIndex);
-    const penalty = Math.min(drift * weights.positionPenalty, 20);
-    score -= penalty;
-    breakdown.drift = -penalty;
-  }
-
-  return { score, breakdown };
-}
-
-// =============================================================================
-// MATCHING API
-// =============================================================================
-
-/**
- * Find the best matching old element for a new element
- * @param {Element} newEl
- * @param {Element} oldRoot
- * @param {object} config
- * @param {WeakMap} metaCache
- * @param {WeakMap} indexCache
- * @returns {{ element: Element, confidence: number, breakdown: object } | null}
- */
-function findMatch(newEl, oldRoot, config, metaCache, indexCache) {
-  // Skip elements with IDs if excludeIds is enabled
-  if (config.excludeIds && newEl.id) {
-    return null;
-  }
-
-  const index = buildIndex(oldRoot, config, metaCache, indexCache);
-  const newMeta = getMeta(newEl, config, metaCache);
-
-  // Compute domIndex for drift penalty if not already set
-  // Use sibling count as position estimate (aligns scoring with computeMatches)
-  if (typeof newMeta.domIndex !== 'number') {
-    let idx = 0;
-    let sibling = newEl.previousElementSibling;
-    while (sibling) {
-      idx++;
-      sibling = sibling.previousElementSibling;
-    }
-    newMeta.domIndex = idx;
-  }
-
-  const allCandidates = index.get(newMeta.signature) || [];
-
-  // Filter out ID elements if excludeIds is enabled
-  const candidates = config.excludeIds
-    ? allCandidates.filter(el => !el.id)
-    : allCandidates;
-
-  if (candidates.length === 0) {
-    return null;
-  }
-
-  let bestMatch = null;
-  let bestScore = 0;
-  let bestBreakdown = null;
-
-  for (const oldEl of candidates) {
-    const { score, breakdown } = scorePair(newEl, oldEl, config, metaCache, {
-      candidateCount: candidates.length,
-    });
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestMatch = oldEl;
-      bestBreakdown = breakdown;
-    }
-  }
-
-  if (bestScore < config.minConfidence) {
-    return null;
-  }
-
-  return {
-    element: bestMatch,
-    confidence: bestScore,
-    breakdown: bestBreakdown,
-  };
-}
-
-/**
- * Compute all matches between two trees using greedy sorted assignment.
- * Ensures one-to-one matching: each old element can only be matched once.
- * Higher-scoring pairs are assigned first, regardless of document order.
- *
- * @param {Element} oldRoot
- * @param {Element} newRoot
- * @param {object} config
- * @param {WeakMap} metaCache
- * @param {WeakMap} indexCache
- * @returns {Map<Element, Element>}
- */
-function computeMatches(oldRoot, newRoot, config, metaCache, indexCache) {
-  const newElements = newRoot.querySelectorAll('*');
-  const index = buildIndex(oldRoot, config, metaCache, indexCache);
-
-  // Index new elements for domIndex calculation
-  let domIndex = 0;
-  for (const el of newElements) {
-    const meta = getMeta(el, config, metaCache);
-    meta.domIndex = domIndex++;
-  }
-
-  // Build all candidate pairs with scores
-  // Skip elements with IDs if excludeIds is enabled
-  const candidates = [];
-  for (const newEl of newElements) {
-    if (config.excludeIds && newEl.id) continue;
-
-    const newMeta = getMeta(newEl, config, metaCache);
-    const allOldCandidates = index.get(newMeta.signature) || [];
-
-    // Filter out ID elements if excludeIds is enabled (fixes candidate count inflation)
-    const oldCandidates = config.excludeIds
-      ? allOldCandidates.filter(el => !el.id)
-      : allOldCandidates;
-
-    for (const oldEl of oldCandidates) {
-      const { score, breakdown } = scorePair(newEl, oldEl, config, metaCache, {
-        candidateCount: oldCandidates.length,
-      });
-
-      if (score >= config.minConfidence) {
-        candidates.push({ newEl, oldEl, score, breakdown });
-      }
-    }
-  }
-
-  // Sort by score descending (highest scores first)
-  candidates.sort((a, b) => b.score - a.score);
-
-  // Greedy assignment: assign pairs in score order, skip already-matched elements
-  const matches = new Map();
-  const usedOld = new Set();
-
-  for (const { newEl, oldEl } of candidates) {
-    if (matches.has(newEl) || usedOld.has(oldEl)) continue;
-    matches.set(newEl, oldEl);
-    usedOld.add(oldEl);
-  }
-
-  return matches;
-}
-
-/**
- * Explain why two elements do or don't match
- * @param {Element} newEl
- * @param {Element} oldEl
- * @param {object} config
- * @param {WeakMap} metaCache
- * @returns {{ matches: boolean, score: number, breakdown: object, newMeta: object, oldMeta: object }}
- */
-function explain(newEl, oldEl, config, metaCache) {
-  const newMeta = getMeta(newEl, config, metaCache);
-  const oldMeta = getMeta(oldEl, config, metaCache);
-  const { score, breakdown } = scorePair(newEl, oldEl, config, metaCache, { candidateCount: 1 });
-
-  return {
-    matches: score >= config.minConfidence,
-    score,
-    breakdown,
-    newMeta: { signature: newMeta.signature, path: newMeta.path, textHint: newMeta.textHint },
-    oldMeta: { signature: oldMeta.signature, path: oldMeta.path, textHint: oldMeta.textHint },
-  };
-}
-
-// =============================================================================
-// PUBLIC API
-// =============================================================================
-
-/**
- * Create a matcher instance with optional config overrides.
- *
- * CACHING MODES:
- * - Default: Caches persist across calls for performance. Call invalidate(root)
- *   after DOM mutations, or use session() for automatic fresh caches.
- * - Session: Use session() to get a context with fresh caches, guaranteeing
- *   no stale data. Recommended for morph operations.
- *
- * @param {object} [configOverrides]
- * @returns {object}
- */
-function createMatcher(configOverrides = {}) {
-  const config = {
-    ...DEFAULT_CONFIG,
-    ...configOverrides,
-    weights: { ...DEFAULT_CONFIG.weights, ...configOverrides.weights },
-  };
-
-  // Instance-scoped caches (WeakMaps for automatic garbage collection)
-  // Each matcher has its own cache, preventing cross-config contamination
-  const metaCache = new WeakMap();
-  const indexCache = new WeakMap();
-
-  return {
-    /**
-     * Find the best matching old element for a new element.
-     * Uses persistent caches — call invalidate() after DOM changes or use session().
-     * @param {Element} newEl - Element from the new tree
-     * @param {Element} oldRoot - Root of the old tree to search
-     * @returns {{ element: Element, confidence: number, breakdown: object } | null}
-     */
-    findMatch: (newEl, oldRoot) => findMatch(newEl, oldRoot, config, metaCache, indexCache),
-
+  //=============================================================================
+  // HYPER-MATCH: Content-based element matching (imported from hyper-match-matcher.js)
+  //=============================================================================
+  const HyperMatch = {
     /**
      * Compute all matches between two trees.
-     * Uses persistent caches — call invalidate() after DOM changes or use session().
-     * @param {Element} oldRoot - Root of the old tree
-     * @param {Element} newRoot - Root of the new tree
+     * Uses session API for fresh caches per morph operation.
+     * @param {Element} oldRoot
+     * @param {Element} newRoot
      * @returns {Map<Element, Element>} Map of newEl -> oldEl
      */
-    computeMatches: (oldRoot, newRoot) => computeMatches(oldRoot, newRoot, config, metaCache, indexCache),
-
-    /**
-     * Explain why two elements do or don't match (for debugging)
-     * @param {Element} newEl
-     * @param {Element} oldEl
-     * @returns {{ matches: boolean, score: number, breakdown: object }}
-     */
-    explain: (newEl, oldEl) => explain(newEl, oldEl, config, metaCache),
-
-    /**
-     * Clear cached data for a root and its descendants.
-     * Call this after DOM mutations if reusing the matcher.
-     * @param {Element} root
-     */
-    invalidate: (root) => invalidateRoot(root, metaCache, indexCache),
-
-    /**
-     * Create a session with fresh caches for a single morph operation.
-     * Guarantees no stale data from previous morphs. Recommended usage:
-     *
-     *   const { findMatch, computeMatches } = matcher.session();
-     *   const matches = computeMatches(oldRoot, newRoot);
-     *
-     * @returns {{ findMatch: Function, computeMatches: Function, explain: Function }}
-     */
-    session: () => {
-      const sessionMetaCache = new WeakMap();
-      const sessionIndexCache = new WeakMap();
-      return {
-        findMatch: (newEl, oldRoot) => findMatch(newEl, oldRoot, config, sessionMetaCache, sessionIndexCache),
-        computeMatches: (oldRoot, newRoot) => computeMatches(oldRoot, newRoot, config, sessionMetaCache, sessionIndexCache),
-        explain: (newEl, oldEl) => explain(newEl, oldEl, config, sessionMetaCache),
-      };
-    },
-
-    /**
-     * Get the active configuration
-     * @returns {object}
-     */
-    getConfig: () => ({ ...config }),
+    computeMatches(oldRoot, newRoot) {
+      const { computeMatches } = HyperMatchMatcher.session();
+      return computeMatches(oldRoot, newRoot);
+    }
   };
-}
 
-// =============================================================================
-// EXPORTS
-// =============================================================================
+  /**
+   * Core idiomorph function for morphing one DOM tree to another
+   *
+   * @param {Element | Document} oldNode
+   * @param {Element | Node | HTMLCollection | Node[] | string | null} newContent
+   * @param {Config} [config]
+   * @returns {Promise<Node[]> | Node[]}
+   */
+  function morph(oldNode, newContent, config = {}) {
+    oldNode = normalizeElement(oldNode);
+    const newNode = normalizeParent(newContent);
+    const ctx = createMorphContext(oldNode, newNode, config);
 
-// Support both ES modules and inline use with Idiomorph
-var HyperMatch = { createMatcher, DEFAULT_CONFIG };
+    const morphedNodes = saveAndRestoreFocus(ctx, () => {
+      return withHeadBlocking(
+        ctx,
+        oldNode,
+        newNode,
+        /** @param {MorphContext} ctx */ (ctx) => {
+          if (ctx.morphStyle === "innerHTML") {
+            morphChildren(ctx, oldNode, newNode);
+            return Array.from(oldNode.childNodes);
+          } else {
+            return morphOuterHTML(ctx, oldNode, newNode);
+          }
+        },
+      );
+    });
 
-// ES module exports (if supported)
-if (typeof exports !== 'undefined') {
-  if (typeof module !== 'undefined' && module.exports) {
-    module.exports = HyperMatch;
+    ctx.pantry.remove();
+    return morphedNodes;
   }
-  exports.createMatcher = createMatcher;
-  exports.DEFAULT_CONFIG = DEFAULT_CONFIG;
-}
 
-export { createMatcher, DEFAULT_CONFIG };
-export default createMatcher;
+  /**
+   * Morph just the outerHTML of the oldNode to the newContent
+   * We have to be careful because the oldNode could have siblings which need to be untouched
+   * @param {MorphContext} ctx
+   * @param {Element} oldNode
+   * @param {Element} newNode
+   * @returns {Node[]}
+   */
+  function morphOuterHTML(ctx, oldNode, newNode) {
+    const oldParent = normalizeParent(oldNode);
+    morphChildren(
+      ctx,
+      oldParent,
+      newNode,
+      // these two optional params are the secret sauce
+      oldNode, // start point for iteration
+      oldNode.nextSibling, // end point for iteration
+    );
+    // this is safe even with siblings, because normalizeParent returns a SlicedParentNode if needed.
+    return Array.from(oldParent.childNodes);
+  }
+
+  /**
+   * @param {MorphContext} ctx
+   * @param {Function} fn
+   * @returns {Promise<Node[]> | Node[]}
+   */
+  function saveAndRestoreFocus(ctx, fn) {
+    if (!ctx.config.restoreFocus) return fn();
+    let activeElement =
+      /** @type {HTMLInputElement|HTMLTextAreaElement|null} */ (
+        document.activeElement
+      );
+
+    // don't bother if the active element is not an input or textarea
+    if (
+      !(
+        activeElement instanceof HTMLInputElement ||
+        activeElement instanceof HTMLTextAreaElement
+      )
+    ) {
+      return fn();
+    }
+
+    const { id: activeElementId, selectionStart, selectionEnd } = activeElement;
+
+    const results = fn();
+
+    if (
+      activeElementId &&
+      activeElementId !== document.activeElement?.getAttribute("id")
+    ) {
+      activeElement = ctx.target.querySelector(`[id="${activeElementId}"]`);
+      activeElement?.focus();
+    }
+    if (activeElement && !activeElement.selectionEnd && selectionEnd) {
+      activeElement.setSelectionRange(selectionStart, selectionEnd);
+    }
+
+    return results;
+  }
+
+  const morphChildren = (function () {
+    /**
+     * This is the core algorithm for matching up children.  The idea is to use id sets to try to match up
+     * nodes as faithfully as possible.  We greedily match, which allows us to keep the algorithm fast, but
+     * by using id sets, we are able to better match up with content deeper in the DOM.
+     *
+     * Basic algorithm:
+     * - for each node in the new content:
+     *   - search self and siblings for an id set match, falling back to a soft match
+     *   - if match found
+     *     - remove any nodes up to the match:
+     *       - pantry persistent nodes
+     *       - delete the rest
+     *     - morph the match
+     *   - elsif no match found, and node is persistent
+     *     - find its match by querying the old root (future) and pantry (past)
+     *     - move it and its children here
+     *     - morph it
+     *   - else
+     *     - create a new node from scratch as a last result
+     *
+     * @param {MorphContext} ctx the merge context
+     * @param {Element} oldParent the old content that we are merging the new content into
+     * @param {Element} newParent the parent element of the new content
+     * @param {Node|null} [insertionPoint] the point in the DOM we start morphing at (defaults to first child)
+     * @param {Node|null} [endPoint] the point in the DOM we stop morphing at (defaults to after last child)
+     */
+    function morphChildren(
+      ctx,
+      oldParent,
+      newParent,
+      insertionPoint = null,
+      endPoint = null,
+    ) {
+      // normalize
+      if (
+        oldParent instanceof HTMLTemplateElement &&
+        newParent instanceof HTMLTemplateElement
+      ) {
+        // @ts-ignore we can pretend the DocumentFragment is an Element
+        oldParent = oldParent.content;
+        // @ts-ignore ditto
+        newParent = newParent.content;
+      }
+      insertionPoint ||= oldParent.firstChild;
+
+      // run through all the new content
+      for (const newChild of newParent.childNodes) {
+        // once we reach the end of the old parent content skip to the end and insert the rest
+        if (insertionPoint && insertionPoint != endPoint) {
+          const bestMatch = findBestMatch(
+            ctx,
+            newChild,
+            insertionPoint,
+            endPoint,
+          );
+          if (bestMatch) {
+            // if the node to morph is not at the insertion point then remove/move up to it
+            if (bestMatch !== insertionPoint) {
+              removeNodesBetween(ctx, insertionPoint, bestMatch);
+            }
+            morphNode(bestMatch, newChild, ctx);
+            insertionPoint = bestMatch.nextSibling;
+            continue;
+          }
+        }
+
+        // if the matching node is elsewhere in the original content
+        if (newChild instanceof Element) {
+          // we can pretend the id is non-null because the next `.has` line will reject it if not
+          const newChildId = /** @type {String} */ (
+            newChild.getAttribute("id")
+          );
+          if (ctx.persistentIds.has(newChildId)) {
+            // move it and all its children here and morph
+            const movedChild = moveBeforeById(
+              oldParent,
+              newChildId,
+              insertionPoint,
+              ctx,
+            );
+            morphNode(movedChild, newChild, ctx);
+            insertionPoint = movedChild.nextSibling;
+            continue;
+          }
+
+          // Check if hyper-match found this element outside the current range
+          // Only use hyper-match for elements without persistent IDs
+          if (!ctx.idMap.has(newChild)) {
+            const hyperMatch = ctx.hyperMatches.get(newChild);
+            if (hyperMatch && !ctx.idMap.has(hyperMatch)) {
+              // Move the hyper-matched element here (from future or pantry)
+              moveBefore(oldParent, hyperMatch, insertionPoint);
+              morphNode(hyperMatch, newChild, ctx);
+              insertionPoint = hyperMatch.nextSibling;
+              continue;
+            }
+          }
+        }
+
+        // last resort: insert the new node from scratch
+        const insertedNode = createNode(
+          oldParent,
+          newChild,
+          insertionPoint,
+          ctx,
+        );
+        // could be null if beforeNodeAdded prevented insertion
+        if (insertedNode) {
+          insertionPoint = insertedNode.nextSibling;
+        }
+      }
+
+      // remove any remaining old nodes that didn't match up with new content
+      while (insertionPoint && insertionPoint != endPoint) {
+        const tempNode = insertionPoint;
+        insertionPoint = insertionPoint.nextSibling;
+        removeNode(ctx, tempNode);
+      }
+    }
+
+    /**
+     * This performs the action of inserting a new node while handling situations where the node contains
+     * elements with persistent ids and possible state info we can still preserve by moving in and then morphing
+     *
+     * @param {Element} oldParent
+     * @param {Node} newChild
+     * @param {Node|null} insertionPoint
+     * @param {MorphContext} ctx
+     * @returns {Node|null}
+     */
+    function createNode(oldParent, newChild, insertionPoint, ctx) {
+      if (ctx.callbacks.beforeNodeAdded(newChild) === false) return null;
+      if (ctx.idMap.has(newChild)) {
+        // node has children with ids with possible state so create a dummy elt of same type and apply full morph algorithm
+        const newEmptyChild = document.createElement(
+          /** @type {Element} */ (newChild).tagName,
+        );
+        oldParent.insertBefore(newEmptyChild, insertionPoint);
+        morphNode(newEmptyChild, newChild, ctx);
+        ctx.callbacks.afterNodeAdded(newEmptyChild);
+        return newEmptyChild;
+      } else {
+        // optimisation: no id state to preserve so we can just insert a clone of the newChild and its descendants
+        const newClonedChild = document.importNode(newChild, true); // importNode to not mutate newParent
+        oldParent.insertBefore(newClonedChild, insertionPoint);
+        ctx.callbacks.afterNodeAdded(newClonedChild);
+        return newClonedChild;
+      }
+    }
+
+    //=============================================================================
+    // Matching Functions
+    //=============================================================================
+    const findBestMatch = (function () {
+      /**
+       * Scans forward from the startPoint to the endPoint looking for a match
+       * for the node. Priority order:
+       * 1. Hyper-match (content-based) - if in range
+       * 2. ID set match (explicit IDs)
+       * 3. Soft match (same tag/nodeType) - fallback
+       *
+       * @param {Node} node
+       * @param {MorphContext} ctx
+       * @param {Node | null} startPoint
+       * @param {Node | null} endPoint
+       * @returns {Node | null}
+       */
+      function findBestMatch(ctx, node, startPoint, endPoint) {
+        // Check if hyper-match found a result for this node (only for Elements)
+        // Skip hyper-match for nodes with persistent IDs (let ID-based matching handle them)
+        const hyperMatch = (node instanceof Element && !ctx.idMap.has(node))
+          ? ctx.hyperMatches.get(node)
+          : null;
+
+        let softMatch = null;
+        let nextSibling = node.nextSibling;
+        let siblingSoftMatchCount = 0;
+
+        let cursor = startPoint;
+        while (cursor && cursor != endPoint) {
+          // soft matching is a prerequisite for id set matching and hyper-matching
+          if (isSoftMatch(cursor, node)) {
+            // Priority 1: ID set match (for elements with persistent IDs)
+            if (isIdSetMatch(ctx, cursor, node)) {
+              return cursor;
+            }
+
+            // Priority 2: Hyper-match (for anonymous elements without IDs in subtree)
+            // Only use if cursor doesn't have persistent IDs (to avoid stealing from ID-based matching)
+            if (cursor === hyperMatch && !ctx.idMap.has(cursor)) {
+              return cursor;
+            }
+
+            // Priority 3: Save soft match as fallback
+            if (softMatch === null) {
+              // Skip if cursor will hard match something else in the future
+              const isHyperMatched = cursor instanceof Element && ctx.hyperMatchedOldElements.has(cursor);
+              if (!ctx.idMap.has(cursor) && !isHyperMatched) {
+                softMatch = cursor;
+              }
+            }
+          }
+          if (
+            softMatch === null &&
+            nextSibling &&
+            isSoftMatch(cursor, nextSibling)
+          ) {
+            // The next new node has a soft match with this node, so
+            // increment the count of future soft matches
+            siblingSoftMatchCount++;
+            nextSibling = nextSibling.nextSibling;
+
+            // If there are two future soft matches, block soft matching for this node to allow
+            // future siblings to soft match. This is to reduce churn in the DOM when an element
+            // is prepended.
+            if (siblingSoftMatchCount >= 2) {
+              softMatch = undefined;
+            }
+          }
+
+          // if the current node contains active element, stop looking for better future matches,
+          // because if one is found, this node will be moved to the pantry, reparenting it and thus losing focus
+          // @ts-ignore pretend cursor is Element rather than Node, we're just testing for array inclusion
+          if (ctx.activeElementAndParents.includes(cursor)) break;
+
+          cursor = cursor.nextSibling;
+        }
+
+        return softMatch || null;
+      }
+
+      /**
+       *
+       * @param {MorphContext} ctx
+       * @param {Node} oldNode
+       * @param {Node} newNode
+       * @returns {boolean}
+       */
+      function isIdSetMatch(ctx, oldNode, newNode) {
+        let oldSet = ctx.idMap.get(oldNode);
+        let newSet = ctx.idMap.get(newNode);
+
+        if (!newSet || !oldSet) return false;
+
+        for (const id of oldSet) {
+          // a potential match is an id in the new and old nodes that
+          // has not already been merged into the DOM
+          // But the newNode content we call this on has not been
+          // merged yet and we don't allow duplicate IDs so it is simple
+          if (newSet.has(id)) {
+            return true;
+          }
+        }
+        return false;
+      }
+
+      /**
+       *
+       * @param {Node} oldNode
+       * @param {Node} newNode
+       * @returns {boolean}
+       */
+      function isSoftMatch(oldNode, newNode) {
+        // ok to cast: if one is not element, `id` and `tagName` will be undefined and we'll just compare that.
+        const oldElt = /** @type {Element} */ (oldNode);
+        const newElt = /** @type {Element} */ (newNode);
+
+        return (
+          oldElt.nodeType === newElt.nodeType &&
+          oldElt.tagName === newElt.tagName &&
+          // If oldElt has an `id` with possible state and it doesn't match newElt.id then avoid morphing.
+          // We'll still match an anonymous node with an IDed newElt, though, because if it got this far,
+          // its not persistent, and new nodes can't have any hidden state.
+          // We can't use .id because of form input shadowing, and we can't count on .getAttribute's presence because it could be a document-fragment
+          (!oldElt.getAttribute?.("id") ||
+            oldElt.getAttribute?.("id") === newElt.getAttribute?.("id"))
+        );
+      }
+
+      return findBestMatch;
+    })();
+
+    //=============================================================================
+    // DOM Manipulation Functions
+    //=============================================================================
+
+    /**
+     * Gets rid of an unwanted DOM node; strategy depends on nature of its reuse:
+     * - Persistent nodes (ID-matched or hyper-matched) will be moved to the pantry for later reuse
+     * - Other nodes will have their hooks called, and then are removed
+     * @param {MorphContext} ctx
+     * @param {Node} node
+     */
+    function removeNode(ctx, node) {
+      // are we going to id set match or hyper-match this later?
+      // Note: hyper-match only applies to elements without persistent IDs
+      const isHyperMatched = node instanceof Element &&
+        ctx.hyperMatchedOldElements.has(node) &&
+        !ctx.idMap.has(node);
+      if (ctx.idMap.has(node) || isHyperMatched) {
+        // skip callbacks and move to pantry
+        moveBefore(ctx.pantry, node, null);
+      } else {
+        // remove for realsies
+        if (ctx.callbacks.beforeNodeRemoved(node) === false) return;
+        node.parentNode?.removeChild(node);
+        ctx.callbacks.afterNodeRemoved(node);
+      }
+    }
+
+    /**
+     * Remove nodes between the start and end nodes
+     * @param {MorphContext} ctx
+     * @param {Node} startInclusive
+     * @param {Node} endExclusive
+     * @returns {Node|null}
+     */
+    function removeNodesBetween(ctx, startInclusive, endExclusive) {
+      /** @type {Node | null} */
+      let cursor = startInclusive;
+      // remove nodes until the endExclusive node
+      while (cursor && cursor !== endExclusive) {
+        let tempNode = /** @type {Node} */ (cursor);
+        cursor = cursor.nextSibling;
+        removeNode(ctx, tempNode);
+      }
+      return cursor;
+    }
+
+    /**
+     * Search for an element by id within the document and pantry, and move it using moveBefore.
+     *
+     * @param {Element} parentNode - The parent node to which the element will be moved.
+     * @param {string} id - The ID of the element to be moved.
+     * @param {Node | null} after - The reference node to insert the element before.
+     *                              If `null`, the element is appended as the last child.
+     * @param {MorphContext} ctx
+     * @returns {Element} The found element
+     */
+    function moveBeforeById(parentNode, id, after, ctx) {
+      const target =
+        /** @type {Element} - will always be found */
+        (
+          // ctx.target.id unsafe because of form input shadowing
+          // ctx.target could be a document fragment which doesn't have `getAttribute`
+          (ctx.target.getAttribute?.("id") === id && ctx.target) ||
+            ctx.target.querySelector(`[id="${id}"]`) ||
+            ctx.pantry.querySelector(`[id="${id}"]`)
+        );
+      removeElementFromAncestorsIdMaps(target, ctx);
+      moveBefore(parentNode, target, after);
+      return target;
+    }
+
+    /**
+     * Removes an element from its ancestors' id maps. This is needed when an element is moved from the
+     * "future" via `moveBeforeId`. Otherwise, its erstwhile ancestors could be mistakenly moved to the
+     * pantry rather than being deleted, preventing their removal hooks from being called.
+     *
+     * @param {Element} element - element to remove from its ancestors' id maps
+     * @param {MorphContext} ctx
+     */
+    function removeElementFromAncestorsIdMaps(element, ctx) {
+      // we know id is non-null String, because this function is only called on elements with ids
+      const id = /** @type {String} */ (element.getAttribute("id"));
+      /** @ts-ignore - safe to loop in this way **/
+      while ((element = element.parentNode)) {
+        let idSet = ctx.idMap.get(element);
+        if (idSet) {
+          idSet.delete(id);
+          if (!idSet.size) {
+            ctx.idMap.delete(element);
+          }
+        }
+      }
+    }
+
+    /**
+     * Moves an element before another element within the same parent.
+     * Uses the proposed `moveBefore` API if available (and working), otherwise falls back to `insertBefore`.
+     * This is essentialy a forward-compat wrapper.
+     *
+     * @param {Element} parentNode - The parent node containing the after element.
+     * @param {Node} element - The element to be moved.
+     * @param {Node | null} after - The reference node to insert `element` before.
+     *                              If `null`, `element` is appended as the last child.
+     */
+    function moveBefore(parentNode, element, after) {
+      // @ts-ignore - use proposed moveBefore feature
+      if (parentNode.moveBefore) {
+        try {
+          // @ts-ignore - use proposed moveBefore feature
+          parentNode.moveBefore(element, after);
+        } catch (e) {
+          // fall back to insertBefore as some browsers may fail on moveBefore when trying to move Dom disconnected nodes to pantry
+          parentNode.insertBefore(element, after);
+        }
+      } else {
+        parentNode.insertBefore(element, after);
+      }
+    }
+
+    return morphChildren;
+  })();
+
+  //=============================================================================
+  // Single Node Morphing Code
+  //=============================================================================
+  const morphNode = (function () {
+    /**
+     * @param {Node} oldNode root node to merge content into
+     * @param {Node} newContent new content to merge
+     * @param {MorphContext} ctx the merge context
+     * @returns {Node | null} the element that ended up in the DOM
+     */
+    function morphNode(oldNode, newContent, ctx) {
+      if (ctx.ignoreActive && oldNode === document.activeElement) {
+        // don't morph focused element
+        return null;
+      }
+
+      if (ctx.callbacks.beforeNodeMorphed(oldNode, newContent) === false) {
+        return oldNode;
+      }
+
+      if (oldNode instanceof HTMLHeadElement && ctx.head.ignore) {
+        // ignore the head element
+      } else if (
+        oldNode instanceof HTMLHeadElement &&
+        ctx.head.style !== "morph"
+      ) {
+        // ok to cast: if newContent wasn't also a <head>, it would've got caught in the `!isSoftMatch` branch above
+        handleHeadElement(
+          oldNode,
+          /** @type {HTMLHeadElement} */ (newContent),
+          ctx,
+        );
+      } else {
+        morphAttributes(oldNode, newContent, ctx);
+        if (!ignoreValueOfActiveElement(oldNode, ctx)) {
+          // @ts-ignore newContent can be a node here because .firstChild will be null
+          morphChildren(ctx, oldNode, newContent);
+        }
+      }
+      ctx.callbacks.afterNodeMorphed(oldNode, newContent);
+      return oldNode;
+    }
+
+    /**
+     * syncs the oldNode to the newNode, copying over all attributes and
+     * inner element state from the newNode to the oldNode
+     *
+     * @param {Node} oldNode the node to copy attributes & state to
+     * @param {Node} newNode the node to copy attributes & state from
+     * @param {MorphContext} ctx the merge context
+     */
+    function morphAttributes(oldNode, newNode, ctx) {
+      let type = newNode.nodeType;
+
+      // if is an element type, sync the attributes from the
+      // new node into the new node
+      if (type === 1 /* element type */) {
+        const oldElt = /** @type {Element} */ (oldNode);
+        const newElt = /** @type {Element} */ (newNode);
+
+        const oldAttributes = oldElt.attributes;
+        const newAttributes = newElt.attributes;
+        for (const newAttribute of newAttributes) {
+          if (ignoreAttribute(newAttribute.name, oldElt, "update", ctx)) {
+            continue;
+          }
+          if (oldElt.getAttribute(newAttribute.name) !== newAttribute.value) {
+            oldElt.setAttribute(newAttribute.name, newAttribute.value);
+          }
+        }
+        // iterate backwards to avoid skipping over items when a delete occurs
+        for (let i = oldAttributes.length - 1; 0 <= i; i--) {
+          const oldAttribute = oldAttributes[i];
+
+          // toAttributes is a live NamedNodeMap, so iteration+mutation is unsafe
+          // e.g. custom element attribute callbacks can remove other attributes
+          if (!oldAttribute) continue;
+
+          if (!newElt.hasAttribute(oldAttribute.name)) {
+            if (ignoreAttribute(oldAttribute.name, oldElt, "remove", ctx)) {
+              continue;
+            }
+            oldElt.removeAttribute(oldAttribute.name);
+          }
+        }
+
+        if (!ignoreValueOfActiveElement(oldElt, ctx)) {
+          syncInputValue(oldElt, newElt, ctx);
+        }
+      }
+
+      // sync text nodes
+      if (type === 8 /* comment */ || type === 3 /* text */) {
+        if (oldNode.nodeValue !== newNode.nodeValue) {
+          oldNode.nodeValue = newNode.nodeValue;
+        }
+      }
+    }
+
+    /**
+     * NB: many bothans died to bring us information:
+     *
+     *  https://github.com/patrick-steele-idem/morphdom/blob/master/src/specialElHandlers.js
+     *  https://github.com/choojs/nanomorph/blob/master/lib/morph.jsL113
+     *
+     * @param {Element} oldElement the element to sync the input value to
+     * @param {Element} newElement the element to sync the input value from
+     * @param {MorphContext} ctx the merge context
+     */
+    function syncInputValue(oldElement, newElement, ctx) {
+      if (
+        oldElement instanceof HTMLInputElement &&
+        newElement instanceof HTMLInputElement &&
+        newElement.type !== "file"
+      ) {
+        let newValue = newElement.value;
+        let oldValue = oldElement.value;
+
+        // sync boolean attributes
+        syncBooleanAttribute(oldElement, newElement, "checked", ctx);
+        syncBooleanAttribute(oldElement, newElement, "disabled", ctx);
+
+        if (!newElement.hasAttribute("value")) {
+          if (!ignoreAttribute("value", oldElement, "remove", ctx)) {
+            oldElement.value = "";
+            oldElement.removeAttribute("value");
+          }
+        } else if (oldValue !== newValue) {
+          if (!ignoreAttribute("value", oldElement, "update", ctx)) {
+            oldElement.setAttribute("value", newValue);
+            oldElement.value = newValue;
+          }
+        }
+        // TODO: QUESTION(1cg): this used to only check `newElement` unlike the other branches -- why?
+        // did I break something?
+      } else if (
+        oldElement instanceof HTMLOptionElement &&
+        newElement instanceof HTMLOptionElement
+      ) {
+        syncBooleanAttribute(oldElement, newElement, "selected", ctx);
+      } else if (
+        oldElement instanceof HTMLTextAreaElement &&
+        newElement instanceof HTMLTextAreaElement
+      ) {
+        let newValue = newElement.value;
+        let oldValue = oldElement.value;
+        if (ignoreAttribute("value", oldElement, "update", ctx)) {
+          return;
+        }
+        if (newValue !== oldValue) {
+          oldElement.value = newValue;
+        }
+        if (
+          oldElement.firstChild &&
+          oldElement.firstChild.nodeValue !== newValue
+        ) {
+          oldElement.firstChild.nodeValue = newValue;
+        }
+      }
+    }
+
+    /**
+     * @param {Element} oldElement element to write the value to
+     * @param {Element} newElement element to read the value from
+     * @param {string} attributeName the attribute name
+     * @param {MorphContext} ctx the merge context
+     */
+    function syncBooleanAttribute(oldElement, newElement, attributeName, ctx) {
+      // @ts-ignore this function is only used on boolean attrs that are reflected as dom properties
+      const newLiveValue = newElement[attributeName],
+        // @ts-ignore ditto
+        oldLiveValue = oldElement[attributeName];
+      if (newLiveValue !== oldLiveValue) {
+        const ignoreUpdate = ignoreAttribute(
+          attributeName,
+          oldElement,
+          "update",
+          ctx,
+        );
+        if (!ignoreUpdate) {
+          // update attribute's associated DOM property
+          // @ts-ignore this function is only used on boolean attrs that are reflected as dom properties
+          oldElement[attributeName] = newElement[attributeName];
+        }
+        if (newLiveValue) {
+          if (!ignoreUpdate) {
+            // https://developer.mozilla.org/en-US/docs/Glossary/Boolean/HTML
+            // this is the correct way to set a boolean attribute to "true"
+            oldElement.setAttribute(attributeName, "");
+          }
+        } else {
+          if (!ignoreAttribute(attributeName, oldElement, "remove", ctx)) {
+            oldElement.removeAttribute(attributeName);
+          }
+        }
+      }
+    }
+
+    /**
+     * @param {string} attr the attribute to be mutated
+     * @param {Element} element the element that is going to be updated
+     * @param {"update" | "remove"} updateType
+     * @param {MorphContext} ctx the merge context
+     * @returns {boolean} true if the attribute should be ignored, false otherwise
+     */
+    function ignoreAttribute(attr, element, updateType, ctx) {
+      if (
+        attr === "value" &&
+        ctx.ignoreActiveValue &&
+        element === document.activeElement
+      ) {
+        return true;
+      }
+      return (
+        ctx.callbacks.beforeAttributeUpdated(attr, element, updateType) ===
+        false
+      );
+    }
+
+    /**
+     * @param {Node} possibleActiveElement
+     * @param {MorphContext} ctx
+     * @returns {boolean}
+     */
+    function ignoreValueOfActiveElement(possibleActiveElement, ctx) {
+      return (
+        !!ctx.ignoreActiveValue &&
+        possibleActiveElement === document.activeElement &&
+        possibleActiveElement !== document.body
+      );
+    }
+
+    return morphNode;
+  })();
+
+  //=============================================================================
+  // Head Management Functions
+  //=============================================================================
+  /**
+   * @param {MorphContext} ctx
+   * @param {Element} oldNode
+   * @param {Element} newNode
+   * @param {function} callback
+   * @returns {Node[] | Promise<Node[]>}
+   */
+  function withHeadBlocking(ctx, oldNode, newNode, callback) {
+    if (ctx.head.block) {
+      const oldHead = oldNode.querySelector("head");
+      const newHead = newNode.querySelector("head");
+      if (oldHead && newHead) {
+        const promises = handleHeadElement(oldHead, newHead, ctx);
+        // when head promises resolve, proceed ignoring the head tag
+        return Promise.all(promises).then(() => {
+          const newCtx = Object.assign(ctx, {
+            head: {
+              block: false,
+              ignore: true,
+            },
+          });
+          return callback(newCtx);
+        });
+      }
+    }
+    // just proceed if we not head blocking
+    return callback(ctx);
+  }
+
+  /**
+   *  The HEAD tag can be handled specially, either w/ a 'merge' or 'append' style
+   *
+   * @param {Element} oldHead
+   * @param {Element} newHead
+   * @param {MorphContext} ctx
+   * @returns {Promise<void>[]}
+   */
+  function handleHeadElement(oldHead, newHead, ctx) {
+    let added = [];
+    let removed = [];
+    let preserved = [];
+    let nodesToAppend = [];
+
+    // put all new head elements into a Map, by their outerHTML
+    let srcToNewHeadNodes = new Map();
+    for (const newHeadChild of newHead.children) {
+      srcToNewHeadNodes.set(newHeadChild.outerHTML, newHeadChild);
+    }
+
+    // for each elt in the current head
+    for (const currentHeadElt of oldHead.children) {
+      // If the current head element is in the map
+      let inNewContent = srcToNewHeadNodes.has(currentHeadElt.outerHTML);
+      let isReAppended = ctx.head.shouldReAppend(currentHeadElt);
+      let isPreserved = ctx.head.shouldPreserve(currentHeadElt);
+      if (inNewContent || isPreserved) {
+        if (isReAppended) {
+          // remove the current version and let the new version replace it and re-execute
+          removed.push(currentHeadElt);
+        } else {
+          // this element already exists and should not be re-appended, so remove it from
+          // the new content map, preserving it in the DOM
+          srcToNewHeadNodes.delete(currentHeadElt.outerHTML);
+          preserved.push(currentHeadElt);
+        }
+      } else {
+        if (ctx.head.style === "append") {
+          // we are appending and this existing element is not new content
+          // so if and only if it is marked for re-append do we do anything
+          if (isReAppended) {
+            removed.push(currentHeadElt);
+            nodesToAppend.push(currentHeadElt);
+          }
+        } else {
+          // if this is a merge, we remove this content since it is not in the new head
+          if (ctx.head.shouldRemove(currentHeadElt) !== false) {
+            removed.push(currentHeadElt);
+          }
+        }
+      }
+    }
+
+    // Push the remaining new head elements in the Map into the
+    // nodes to append to the head tag
+    nodesToAppend.push(...srcToNewHeadNodes.values());
+
+    let promises = [];
+    for (const newNode of nodesToAppend) {
+      // TODO: This could theoretically be null, based on type
+      let newElt = /** @type {ChildNode} */ (
+        document.createRange().createContextualFragment(newNode.outerHTML)
+          .firstChild
+      );
+      if (ctx.callbacks.beforeNodeAdded(newElt) !== false) {
+        if (
+          ("href" in newElt && newElt.href) ||
+          ("src" in newElt && newElt.src)
+        ) {
+          /** @type {(result?: any) => void} */ let resolve;
+          let promise = new Promise(function (_resolve) {
+            resolve = _resolve;
+          });
+          newElt.addEventListener("load", function () {
+            resolve();
+          });
+          promises.push(promise);
+        }
+        oldHead.appendChild(newElt);
+        ctx.callbacks.afterNodeAdded(newElt);
+        added.push(newElt);
+      }
+    }
+
+    // remove all removed elements, after we have appended the new elements to avoid
+    // additional network requests for things like style sheets
+    for (const removedElement of removed) {
+      if (ctx.callbacks.beforeNodeRemoved(removedElement) !== false) {
+        oldHead.removeChild(removedElement);
+        ctx.callbacks.afterNodeRemoved(removedElement);
+      }
+    }
+
+    ctx.head.afterHeadMorphed(oldHead, {
+      added: added,
+      kept: preserved,
+      removed: removed,
+    });
+    return promises;
+  }
+
+  //=============================================================================
+  // Create Morph Context Functions
+  //=============================================================================
+  const createMorphContext = (function () {
+    /**
+     *
+     * @param {Element} oldNode
+     * @param {Element} newContent
+     * @param {Config} config
+     * @returns {MorphContext}
+     */
+    function createMorphContext(oldNode, newContent, config) {
+      const { persistentIds, idMap } = createIdMaps(oldNode, newContent);
+
+      // Compute hyper-match results for content-based matching
+      const hyperMatches = HyperMatch.computeMatches(oldNode, newContent);
+
+      // Build set of old elements that are hyper-matched (for pantry logic)
+      const hyperMatchedOldElements = new Set();
+      for (const oldEl of hyperMatches.values()) {
+        hyperMatchedOldElements.add(oldEl);
+      }
+
+      const mergedConfig = mergeDefaults(config);
+      const morphStyle = mergedConfig.morphStyle || "outerHTML";
+      if (!["innerHTML", "outerHTML"].includes(morphStyle)) {
+        throw `Do not understand how to morph style ${morphStyle}`;
+      }
+
+      return {
+        target: oldNode,
+        newContent: newContent,
+        config: mergedConfig,
+        morphStyle: morphStyle,
+        ignoreActive: mergedConfig.ignoreActive,
+        ignoreActiveValue: mergedConfig.ignoreActiveValue,
+        restoreFocus: mergedConfig.restoreFocus,
+        idMap: idMap,
+        persistentIds: persistentIds,
+        hyperMatches: hyperMatches,
+        hyperMatchedOldElements: hyperMatchedOldElements,
+        pantry: createPantry(),
+        activeElementAndParents: createActiveElementAndParents(oldNode),
+        callbacks: mergedConfig.callbacks,
+        head: mergedConfig.head,
+      };
+    }
+
+    /**
+     * Deep merges the config object and the Idiomorph.defaults object to
+     * produce a final configuration object
+     * @param {Config} config
+     * @returns {ConfigInternal}
+     */
+    function mergeDefaults(config) {
+      let finalConfig = Object.assign({}, defaults);
+
+      // copy top level stuff into final config
+      Object.assign(finalConfig, config);
+
+      // copy callbacks into final config (do this to deep merge the callbacks)
+      finalConfig.callbacks = Object.assign(
+        {},
+        defaults.callbacks,
+        config.callbacks,
+      );
+
+      // copy head config into final config  (do this to deep merge the head)
+      finalConfig.head = Object.assign({}, defaults.head, config.head);
+
+      return finalConfig;
+    }
+
+    /**
+     * @returns {HTMLDivElement}
+     */
+    function createPantry() {
+      const pantry = document.createElement("div");
+      pantry.hidden = true;
+      document.body.insertAdjacentElement("afterend", pantry);
+      return pantry;
+    }
+
+    /**
+     * @param {Element} oldNode
+     * @returns {Element[]}
+     */
+    function createActiveElementAndParents(oldNode) {
+      /** @type {Element[]} */
+      let activeElementAndParents = [];
+      let elt = document.activeElement;
+      if (elt?.tagName !== "BODY" && oldNode.contains(elt)) {
+        while (elt) {
+          activeElementAndParents.push(elt);
+          if (elt === oldNode) break;
+          elt = elt.parentElement;
+        }
+      }
+      return activeElementAndParents;
+    }
+
+    /**
+     * Returns all elements with an ID contained within the root element and its descendants
+     *
+     * @param {Element} root
+     * @returns {Element[]}
+     */
+    function findIdElements(root) {
+      let elements = Array.from(root.querySelectorAll("[id]"));
+      // root could be a document fragment which doesn't have `getAttribute`
+      if (root.getAttribute?.("id")) {
+        elements.push(root);
+      }
+      return elements;
+    }
+
+    /**
+     * A bottom-up algorithm that populates a map of Element -> IdSet.
+     * The idSet for a given element is the set of all IDs contained within its subtree.
+     * As an optimzation, we filter these IDs through the given list of persistent IDs,
+     * because we don't need to bother considering IDed elements that won't be in the new content.
+     *
+     * @param {Map<Node, Set<string>>} idMap
+     * @param {Set<string>} persistentIds
+     * @param {Element} root
+     * @param {Element[]} elements
+     */
+    function populateIdMapWithTree(idMap, persistentIds, root, elements) {
+      for (const elt of elements) {
+        // we can pretend id is non-null String, because the .has line will reject it immediately if not
+        const id = /** @type {String} */ (elt.getAttribute("id"));
+        if (persistentIds.has(id)) {
+          /** @type {Element|null} */
+          let current = elt;
+          // walk up the parent hierarchy of that element, adding the id
+          // of element to the parent's id set
+          while (current) {
+            let idSet = idMap.get(current);
+            // if the id set doesn't exist, create it and insert it in the map
+            if (idSet == null) {
+              idSet = new Set();
+              idMap.set(current, idSet);
+            }
+            idSet.add(id);
+
+            if (current === root) break;
+            current = current.parentElement;
+          }
+        }
+      }
+    }
+
+    /**
+     * This function computes a map of nodes to all ids contained within that node (inclusive of the
+     * node).  This map can be used to ask if two nodes have intersecting sets of ids, which allows
+     * for a looser definition of "matching" than tradition id matching, and allows child nodes
+     * to contribute to a parent nodes matching.
+     *
+     * @param {Element} oldContent  the old content that will be morphed
+     * @param {Element} newContent  the new content to morph to
+     * @returns {IdSets}
+     */
+    function createIdMaps(oldContent, newContent) {
+      const oldIdElements = findIdElements(oldContent);
+      const newIdElements = findIdElements(newContent);
+
+      const persistentIds = createPersistentIds(oldIdElements, newIdElements);
+
+      /** @type {Map<Node, Set<string>>} */
+      let idMap = new Map();
+      populateIdMapWithTree(idMap, persistentIds, oldContent, oldIdElements);
+
+      /** @ts-ignore - if newContent is a duck-typed parent, pass its single child node as the root to halt upwards iteration */
+      const newRoot = newContent.__idiomorphRoot || newContent;
+      populateIdMapWithTree(idMap, persistentIds, newRoot, newIdElements);
+
+      return { persistentIds, idMap };
+    }
+
+    /**
+     * This function computes the set of ids that persist between the two contents excluding duplicates
+     *
+     * @param {Element[]} oldIdElements
+     * @param {Element[]} newIdElements
+     * @returns {Set<string>}
+     */
+    function createPersistentIds(oldIdElements, newIdElements) {
+      let duplicateIds = new Set();
+
+      /** @type {Map<string, string>} */
+      let oldIdTagNameMap = new Map();
+      for (const { id, tagName } of oldIdElements) {
+        if (oldIdTagNameMap.has(id)) {
+          duplicateIds.add(id);
+        } else {
+          oldIdTagNameMap.set(id, tagName);
+        }
+      }
+
+      let persistentIds = new Set();
+      for (const { id, tagName } of newIdElements) {
+        if (persistentIds.has(id)) {
+          duplicateIds.add(id);
+        } else if (oldIdTagNameMap.get(id) === tagName) {
+          persistentIds.add(id);
+        }
+        // skip if tag types mismatch because its not possible to morph one tag into another
+      }
+
+      for (const id of duplicateIds) {
+        persistentIds.delete(id);
+      }
+      return persistentIds;
+    }
+
+    return createMorphContext;
+  })();
+
+  //=============================================================================
+  // HTML Normalization Functions
+  //=============================================================================
+  const { normalizeElement, normalizeParent } = (function () {
+    /** @type {WeakSet<Node>} */
+    const generatedByIdiomorph = new WeakSet();
+
+    /**
+     *
+     * @param {Element | Document} content
+     * @returns {Element}
+     */
+    function normalizeElement(content) {
+      if (content instanceof Document) {
+        return content.documentElement;
+      } else {
+        return content;
+      }
+    }
+
+    /**
+     *
+     * @param {null | string | Node | HTMLCollection | Node[] | Document & {generatedByIdiomorph:boolean}} newContent
+     * @returns {Element}
+     */
+    function normalizeParent(newContent) {
+      if (newContent == null) {
+        return document.createElement("div"); // dummy parent element
+      } else if (typeof newContent === "string") {
+        return normalizeParent(parseContent(newContent));
+      } else if (
+        generatedByIdiomorph.has(/** @type {Element} */ (newContent))
+      ) {
+        // the template tag created by idiomorph parsing can serve as a dummy parent
+        return /** @type {Element} */ (newContent);
+      } else if (newContent instanceof Node) {
+        if (newContent.parentNode) {
+          // we can't use the parent directly because newContent may have siblings
+          // that we don't want in the morph, and reparenting might be expensive (TODO is it?),
+          // so instead we create a fake parent node that only sees a slice of its children.
+          /** @type {Element} */
+          return /** @type {any} */ (new SlicedParentNode(newContent));
+        } else {
+          // a single node is added as a child to a dummy parent
+          const dummyParent = document.createElement("div");
+          dummyParent.append(newContent);
+          return dummyParent;
+        }
+      } else {
+        // all nodes in the array or HTMLElement collection are consolidated under
+        // a single dummy parent element
+        const dummyParent = document.createElement("div");
+        for (const elt of [...newContent]) {
+          dummyParent.append(elt);
+        }
+        return dummyParent;
+      }
+    }
+
+    /**
+     * A fake duck-typed parent element to wrap a single node, without actually reparenting it.
+     * This is useful because the node may have siblings that we don't want in the morph, and it may also be moved
+     * or replaced with one or more elements during the morph. This class effectively allows us a window into
+     * a slice of a node's children.
+     * "If it walks like a duck, and quacks like a duck, then it must be a duck!" -- James Whitcomb Riley (1849–1916)
+     */
+    class SlicedParentNode {
+      /** @param {Node} node */
+      constructor(node) {
+        this.originalNode = node;
+        this.realParentNode = /** @type {Element} */ (node.parentNode);
+        this.previousSibling = node.previousSibling;
+        this.nextSibling = node.nextSibling;
+      }
+
+      /** @returns {Node[]} */
+      get childNodes() {
+        // return slice of realParent's current childNodes, based on previousSibling and nextSibling
+        const nodes = [];
+        let cursor = this.previousSibling
+          ? this.previousSibling.nextSibling
+          : this.realParentNode.firstChild;
+        while (cursor && cursor != this.nextSibling) {
+          nodes.push(cursor);
+          cursor = cursor.nextSibling;
+        }
+        return nodes;
+      }
+
+      /**
+       * @param {string} selector
+       * @returns {Element[]}
+       */
+      querySelectorAll(selector) {
+        return this.childNodes.reduce((results, node) => {
+          if (node instanceof Element) {
+            if (node.matches(selector)) results.push(node);
+            const nodeList = node.querySelectorAll(selector);
+            for (let i = 0; i < nodeList.length; i++) {
+              results.push(nodeList[i]);
+            }
+          }
+          return results;
+        }, /** @type {Element[]} */ ([]));
+      }
+
+      /**
+       * @param {Node} node
+       * @param {Node} referenceNode
+       * @returns {Node}
+       */
+      insertBefore(node, referenceNode) {
+        return this.realParentNode.insertBefore(node, referenceNode);
+      }
+
+      /**
+       * @param {Node} node
+       * @param {Node} referenceNode
+       * @returns {Node}
+       */
+      moveBefore(node, referenceNode) {
+        // @ts-ignore - use new moveBefore feature
+        return this.realParentNode.moveBefore(node, referenceNode);
+      }
+
+      /**
+       * for later use with populateIdMapWithTree to halt upwards iteration
+       * @returns {Node}
+       */
+      get __idiomorphRoot() {
+        return this.originalNode;
+      }
+    }
+
+    /**
+     *
+     * @param {string} newContent
+     * @returns {Node | null | DocumentFragment}
+     */
+    function parseContent(newContent) {
+      let parser = new DOMParser();
+
+      // remove svgs to avoid false-positive matches on head, etc.
+      let contentWithSvgsRemoved = newContent.replace(
+        /<svg(\s[^>]*>|>)([\s\S]*?)<\/svg>/gim,
+        "",
+      );
+
+      // if the newContent contains a html, head or body tag, we can simply parse it w/o wrapping
+      if (
+        contentWithSvgsRemoved.match(/<\/html>/) ||
+        contentWithSvgsRemoved.match(/<\/head>/) ||
+        contentWithSvgsRemoved.match(/<\/body>/)
+      ) {
+        let content = parser.parseFromString(newContent, "text/html");
+        // if it is a full HTML document, return the document itself as the parent container
+        if (contentWithSvgsRemoved.match(/<\/html>/)) {
+          generatedByIdiomorph.add(content);
+          return content;
+        } else {
+          // otherwise return the html element as the parent container
+          let htmlElement = content.firstChild;
+          if (htmlElement) {
+            generatedByIdiomorph.add(htmlElement);
+          }
+          return htmlElement;
+        }
+      } else {
+        // if it is partial HTML, wrap it in a template tag to provide a parent element and also to help
+        // deal with touchy tags like tr, tbody, etc.
+        let responseDoc = parser.parseFromString(
+          "<body><template>" + newContent + "</template></body>",
+          "text/html",
+        );
+        let content = /** @type {HTMLTemplateElement} */ (
+          responseDoc.body.querySelector("template")
+        ).content;
+        generatedByIdiomorph.add(content);
+        return content;
+      }
+    }
+
+    return { normalizeElement, normalizeParent };
+  })();
+
+  //=============================================================================
+  // This is what ends up becoming the Idiomorph global object
+  //=============================================================================
+  return {
+    morph,
+    defaults,
+  };
+})();
+
+// ES module exports
+export { Idiomorph };
+export const morph = Idiomorph.morph;
+export const defaults = Idiomorph.defaults;
+export default Idiomorph;

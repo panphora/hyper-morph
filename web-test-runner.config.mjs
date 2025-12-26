@@ -20,12 +20,14 @@ let config = {
 
       <script src="/reference/idiomorph/src/idiomorph.js"></script>
       <script>window.OriginalIdiomorph = window.Idiomorph;</script>
-      <script src="/src/idiomorph.js"></script>
-      <script>window.HyperMatch = window.Idiomorph;</script>
       <script src="/node_modules/htmx.org/dist/htmx.js"></script>
-      <script src="/src/idiomorph-htmx.js"></script>
       <script src="/test/lib/morphdom.js"></script>
 
+      <script type="module">
+        import HyperMatch from '/src/hyper-match.js';
+        window.HyperMatch = HyperMatch;
+        window.Idiomorph = HyperMatch;
+      </script>
       <script type="module" src="${testFramework}"></script>
     </head>
     <body>

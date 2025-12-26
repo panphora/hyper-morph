@@ -16,18 +16,14 @@
   "files": [
     "LICENSE",
     "README.md",
-    "dist/*.js"
+    "src/*.js"
   ],
-  "main": "dist/hyper-match.js",
-  "module": "dist/hyper-match.esm.js",
-  "unpkg": "dist/hyper-match.min.js",
+  "main": "src/hyper-match.js",
+  "module": "src/hyper-match.js",
+  "type": "module",
   "exports": {
-    ".": {
-      "require": "./dist/hyper-match.cjs.js",
-      "import": "./dist/hyper-match.esm.js"
-    },
-    "./htmx": "./dist/hyper-match-ext.esm.js",
-    "./dist/*": "./dist/*"
+    ".": "./src/hyper-match.js",
+    "./matcher": "./src/hyper-match-matcher.js"
   },
   "scripts": {
     "dev": "http-server . -p 5692 -o demo/index.html",
@@ -40,12 +36,6 @@
     "test:ci": "npm run typecheck && npm run format:check && npm run test:all -- --fail-only && node test/lib/ensure-full-coverage.js",
     "test:coverage": "npm run test:chrome && node test/lib/ensure-full-coverage.js",
     "perf": "node perf/runner.js",
-    "amd": "(echo \"define(() => {\\n\" && cat src/idiomorph.js && echo \"\\nreturn Idiomorph});\") > dist/hyper-match.amd.js",
-    "cjs": "(cat src/idiomorph.js && echo \"\\nmodule.exports = Idiomorph;\") > dist/hyper-match.cjs.js",
-    "esm": "(cat src/idiomorph.js && echo \"\\nexport {Idiomorph};\") > dist/hyper-match.esm.js && (echo \"import htmx from \\\"htmx.org\\\";\\n\" && cat dist/hyper-match-ext.js && echo \"\\nexport {Idiomorph};\") > dist/hyper-match-ext.esm.js",
-    "gen-modules": "npm run-script amd && npm run-script cjs && npm run-script esm",
-    "dist": "cp -r src/* dist/ && mv dist/idiomorph.js dist/hyper-match.js && mv dist/idiomorph-htmx.js dist/hyper-match-htmx.js && cat dist/hyper-match.js dist/hyper-match-htmx.js > dist/hyper-match-ext.js && npm run-script gen-modules && npm run-script uglify && gzip -9 -k -f dist/hyper-match.min.js > dist/hyper-match.min.js.gz && exit",
-    "uglify": "uglifyjs -m eval -o dist/hyper-match.min.js dist/hyper-match.js && uglifyjs -m eval -o dist/hyper-match-ext.min.js dist/hyper-match-ext.js",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc"
