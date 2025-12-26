@@ -16,6 +16,16 @@ const HyperMatchMatcher = createMatcher();
  */
 
 /**
+ * @typedef {object} ConfigScripts
+ *
+ * @property {boolean} [handle] - If true, handle scripts specially (execute new ones). Default: false
+ * @property {function(Element): boolean} [shouldPreserve]
+ * @property {function(Element): boolean} [shouldReAppend]
+ * @property {function(Element): boolean} [shouldRemove]
+ * @property {function(Element, {added: Node[], kept: Element[], removed: Element[]}): void} [afterScriptsHandled]
+ */
+
+/**
  * @typedef {object} ConfigCallbacks
  *
  * @property {function(Node): boolean} [beforeNodeAdded]
@@ -36,6 +46,7 @@ const HyperMatchMatcher = createMatcher();
  * @property {boolean} [restoreFocus]
  * @property {ConfigCallbacks} [callbacks]
  * @property {ConfigHead} [head]
+ * @property {ConfigScripts} [scripts]
  */
 
 /**
@@ -54,6 +65,16 @@ const HyperMatchMatcher = createMatcher();
  * @property {(function(Element): boolean) | NoOp} shouldReAppend
  * @property {(function(Element): boolean) | NoOp} shouldRemove
  * @property {(function(Element, {added: Node[], kept: Element[], removed: Element[]}): void) | NoOp} afterHeadMorphed
+ */
+
+/**
+ * @typedef {object} ConfigScriptsInternal
+ *
+ * @property {boolean} handle
+ * @property {(function(Element): boolean) | NoOp} shouldPreserve
+ * @property {(function(Element): boolean) | NoOp} shouldReAppend
+ * @property {(function(Element): boolean) | NoOp} shouldRemove
+ * @property {(function(Element, {added: Node[], kept: Element[], removed: Element[]}): void) | NoOp} afterScriptsHandled
  */
 
 /**
@@ -77,6 +98,7 @@ const HyperMatchMatcher = createMatcher();
  * @property {boolean} [restoreFocus]
  * @property {ConfigCallbacksInternal} callbacks
  * @property {ConfigHeadInternal} head
+ * @property {ConfigScriptsInternal} scripts
  */
 
 /**
@@ -116,6 +138,7 @@ var Idiomorph = (function () {
    * @property {Set<string>} persistentIds
    * @property {ConfigInternal['callbacks']} callbacks
    * @property {ConfigInternal['head']} head
+   * @property {ConfigInternal['scripts']} scripts
    * @property {HTMLDivElement} pantry
    * @property {Element[]} activeElementAndParents
    * @property {Map<Element, Element>} hyperMatches - hyper-match results (newEl -> oldEl)
@@ -148,6 +171,13 @@ var Idiomorph = (function () {
       shouldReAppend: (elt) => elt.getAttribute("im-re-append") === "true",
       shouldRemove: noOp,
       afterHeadMorphed: noOp,
+    },
+    scripts: {
+      handle: false,
+      shouldPreserve: (elt) => elt.getAttribute("im-preserve") === "true",
+      shouldReAppend: (elt) => elt.getAttribute("im-re-append") === "true",
+      shouldRemove: noOp,
+      afterScriptsHandled: noOp,
     },
     restoreFocus: true,
   };
@@ -182,6 +212,11 @@ var Idiomorph = (function () {
     const newNode = normalizeParent(newContent);
     const ctx = createMorphContext(oldNode, newNode, config);
 
+    // Collect old script signatures before morph (for body script handling)
+    const oldScriptSignatures = new Set(
+      Array.from(oldNode.querySelectorAll("script")).map((s) => s.outerHTML),
+    );
+
     const morphedNodes = saveAndRestoreFocus(ctx, () => {
       return withHeadBlocking(
         ctx,
@@ -199,6 +234,21 @@ var Idiomorph = (function () {
     });
 
     ctx.pantry.remove();
+
+    // Handle body scripts after morph (execute new scripts, preserve existing)
+    const scriptPromises = handleBodyScripts(oldNode, oldScriptSignatures, ctx);
+
+    // If there are script promises, return a promise that resolves with morphedNodes
+    if (scriptPromises.length > 0) {
+      // If morphedNodes is already a promise, chain them
+      if (morphedNodes instanceof Promise) {
+        return morphedNodes.then((nodes) =>
+          Promise.all(scriptPromises).then(() => nodes),
+        );
+      }
+      return Promise.all(scriptPromises).then(() => morphedNodes);
+    }
+
     return morphedNodes;
   }
 
@@ -1038,6 +1088,97 @@ var Idiomorph = (function () {
     return promises;
   }
 
+  /**
+   * Handle body scripts after morph - execute new scripts, preserve existing ones
+   * Mirrors head element handling behavior
+   * @param {Element} container - The morphed container
+   * @param {Set<string>} oldScriptSignatures - Set of outerHTML from scripts before morph
+   * @param {MorphContext} ctx
+   * @returns {Promise<void>[]}
+   */
+  function handleBodyScripts(container, oldScriptSignatures, ctx) {
+    if (!ctx.scripts.handle) return [];
+
+    const added = [];
+    const removed = [];
+    const preserved = [];
+    const scriptsToExecute = [];
+
+    const currentScripts = Array.from(container.querySelectorAll("script"));
+
+    for (const script of currentScripts) {
+      const signature = script.outerHTML;
+      const existedBefore = oldScriptSignatures.has(signature);
+      const isPreserved = ctx.scripts.shouldPreserve(script);
+      const isReAppended = ctx.scripts.shouldReAppend(script);
+
+      if (existedBefore || isPreserved) {
+        if (isReAppended) {
+          // Remove and re-execute
+          removed.push(script);
+          scriptsToExecute.push(script);
+        } else {
+          // Keep as-is, already in DOM from morph
+          preserved.push(script);
+        }
+      } else {
+        // New script - needs to be executed
+        scriptsToExecute.push(script);
+      }
+    }
+
+    // Check for scripts that were removed (in old but not in current)
+    // These were already removed by the morph, just track them
+    for (const oldSig of oldScriptSignatures) {
+      const stillExists = currentScripts.some((s) => s.outerHTML === oldSig);
+      if (!stillExists) {
+        // Script was removed - already handled by morph
+        // We could add tracking here if needed
+      }
+    }
+
+    const promises = [];
+
+    // Execute new/re-appended scripts by replacing with executable clones
+    for (const script of scriptsToExecute) {
+      if (ctx.callbacks.beforeNodeAdded(script) === false) continue;
+
+      // Create executable script via createContextualFragment
+      const executableScript = /** @type {HTMLScriptElement} */ (
+        document.createRange().createContextualFragment(script.outerHTML)
+          .firstChild
+      );
+
+      // Wait for external scripts to load
+      if (executableScript.src) {
+        /** @type {(result?: any) => void} */ let resolve;
+        const promise = new Promise(function (_resolve) {
+          resolve = _resolve;
+        });
+        executableScript.addEventListener("load", function () {
+          resolve();
+        });
+        executableScript.addEventListener("error", function () {
+          resolve(); // Resolve even on error to not block
+        });
+        promises.push(promise);
+      }
+
+      // Replace the non-executable script with the executable one
+      script.replaceWith(executableScript);
+      ctx.callbacks.afterNodeAdded(executableScript);
+      added.push(executableScript);
+    }
+
+    ctx.scripts.afterScriptsHandled(container, {
+      added: added,
+      kept: preserved,
+      removed: removed,
+    });
+
+    return promises;
+  }
+
   //=============================================================================
   // Create Morph Context Functions
   //=============================================================================
@@ -1083,6 +1224,7 @@ var Idiomorph = (function () {
         activeElementAndParents: createActiveElementAndParents(oldNode),
         callbacks: mergedConfig.callbacks,
         head: mergedConfig.head,
+        scripts: mergedConfig.scripts,
       };
     }
 
@@ -1107,6 +1249,9 @@ var Idiomorph = (function () {
 
       // copy head config into final config  (do this to deep merge the head)
       finalConfig.head = Object.assign({}, defaults.head, config.head);
+
+      // copy scripts config into final config (do this to deep merge the scripts)
+      finalConfig.scripts = Object.assign({}, defaults.scripts, config.scripts);
 
       return finalConfig;
     }
