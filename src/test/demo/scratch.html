@@ -1,0 +1,45 @@
+<html>
+<head>
+    <script src="../../src/idiomorph.js"></script>
+    <link rel="stylesheet" href="https://the.missing.style">
+</head>
+<body>
+
+<script><div hx-ext="morph">
+    <form hx-post="/foo" hx-swap="morph:outerHTML">
+        <input id="foo" />
+        <button type="submit">Submit</button>
+    </form>
+</div>
+
+<template url="/foo">
+    <form hx-post="/foo" hx-swap="morph:outerHTML">
+        <input id="foo" />
+        <button type="submit">Submit (again)</button>
+    </form>
+</template>
+    function doMorph() {
+        let html = "<span id=\"editor\" contenteditable=\"true\">New Content... " + editor.innerHTML +
+                   "</span>"
+        Idiomorph.morph(editor, html);
+    }
+
+    document.body.addEventListener('keyup', function(evt) {
+        console.log(evt);
+        if (evt.key === 'c' && evt.ctrlKey) {
+            doMorph();
+        }
+    })
+</script>
+
+<button onclick='doMorph()'>
+    Test
+</button>
+
+<h3>Edit This:</h3>
+<span id="editor" contenteditable="true">
+Some Initial Content...
+</span>
+
+</body>
+</html>
