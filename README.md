@@ -1,35 +1,29 @@
-# hyper-match
+# HyperMatch
 
-Intelligent DOM element matching for morphing. An enhanced [Idiomorph](https://github.com/bigskysoftware/idiomorph) with content-based matching.
+Content-based DOM morphing. An enhanced [Idiomorph](https://github.com/bigskysoftware/idiomorph) that preserves element identity without explicit IDs.
 
 ## The Problem
 
-When morphing DOM trees, we must decide which old elements correspond to which new elements. Without explicit IDs, positional matching fails:
+Positional matching fails on reorders and prepends:
 
 ```html
-<!-- Old -->
-<ul>
-  <li>Apple</li>
-  <li>Banana</li>
-</ul>
-
-<!-- New (prepended) -->
-<ul>
-  <li>NEW</li>     <!-- positional match → "Apple" becomes "NEW" ❌ -->
-  <li>Apple</li>
-  <li>Banana</li>
-</ul>
+<!-- Before -->                    <!-- After -->
+<ul>                               <ul>
+  <li>Apple</li>   ← position 0      <li>NEW</li>     ← position 0
+  <li>Banana</li>  ← position 1      <li>Apple</li>   ← position 1
+</ul>                                <li>Banana</li>  ← position 2
+                                   </ul>
 ```
 
-Result: Focus lost, animations break, component state resets.
+Positional morph: "Apple" DOM node gets text changed to "NEW". Focus lost, animations break, state resets.
 
-## The Solution
+**HyperMatch**: Recognizes "Apple" moved to position 1, preserves the DOM node.
 
-HyperMatch identifies elements by content-based **signatures** and structural **paths**:
+## How It Works
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                         HOW IT WORKS                             │
+│                         MATCHING ALGORITHM                       │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │   OLD TREE                          NEW TREE                     │
@@ -49,68 +43,300 @@ HyperMatch identifies elements by content-based **signatures** and structural **
 │                         │                                        │
 │                         ▼                                        │
 │                 confidence ≥ 101?                                │
-│                    YES → MATCH ✓                                 │
+│                    YES → MATCH (move DOM node)                   │
 │                    NO  → RECREATE                                │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## Usage
+**Signature** = hash of tag + classes + key attributes
+**Path** = structural address relative to landmarks (IDs, roles, semantic tags)
+**Threshold** = 101 (signature alone isn't enough; requires additional signal)
+
+## Installation
 
 ```bash
-cd src
-npm install
-npm test  # 289 tests passing
+npm install hyper-match
 ```
+
+## Usage
 
 ```javascript
-import { Idiomorph } from 'hyper-match';
+import HyperMatch from 'hyper-match';
 
-// Just use Idiomorph normally - HyperMatch is integrated
-Idiomorph.morph(oldElement, newElement);
+// Basic morph
+HyperMatch.morph(oldElement, newContent);
+
+// With options
+HyperMatch.morph(oldElement, newContent, {
+  morphStyle: 'innerHTML',
+  callbacks: {
+    beforeNodeMorphed: (oldNode, newNode) => console.log('morphing', oldNode)
+  }
+});
 ```
+
+---
+
+## Configuration Reference
+
+### Top-Level Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `morphStyle` | `'outerHTML' \| 'innerHTML'` | `'outerHTML'` | Replace element itself or just its children |
+| `ignoreActive` | `boolean` | `false` | Skip morphing the focused element entirely |
+| `ignoreActiveValue` | `boolean` | `false` | Preserve value of focused input/textarea |
+| `restoreFocus` | `boolean` | `true` | Restore focus and selection after morph |
+
+```javascript
+HyperMatch.morph(el, html, {
+  morphStyle: 'innerHTML',
+  ignoreActive: false,
+  ignoreActiveValue: true,
+  restoreFocus: true
+});
+```
+
+---
+
+### Callbacks
+
+Hook into the morph lifecycle. Return `false` from "before" callbacks to prevent the action.
+
+| Callback | Signature | Description |
+|----------|-----------|-------------|
+| `beforeNodeAdded` | `(node) => boolean` | Before inserting new node. Return `false` to skip. |
+| `afterNodeAdded` | `(node) => void` | After node inserted |
+| `beforeNodeMorphed` | `(oldNode, newNode) => boolean` | Before morphing. Return `false` to skip. |
+| `afterNodeMorphed` | `(oldNode, newNode) => void` | After node morphed |
+| `beforeNodeRemoved` | `(node) => boolean` | Before removing. Return `false` to keep. |
+| `afterNodeRemoved` | `(node) => void` | After node removed |
+| `beforeAttributeUpdated` | `(attr, el, type) => boolean` | Before attribute change. `type` is `'update'` or `'remove'`. |
+
+```javascript
+HyperMatch.morph(el, html, {
+  callbacks: {
+    beforeNodeAdded: (node) => {
+      if (node.classList?.contains('skip')) return false;
+    },
+    afterNodeMorphed: (oldNode, newNode) => {
+      console.log('Morphed:', oldNode);
+    },
+    beforeAttributeUpdated: (attr, el, type) => {
+      if (attr === 'data-persist') return false; // prevent update
+    }
+  }
+});
+```
+
+---
+
+### Head Configuration
+
+Control how `<head>` elements are handled during full-document morphs.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `style` | `'merge' \| 'append' \| 'morph' \| 'none'` | `'merge'` | Merge strategy for head elements |
+| `block` | `boolean` | `false` | Wait for new stylesheets/scripts to load before morphing body |
+| `ignore` | `boolean` | `false` | Skip head morphing entirely |
+| `shouldPreserve` | `(el) => boolean` | Check `im-preserve` | Keep element even if not in new content |
+| `shouldReAppend` | `(el) => boolean` | Check `im-re-append` | Remove and re-add (re-executes scripts) |
+| `shouldRemove` | `(el) => boolean` | `() => {}` | Return `false` to prevent removal |
+| `afterHeadMorphed` | `(head, {added, kept, removed}) => void` | noop | Called after head processing |
+
+**Head styles:**
+- `'merge'` — Add new elements, remove old ones not in new content
+- `'append'` — Only add new elements, never remove existing
+- `'morph'` — Treat head like body (standard element morphing)
+- `'none'` — Skip head entirely
+
+```javascript
+HyperMatch.morph(document, newHtml, {
+  head: {
+    style: 'merge',
+    block: true, // wait for CSS to load
+    shouldPreserve: (el) => el.id === 'critical-styles',
+    afterHeadMorphed: (head, { added, kept, removed }) => {
+      console.log(`Added ${added.length}, kept ${kept.length}, removed ${removed.length}`);
+    }
+  }
+});
+```
+
+---
+
+### Scripts Configuration
+
+Control how `<script>` elements in body are handled. **Disabled by default** to preserve backwards compatibility.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `handle` | `boolean` | `false` | Enable special script handling |
+| `shouldPreserve` | `(el) => boolean` | Check `im-preserve` | Keep script even if not in new content |
+| `shouldReAppend` | `(el) => boolean` | Check `im-re-append` | Force re-execution of existing script |
+| `shouldRemove` | `(el) => boolean` | `() => {}` | Return `false` to prevent removal |
+| `afterScriptsHandled` | `(container, {added, kept, removed}) => void` | noop | Called after script processing |
+
+**Script behavior when `handle: true`:**
+- **Same script exists** (matching `outerHTML`) → Preserved, not re-executed
+- **New script** → Executed via `createContextualFragment`
+- **External script** (`src`) → Waits for load event before resolving
+
+```javascript
+HyperMatch.morph(el, html, {
+  scripts: {
+    handle: true,
+    shouldReAppend: (el) => el.dataset.reload === 'true',
+    afterScriptsHandled: (container, { added }) => {
+      console.log('Executed scripts:', added.length);
+    }
+  }
+});
+```
+
+**Returns a Promise** when scripts need to load:
+```javascript
+await HyperMatch.morph(el, html, { scripts: { handle: true } });
+```
+
+---
+
+### HTML Attributes
+
+Control element behavior via HTML attributes:
+
+| Attribute | Effect |
+|-----------|--------|
+| `im-preserve="true"` | Keep element even if removed from new content |
+| `im-re-append="true"` | Force re-insertion (re-executes scripts) |
+
+```html
+<!-- This script will re-execute on every morph -->
+<script im-re-append="true">
+  console.log('Re-executed!');
+</script>
+
+<!-- This stylesheet persists even if not in new HTML -->
+<link rel="stylesheet" href="critical.css" im-preserve="true">
+```
+
+---
+
+## Matching Priority
+
+1. **ID match** — Elements with matching `id` in subtree (Idiomorph's original logic)
+2. **HyperMatch** — Content-based matching for anonymous elements
+3. **Soft match** — Same tag/nodeType as fallback
+
+Elements with `id` attributes are excluded from HyperMatch and handled by ID-based logic.
+
+---
 
 ## Scoring Model
 
 | Factor | Score | Description |
 |--------|-------|-------------|
-| Signature match | +100 | Same tag + classes + key attributes |
-| Path segment | +10 each | Matching ancestors (up to 4) |
-| Text match | +20 | Leaf node text content matches |
-| Text mismatch | -25 | Text differs or asymmetric |
-| Unique candidate | +50 | Only one candidate (when text matches) |
+| Signature match | +100 | Required. Same tag + classes + key attributes |
+| Path segment | +10 each | Matching ancestors (max 4 segments) |
+| Text match | +20 | Element's text content matches |
+| Text mismatch | -25 | Text differs or one has text, other doesn't |
+| Unique candidate | +50 | Only one element with this signature (when text matches) |
+| Position drift | -1 per | Index difference between old and new position |
 
-**Threshold:** Confidence ≥ 101 required. Signature alone isn't enough.
+**Acceptance threshold:** ≥ 101
+Signature match alone (100) isn't sufficient. Requires at least one additional signal.
 
-## Matching Priority
+---
 
-1. **ID set match** — Elements with matching IDs in subtree (Idiomorph)
-2. **HyperMatch** — Content-based matching for anonymous elements
-3. **Soft match** — Same tag/nodeType as fallback (Idiomorph)
+## Standalone Matcher
 
-Elements with `id` attributes are excluded from HyperMatch and handled by Idiomorph's ID logic.
+Use the matching algorithm independently:
 
-## Structure
+```javascript
+import { createMatcher } from 'hyper-match/matcher';
 
+const matcher = createMatcher();
+const { computeMatches, findMatch, explain } = matcher.session();
+
+// Find all matches between two trees
+const matches = computeMatches(oldRoot, newRoot);
+// Returns Map<newElement, oldElement>
+
+// Find match for a single element
+const match = findMatch(newElement, oldRoot);
+if (match) {
+  console.log(match.element);     // The matching old element
+  console.log(match.confidence);  // Score (101+)
+  console.log(match.breakdown);   // Scoring details
+}
+
+// Debug why elements do/don't match
+const result = explain(newEl, oldEl);
+console.log(result.matches);    // boolean
+console.log(result.score);      // number
+console.log(result.breakdown);  // { signature, path, text, ... }
 ```
-├── src/           # Idiomorph + HyperMatch integration
-├── reference/     # Original Idiomorph for comparison
-└── docs/          # Detailed documentation
-    ├── hyper-match.md           # Algorithm details
-    ├── INTEGRATION-PLAN.md      # Integration design
-    └── ...
+
+### Matcher Configuration
+
+```javascript
+const matcher = createMatcher({
+  includeClasses: true,
+  includeAttributes: ['href', 'src', 'name', 'type', 'role', 'aria-label', 'alt', 'title'],
+  excludeAttributePrefixes: ['data-morph-', 'data-hyper-', 'data-im-'],
+  textHintLength: 64,
+  excludeIds: true,
+  maxPathDepth: 4,
+  landmarks: ['HEADER', 'NAV', 'MAIN', 'ASIDE', 'FOOTER', 'SECTION', 'ARTICLE'],
+  weights: {
+    signature: 100,
+    pathSegment: 10,
+    textMatch: 20,
+    textMismatch: 25,
+    uniqueCandidate: 50,
+    positionPenalty: 1,
+  },
+  minConfidence: 101,
+});
 ```
 
-## Documentation
+---
 
-- [HyperMatch Algorithm](./docs/hyper-match.md) — Detailed scoring, paths, signatures
-- [Problem Analysis](./docs/problem-analysis.md) — Why DOM matching is hard
-- [Integration Plan](./docs/INTEGRATION-PLAN.md) — How HyperMatch integrates with Idiomorph
+## DOM APIs Used
 
-## Related
+- **`moveBefore`** — New DOM API (Chrome 131+, Firefox 133+) that moves elements without triggering lifecycle callbacks. Preserves iframe state, video playback, CSS animations.
+- **`insertBefore`** — Fallback for browsers without `moveBefore`.
 
-- [Idiomorph](https://github.com/bigskysoftware/idiomorph) — Original library by Big Sky Software
+---
+
+## Defaults
+
+Access and modify global defaults:
+
+```javascript
+import HyperMatch from 'hyper-match';
+
+// Read defaults
+console.log(HyperMatch.defaults);
+
+// Modify globally
+HyperMatch.defaults.morphStyle = 'innerHTML';
+HyperMatch.defaults.restoreFocus = false;
+```
+
+---
+
+## Development
+
+```bash
+npm install
+npm test          # Run all tests
+npm run dev       # Start demo server at localhost:5692
+npm run test:all  # Run tests in all browsers
+```
 
 ## License
 
-BSD 2-Clause (same as Idiomorph)
+0BSD (Zero-Clause BSD)
