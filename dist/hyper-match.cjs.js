@@ -1,5 +1,3 @@
-define(() => {
-
 /**
  * @typedef {object} ConfigHead
  *
@@ -357,9 +355,10 @@ var Idiomorph = (function () {
       for (const newEl of newElements) {
         if (newEl.id) continue; // skip elements with IDs
         const newMeta = getMeta(newEl, cache);
-        const oldCandidates = index.get(newMeta.signature) || [];
+        const allOldCandidates = index.get(newMeta.signature) || [];
+        // Filter out ID elements BEFORE counting (fixes candidate count inflation)
+        const oldCandidates = allOldCandidates.filter(el => !el.id);
         for (const oldEl of oldCandidates) {
-          if (oldEl.id) continue; // skip elements with IDs
           const { score } = scorePair(newEl, oldEl, cache, oldCandidates.length);
           if (score >= HYPER_CONFIG.minConfidence) {
             candidates.push({ newEl, oldEl, score });
@@ -1666,4 +1665,4 @@ var Idiomorph = (function () {
   };
 })();
 
-return Idiomorph});
+module.exports = Idiomorph;

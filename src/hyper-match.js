@@ -39,7 +39,7 @@
  * │                    └──────────┘                                             │
  * │                         │                                                   │
  * │                         ▼                                                   │
- * │                 confidence ≥ 80?                                            │
+ * │                 confidence ≥ 101?                                           │
  * │                    YES → MATCH                                              │
  * │                    NO  → RECREATE                                           │
  * │                                                                              │
@@ -48,19 +48,31 @@
  * SCORING MODEL:
  *   Base:    signature match     +100  (required — same tag/classes/attrs)
  *   Bonus:   path segment match  +10   (per matching ancestor, max 4)
- *   Bonus:   text hint match     +20   (leaf node text content)
- *   Bonus:   unique candidate    +50   (only one element with this signature)
+ *   Bonus:   text hint match     +20   (element textContent, includes descendants)
+ *   Bonus:   unique candidate    +50   (only one element with this signature, if text matches)
  *   Penalty: position drift      -1    (per index difference)
  *
- *   Accept if confidence ≥ 80. Reject otherwise (safer to recreate than mismatch).
+ *   Accept if confidence ≥ 101. Signature alone isn't sufficient — requires additional signal.
+ *
+ * CACHING:
+ *   Metadata and indexes are cached per matcher instance for performance within a morph.
+ *   For safety across multiple morphs, use session() which creates fresh caches per call,
+ *   or call invalidate(root) after DOM mutations.
  *
  * USAGE:
  *   const matcher = createMatcher();
+ *
+ *   // Option 1: Session API (recommended for morphing — fresh caches per morph)
+ *   const { computeMatches } = matcher.session();
+ *   const matches = computeMatches(oldRoot, newRoot);
+ *
+ *   // Option 2: Direct API (reuses caches — call invalidate() after DOM changes)
  *   const match = matcher.findMatch(newElement, oldRoot);
  *   if (match) {
  *     // match.element is the corresponding old element
  *     // match.confidence is the score (0-200+)
  *   }
+ *   matcher.invalidate(oldRoot);  // Call after DOM mutations
  *
  * INTEGRATION WITH IDIOMORPH:
  *   Hook into findBestMatch. If hyper-match returns high confidence, use it.
@@ -79,6 +91,7 @@ const DEFAULT_CONFIG = {
   includeAttributes: ['href', 'src', 'name', 'type', 'role', 'aria-label', 'alt', 'title'],
   excludeAttributePrefixes: ['data-morph-', 'data-hyper-', 'data-im-'],
   textHintLength: 64,
+  excludeIds: true,  // Skip elements with id attributes (let ID-based matching handle them)
 
   // Path: structural address for disambiguation
   maxPathDepth: 4,
@@ -89,7 +102,7 @@ const DEFAULT_CONFIG = {
     signature: 100,
     pathSegment: 10,
     textMatch: 20,
-    textMismatch: 10,  // Penalty when both have text but it differs
+    textMismatch: 25,  // Penalty when text differs or asymmetric (one has text, other doesn't)
     uniqueCandidate: 50,
     positionPenalty: 1,
   },
@@ -145,13 +158,15 @@ function getAttributes(el, config) {
 }
 
 /**
- * Get text content hint for leaf nodes
+ * Get text content hint for element matching.
+ * Uses textContent which includes all descendant text — intentional for matching
+ * container elements by their full content (e.g., cards, list items with nested markup).
+ * Note: This means nested text changes will affect parent element matching.
  * @param {Element} el
  * @param {object} config
  * @returns {string}
  */
 function getTextHint(el, config) {
-  if (el.children && el.children.length > 0) return '';
   const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
   return text.slice(0, config.textHintLength);
 }
@@ -366,19 +381,27 @@ function scorePair(newEl, oldEl, config, metaCache, context) {
   score += pathScore;
   breakdown.path = pathScore;
 
-  // Text hint: bonus if matching, penalty if both have text but it differs
+  // Text hint: bonus if matching, penalty if differs or asymmetric
+  let textMatches = true;
   if (newMeta.textHint && oldMeta.textHint) {
+    // Both have text
     if (newMeta.textHint === oldMeta.textHint) {
       score += weights.textMatch;
       breakdown.text = weights.textMatch;
     } else {
       score -= weights.textMismatch;
       breakdown.text = -weights.textMismatch;
+      textMatches = false;
     }
+  } else if (newMeta.textHint !== oldMeta.textHint) {
+    // One has text, the other doesn't - penalize asymmetric text
+    score -= weights.textMismatch;
+    breakdown.text = -weights.textMismatch;
+    textMatches = false;
   }
 
-  // Unique candidate bonus
-  if (context.candidateCount === 1) {
+  // Unique candidate bonus (only when text matches or both empty)
+  if (context.candidateCount === 1 && textMatches) {
     score += weights.uniqueCandidate;
     breakdown.unique = weights.uniqueCandidate;
   }
@@ -408,9 +431,19 @@ function scorePair(newEl, oldEl, config, metaCache, context) {
  * @returns {{ element: Element, confidence: number, breakdown: object } | null}
  */
 function findMatch(newEl, oldRoot, config, metaCache, indexCache) {
+  // Skip elements with IDs if excludeIds is enabled
+  if (config.excludeIds && newEl.id) {
+    return null;
+  }
+
   const index = buildIndex(oldRoot, config, metaCache, indexCache);
   const newMeta = getMeta(newEl, config, metaCache);
-  const candidates = index.get(newMeta.signature) || [];
+  const allCandidates = index.get(newMeta.signature) || [];
+
+  // Filter out ID elements if excludeIds is enabled
+  const candidates = config.excludeIds
+    ? allCandidates.filter(el => !el.id)
+    : allCandidates;
 
   if (candidates.length === 0) {
     return null;
@@ -467,10 +500,18 @@ function computeMatches(oldRoot, newRoot, config, metaCache, indexCache) {
   }
 
   // Build all candidate pairs with scores
+  // Skip elements with IDs if excludeIds is enabled
   const candidates = [];
   for (const newEl of newElements) {
+    if (config.excludeIds && newEl.id) continue;
+
     const newMeta = getMeta(newEl, config, metaCache);
-    const oldCandidates = index.get(newMeta.signature) || [];
+    const allOldCandidates = index.get(newMeta.signature) || [];
+
+    // Filter out ID elements if excludeIds is enabled (fixes candidate count inflation)
+    const oldCandidates = config.excludeIds
+      ? allOldCandidates.filter(el => !el.id)
+      : allOldCandidates;
 
     for (const oldEl of oldCandidates) {
       const { score, breakdown } = scorePair(newEl, oldEl, config, metaCache, {
@@ -526,7 +567,14 @@ function explain(newEl, oldEl, config, metaCache) {
 // =============================================================================
 
 /**
- * Create a matcher instance with optional config overrides
+ * Create a matcher instance with optional config overrides.
+ *
+ * CACHING MODES:
+ * - Default: Caches persist across calls for performance. Call invalidate(root)
+ *   after DOM mutations, or use session() for automatic fresh caches.
+ * - Session: Use session() to get a context with fresh caches, guaranteeing
+ *   no stale data. Recommended for morph operations.
+ *
  * @param {object} [configOverrides]
  * @returns {object}
  */
@@ -544,7 +592,8 @@ function createMatcher(configOverrides = {}) {
 
   return {
     /**
-     * Find the best matching old element for a new element
+     * Find the best matching old element for a new element.
+     * Uses persistent caches — call invalidate() after DOM changes or use session().
      * @param {Element} newEl - Element from the new tree
      * @param {Element} oldRoot - Root of the old tree to search
      * @returns {{ element: Element, confidence: number, breakdown: object } | null}
@@ -552,7 +601,8 @@ function createMatcher(configOverrides = {}) {
     findMatch: (newEl, oldRoot) => findMatch(newEl, oldRoot, config, metaCache, indexCache),
 
     /**
-     * Compute all matches between two trees
+     * Compute all matches between two trees.
+     * Uses persistent caches — call invalidate() after DOM changes or use session().
      * @param {Element} oldRoot - Root of the old tree
      * @param {Element} newRoot - Root of the new tree
      * @returns {Map<Element, Element>} Map of newEl -> oldEl
@@ -568,10 +618,30 @@ function createMatcher(configOverrides = {}) {
     explain: (newEl, oldEl) => explain(newEl, oldEl, config, metaCache),
 
     /**
-     * Clear cached data for a root and its descendants (call after DOM changes)
+     * Clear cached data for a root and its descendants.
+     * Call this after DOM mutations if reusing the matcher.
      * @param {Element} root
      */
     invalidate: (root) => invalidateRoot(root, metaCache, indexCache),
+
+    /**
+     * Create a session with fresh caches for a single morph operation.
+     * Guarantees no stale data from previous morphs. Recommended usage:
+     *
+     *   const { findMatch, computeMatches } = matcher.session();
+     *   const matches = computeMatches(oldRoot, newRoot);
+     *
+     * @returns {{ findMatch: Function, computeMatches: Function, explain: Function }}
+     */
+    session: () => {
+      const sessionMetaCache = new WeakMap();
+      const sessionIndexCache = new WeakMap();
+      return {
+        findMatch: (newEl, oldRoot) => findMatch(newEl, oldRoot, config, sessionMetaCache, sessionIndexCache),
+        computeMatches: (oldRoot, newRoot) => computeMatches(oldRoot, newRoot, config, sessionMetaCache, sessionIndexCache),
+        explain: (newEl, oldEl) => explain(newEl, oldEl, config, sessionMetaCache),
+      };
+    },
 
     /**
      * Get the active configuration
