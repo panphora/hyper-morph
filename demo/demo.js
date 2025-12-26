@@ -300,6 +300,18 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+// Get text from first leaf descendant (element with no children)
+function getFirstLeafText(el) {
+  if (el.children.length === 0) {
+    return el.textContent.trim();
+  }
+  for (const child of el.children) {
+    const text = getFirstLeafText(child);
+    if (text) return text;
+  }
+  return '';
+}
+
 // Create a signature to identify an element by its content characteristics
 function getElementSignature(el) {
   const parts = [el.tagName];
@@ -315,12 +327,10 @@ function getElementSignature(el) {
     if (val) parts.push(`[${attr}=${val}]`);
   });
 
-  // Only add text content for leaf elements (no child elements)
-  // This prevents parent signatures from changing when children are reordered
-  if (el.children.length === 0) {
-    const text = el.textContent.trim().slice(0, 64);
-    if (text) parts.push(`"${text}"`);
-  }
+  // Use first leaf descendant's text for identification
+  // This allows parent elements to be distinguished by their content
+  const text = getFirstLeafText(el).slice(0, 64);
+  if (text) parts.push(`"${text}"`);
 
   return parts.join('|');
 }
@@ -379,18 +389,14 @@ function runMorph(scenario, library) {
     console.error('Morph error:', e);
   }
 
-  // Check results - find elements by signature and verify same DOM node
+  // Check results - verify same DOM node still has same content
   const results = [];
   let preserved = 0;
-  const newRoot = container.children[0];
-  const afterElements = Array.from(newRoot.querySelectorAll(scenario.trackSelector));
 
   trackedElements.forEach(({ element, signature, html }) => {
-    // Find element with matching signature in the morphed DOM
-    const matchingElement = afterElements.find(el => getElementSignature(el) === signature);
-
-    // Element is preserved only if we found a match AND it's the same DOM node
-    const wasPreserved = matchingElement !== null && matchingElement === element;
+    // Element is preserved if it's still in the container AND still has the same signature
+    const wasPreserved = container.contains(element) &&
+                         getElementSignature(element) === signature;
     if (wasPreserved) preserved++;
 
     results.push({
