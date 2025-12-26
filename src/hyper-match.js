@@ -307,7 +307,7 @@ var Idiomorph = (function () {
       activeElement = ctx.target.querySelector(`[id="${activeElementId}"]`);
       activeElement?.focus();
     }
-    if (activeElement && !activeElement.selectionEnd && selectionEnd) {
+    if (activeElement && !activeElement.selectionEnd && selectionEnd != null) {
       activeElement.setSelectionRange(selectionStart, selectionEnd);
     }
 
