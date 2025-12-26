@@ -1,3 +1,5 @@
+import htmx from "htmx.org";
+
 /**
  * @typedef {object} ConfigHead
  *
@@ -113,6 +115,8 @@ var Idiomorph = (function () {
    * @property {ConfigInternal['head']} head
    * @property {HTMLDivElement} pantry
    * @property {Element[]} activeElementAndParents
+   * @property {Map<Element, Element>} hyperMatches - hyper-match results (newEl -> oldEl)
+   * @property {Set<Element>} hyperMatchedOldElements - old elements that are hyper-matched
    */
 
   //=============================================================================
@@ -144,6 +148,242 @@ var Idiomorph = (function () {
     },
     restoreFocus: true,
   };
+
+  //=============================================================================
+  // HYPER-MATCH: Content-based element matching
+  //=============================================================================
+  const HyperMatch = (function () {
+    const HYPER_CONFIG = {
+      includeClasses: true,
+      includeAttributes: ['href', 'src', 'name', 'type', 'role', 'aria-label', 'alt', 'title'],
+      excludeAttributePrefixes: ['data-morph-', 'data-hyper-', 'data-im-'],
+      textHintLength: 64,
+      maxPathDepth: 4,
+      landmarks: ['HEADER', 'NAV', 'MAIN', 'ASIDE', 'FOOTER', 'SECTION', 'ARTICLE'],
+      weights: {
+        signature: 100,
+        pathSegment: 10,
+        textMatch: 20,
+        textMismatch: 25,
+        uniqueCandidate: 50,
+        positionPenalty: 1,
+      },
+      minConfidence: 101,
+    };
+
+    function hash(str) {
+      let h = 5381;
+      for (let i = 0; i < str.length; i++) {
+        h = ((h << 5) + h) ^ str.charCodeAt(i);
+      }
+      return Math.abs(h).toString(36);
+    }
+
+    function getClasses(el) {
+      if (!el.className || typeof el.className !== 'string') return '';
+      return el.className.split(/\s+/).filter(Boolean).sort().join(' ');
+    }
+
+    function getAttributes(el) {
+      const attrs = [];
+      for (const attr of el.attributes || []) {
+        const name = attr.name;
+        if (name === 'id' || name === 'class') continue;
+        if (HYPER_CONFIG.excludeAttributePrefixes.some(p => name.startsWith(p))) continue;
+        if (HYPER_CONFIG.includeAttributes.includes(name)) {
+          attrs.push(`${name}=${attr.value}`);
+        }
+      }
+      return attrs.sort().join('|');
+    }
+
+    function getTextHint(el) {
+      const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+      return text.slice(0, HYPER_CONFIG.textHintLength);
+    }
+
+    function computeSignature(el) {
+      const parts = [el.tagName];
+      if (HYPER_CONFIG.includeClasses) parts.push(getClasses(el));
+      parts.push(getAttributes(el));
+      return hash(parts.join('|'));
+    }
+
+    function getNthOfType(el) {
+      const tag = el.tagName;
+      let index = 1;
+      let sibling = el.previousElementSibling;
+      while (sibling) {
+        if (sibling.tagName === tag) index++;
+        sibling = sibling.previousElementSibling;
+      }
+      return index;
+    }
+
+    function isLandmark(el) {
+      if (el.id) return true;
+      if (el.getAttribute?.('role')) return true;
+      return HYPER_CONFIG.landmarks.includes(el.tagName);
+    }
+
+    function getLandmarkToken(el) {
+      if (el.id) return `#${el.id}`;
+      const role = el.getAttribute?.('role');
+      if (role) return `@${role}`;
+      return el.tagName;
+    }
+
+    function computePath(el) {
+      const segments = [];
+      let current = el;
+      while (current && current.tagName && segments.length < HYPER_CONFIG.maxPathDepth) {
+        const segment = `${current.tagName}:${getNthOfType(current)}`;
+        segments.unshift(segment);
+        if (current !== el && isLandmark(current)) {
+          segments.unshift(getLandmarkToken(current));
+          break;
+        }
+        current = current.parentElement;
+      }
+      return segments;
+    }
+
+    function pathSimilarity(pathA, pathB) {
+      let matches = 0;
+      let i = pathA.length - 1;
+      let j = pathB.length - 1;
+      while (i >= 0 && j >= 0) {
+        if (pathA[i] !== pathB[j]) break;
+        matches++;
+        i--;
+        j--;
+      }
+      return matches;
+    }
+
+    function getMeta(el, cache) {
+      if (cache.has(el)) return cache.get(el);
+      const meta = {
+        signature: computeSignature(el),
+        path: computePath(el),
+        textHint: getTextHint(el),
+      };
+      cache.set(el, meta);
+      return meta;
+    }
+
+    function buildIndex(root, cache) {
+      const index = new Map();
+      const elements = root.querySelectorAll('*');
+      let domIndex = 0;
+      for (const el of elements) {
+        const meta = getMeta(el, cache);
+        meta.domIndex = domIndex++;
+        if (!index.has(meta.signature)) {
+          index.set(meta.signature, []);
+        }
+        index.get(meta.signature).push(el);
+      }
+      return index;
+    }
+
+    function scorePair(newEl, oldEl, cache, candidateCount) {
+      const newMeta = getMeta(newEl, cache);
+      const oldMeta = getMeta(oldEl, cache);
+      const weights = HYPER_CONFIG.weights;
+
+      if (newMeta.signature !== oldMeta.signature) {
+        return { score: 0 };
+      }
+
+      let score = weights.signature;
+
+      // Path similarity
+      const pathMatch = pathSimilarity(newMeta.path, oldMeta.path);
+      score += pathMatch * weights.pathSegment;
+
+      // Text match/mismatch
+      let textMatches = true;
+      if (newMeta.textHint && oldMeta.textHint) {
+        // Both have text
+        if (newMeta.textHint === oldMeta.textHint) {
+          score += weights.textMatch;
+        } else {
+          score -= weights.textMismatch;
+          textMatches = false;
+        }
+      } else if (newMeta.textHint !== oldMeta.textHint) {
+        // One has text, the other doesn't - penalize asymmetric text
+        score -= weights.textMismatch;
+        textMatches = false;
+      }
+
+      // Unique candidate bonus (only when text matches or both empty)
+      if (candidateCount === 1 && textMatches) {
+        score += weights.uniqueCandidate;
+      }
+
+      // Position drift penalty
+      if (typeof newMeta.domIndex === 'number' && typeof oldMeta.domIndex === 'number') {
+        const drift = Math.abs(newMeta.domIndex - oldMeta.domIndex);
+        score -= Math.min(drift * weights.positionPenalty, 20);
+      }
+
+      return { score };
+    }
+
+    /**
+     * Compute all matches between two trees using greedy sorted assignment.
+     * @param {Element} oldRoot
+     * @param {Element} newRoot
+     * @returns {Map<Element, Element>} Map of newEl -> oldEl
+     */
+    function computeMatches(oldRoot, newRoot) {
+      const cache = new WeakMap();
+      const newElements = newRoot.querySelectorAll('*');
+      const index = buildIndex(oldRoot, cache);
+
+      // Index new elements for domIndex
+      let domIndex = 0;
+      for (const el of newElements) {
+        const meta = getMeta(el, cache);
+        meta.domIndex = domIndex++;
+      }
+
+      // Build all candidate pairs with scores
+      // Skip elements with id attributes - let Idiomorph's ID-based matching handle them
+      // This is especially important for duplicate ID safety
+      const candidates = [];
+      for (const newEl of newElements) {
+        if (newEl.id) continue; // skip elements with IDs
+        const newMeta = getMeta(newEl, cache);
+        const oldCandidates = index.get(newMeta.signature) || [];
+        for (const oldEl of oldCandidates) {
+          if (oldEl.id) continue; // skip elements with IDs
+          const { score } = scorePair(newEl, oldEl, cache, oldCandidates.length);
+          if (score >= HYPER_CONFIG.minConfidence) {
+            candidates.push({ newEl, oldEl, score });
+          }
+        }
+      }
+
+      // Sort by score descending
+      candidates.sort((a, b) => b.score - a.score);
+
+      // Greedy assignment
+      const matches = new Map();
+      const usedOld = new Set();
+      for (const { newEl, oldEl } of candidates) {
+        if (matches.has(newEl) || usedOld.has(oldEl)) continue;
+        matches.set(newEl, oldEl);
+        usedOld.add(oldEl);
+      }
+
+      return matches;
+    }
+
+    return { computeMatches };
+  })();
 
   /**
    * Core idiomorph function for morphing one DOM tree to another
@@ -325,6 +565,19 @@ var Idiomorph = (function () {
             insertionPoint = movedChild.nextSibling;
             continue;
           }
+
+          // Check if hyper-match found this element outside the current range
+          // Only use hyper-match for elements without persistent IDs
+          if (!ctx.idMap.has(newChild)) {
+            const hyperMatch = ctx.hyperMatches.get(newChild);
+            if (hyperMatch && !ctx.idMap.has(hyperMatch)) {
+              // Move the hyper-matched element here (from future or pantry)
+              moveBefore(oldParent, hyperMatch, insertionPoint);
+              morphNode(hyperMatch, newChild, ctx);
+              insertionPoint = hyperMatch.nextSibling;
+              continue;
+            }
+          }
         }
 
         // last resort: insert the new node from scratch
@@ -384,8 +637,11 @@ var Idiomorph = (function () {
     const findBestMatch = (function () {
       /**
        * Scans forward from the startPoint to the endPoint looking for a match
-       * for the node. It looks for an id set match first, then a soft match.
-       * We abort softmatching if we find two future soft matches, to reduce churn.
+       * for the node. Priority order:
+       * 1. Hyper-match (content-based) - if in range
+       * 2. ID set match (explicit IDs)
+       * 3. Soft match (same tag/nodeType) - fallback
+       *
        * @param {Node} node
        * @param {MorphContext} ctx
        * @param {Node | null} startPoint
@@ -393,23 +649,36 @@ var Idiomorph = (function () {
        * @returns {Node | null}
        */
       function findBestMatch(ctx, node, startPoint, endPoint) {
+        // Check if hyper-match found a result for this node (only for Elements)
+        // Skip hyper-match for nodes with persistent IDs (let ID-based matching handle them)
+        const hyperMatch = (node instanceof Element && !ctx.idMap.has(node))
+          ? ctx.hyperMatches.get(node)
+          : null;
+
         let softMatch = null;
         let nextSibling = node.nextSibling;
         let siblingSoftMatchCount = 0;
 
         let cursor = startPoint;
         while (cursor && cursor != endPoint) {
-          // soft matching is a prerequisite for id set matching
+          // soft matching is a prerequisite for id set matching and hyper-matching
           if (isSoftMatch(cursor, node)) {
+            // Priority 1: ID set match (for elements with persistent IDs)
             if (isIdSetMatch(ctx, cursor, node)) {
-              return cursor; // found an id set match, we're done!
+              return cursor;
             }
 
-            // we haven't yet saved a soft match fallback
+            // Priority 2: Hyper-match (for anonymous elements without IDs in subtree)
+            // Only use if cursor doesn't have persistent IDs (to avoid stealing from ID-based matching)
+            if (cursor === hyperMatch && !ctx.idMap.has(cursor)) {
+              return cursor;
+            }
+
+            // Priority 3: Save soft match as fallback
             if (softMatch === null) {
-              // the current soft match will hard match something else in the future, leave it
-              if (!ctx.idMap.has(cursor)) {
-                // save this as the fallback if we get through the loop without finding a hard match
+              // Skip if cursor will hard match something else in the future
+              const isHyperMatched = cursor instanceof Element && ctx.hyperMatchedOldElements.has(cursor);
+              if (!ctx.idMap.has(cursor) && !isHyperMatched) {
                 softMatch = cursor;
               }
             }
@@ -500,14 +769,18 @@ var Idiomorph = (function () {
 
     /**
      * Gets rid of an unwanted DOM node; strategy depends on nature of its reuse:
-     * - Persistent nodes will be moved to the pantry for later reuse
+     * - Persistent nodes (ID-matched or hyper-matched) will be moved to the pantry for later reuse
      * - Other nodes will have their hooks called, and then are removed
      * @param {MorphContext} ctx
      * @param {Node} node
      */
     function removeNode(ctx, node) {
-      // are we going to id set match this later?
-      if (ctx.idMap.has(node)) {
+      // are we going to id set match or hyper-match this later?
+      // Note: hyper-match only applies to elements without persistent IDs
+      const isHyperMatched = node instanceof Element &&
+        ctx.hyperMatchedOldElements.has(node) &&
+        !ctx.idMap.has(node);
+      if (ctx.idMap.has(node) || isHyperMatched) {
         // skip callbacks and move to pantry
         moveBefore(ctx.pantry, node, null);
       } else {
@@ -995,6 +1268,15 @@ var Idiomorph = (function () {
     function createMorphContext(oldNode, newContent, config) {
       const { persistentIds, idMap } = createIdMaps(oldNode, newContent);
 
+      // Compute hyper-match results for content-based matching
+      const hyperMatches = HyperMatch.computeMatches(oldNode, newContent);
+
+      // Build set of old elements that are hyper-matched (for pantry logic)
+      const hyperMatchedOldElements = new Set();
+      for (const oldEl of hyperMatches.values()) {
+        hyperMatchedOldElements.add(oldEl);
+      }
+
       const mergedConfig = mergeDefaults(config);
       const morphStyle = mergedConfig.morphStyle || "outerHTML";
       if (!["innerHTML", "outerHTML"].includes(morphStyle)) {
@@ -1011,6 +1293,8 @@ var Idiomorph = (function () {
         restoreFocus: mergedConfig.restoreFocus,
         idMap: idMap,
         persistentIds: persistentIds,
+        hyperMatches: hyperMatches,
+        hyperMatchedOldElements: hyperMatchedOldElements,
         pantry: createPantry(),
         activeElementAndParents: createActiveElementAndParents(oldNode),
         callbacks: mergedConfig.callbacks,
@@ -1405,3 +1689,5 @@ var Idiomorph = (function () {
     },
   });
 })();
+
+export {Idiomorph};

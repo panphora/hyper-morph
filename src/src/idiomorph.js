@@ -196,7 +196,6 @@ var Idiomorph = (function () {
     }
 
     function getTextHint(el) {
-      if (el.children && el.children.length > 0) return '';
       const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
       return text.slice(0, HYPER_CONFIG.textHintLength);
     }

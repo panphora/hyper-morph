@@ -60,11 +60,11 @@ HyperMatch identifies elements by content-based **signatures** and structural **
 ```bash
 cd src
 npm install
-npm test  # 169 tests passing
+npm test  # 289 tests passing
 ```
 
 ```javascript
-import Idiomorph from './src/idiomorph.js';
+import { Idiomorph } from 'hyper-match';
 
 // Just use Idiomorph normally - HyperMatch is integrated
 Idiomorph.morph(oldElement, newElement);
