@@ -1,8 +1,8 @@
 // 30 DOM Manipulation Scenarios for Demo
 // Extracted from src/test/comparison.js
 
-import HyperMatch from '/src/hyper-match.js';
-window.HyperMatch = HyperMatch;
+import HyperMorph from '/src/hyper-morph.js';
+window.HyperMorph = HyperMorph;
 
 const scenarios = [
   // SIMPLE OPERATIONS (1-10)
@@ -430,8 +430,8 @@ function init() {
     console.error('OriginalIdiomorph not loaded');
     return;
   }
-  if (!window.HyperMatch || !window.HyperMatch.morph) {
-    console.error('HyperMatch not loaded');
+  if (!window.HyperMorph || !window.HyperMorph.morph) {
+    console.error('HyperMorph not loaded');
     return;
   }
 
@@ -454,7 +454,7 @@ function init() {
 
     // Run both morphs
     const idiomorphResult = runMorph(scenario, window.OriginalIdiomorph);
-    const hypermatchResult = runMorph(scenario, window.HyperMatch);
+    const hypermatchResult = runMorph(scenario, window.HyperMorph);
 
     const idiomorphSuccess = idiomorphResult.preserved === idiomorphResult.total;
     const hypermatchSuccess = hypermatchResult.preserved === hypermatchResult.total;
@@ -493,7 +493,7 @@ function init() {
           </div>
           <div class="result-side">
             <div class="result-header">
-              <h4>HyperMatch</h4>
+              <h4>HyperMorph</h4>
               <span class="result-score ${hypermatchSuccess ? 'success' : 'failure'}">
                 ${hypermatchResult.preserved}/${hypermatchResult.total}
               </span>

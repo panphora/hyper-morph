@@ -1,4 +1,4 @@
-# HyperMatch
+# HyperMorph
 
 Content-based DOM morphing. An enhanced [Idiomorph](https://github.com/bigskysoftware/idiomorph) that preserves element identity without explicit IDs.
 
@@ -17,7 +17,7 @@ Positional matching fails on reorders and prepends:
 
 Positional morph: "Apple" DOM node gets text changed to "NEW". Focus lost, animations break, state resets.
 
-**HyperMatch**: Recognizes "Apple" moved to position 1, preserves the DOM node.
+**HyperMorph**: Recognizes "Apple" moved to position 1, preserves the DOM node.
 
 ## How It Works
 
@@ -56,19 +56,19 @@ Positional morph: "Apple" DOM node gets text changed to "NEW". Focus lost, anima
 ## Installation
 
 ```bash
-npm install hyper-match
+npm install hyper-morph
 ```
 
 ## Usage
 
 ```javascript
-import HyperMatch from 'hyper-match';
+import HyperMorph from 'hyper-morph';
 
 // Basic morph
-HyperMatch.morph(oldElement, newContent);
+HyperMorph.morph(oldElement, newContent);
 
 // With options
-HyperMatch.morph(oldElement, newContent, {
+HyperMorph.morph(oldElement, newContent, {
   morphStyle: 'innerHTML',
   callbacks: {
     beforeNodeMorphed: (oldNode, newNode) => console.log('morphing', oldNode)
@@ -90,7 +90,7 @@ HyperMatch.morph(oldElement, newContent, {
 | `restoreFocus` | `boolean` | `true` | Restore focus and selection after morph |
 
 ```javascript
-HyperMatch.morph(el, html, {
+HyperMorph.morph(el, html, {
   morphStyle: 'innerHTML',
   ignoreActive: false,
   ignoreActiveValue: true,
@@ -115,7 +115,7 @@ Hook into the morph lifecycle. Return `false` from "before" callbacks to prevent
 | `beforeAttributeUpdated` | `(attr, el, type) => boolean` | Before attribute change. `type` is `'update'` or `'remove'`. |
 
 ```javascript
-HyperMatch.morph(el, html, {
+HyperMorph.morph(el, html, {
   callbacks: {
     beforeNodeAdded: (node) => {
       if (node.classList?.contains('skip')) return false;
@@ -153,7 +153,7 @@ Control how `<head>` elements are handled during full-document morphs.
 - `'none'` — Skip head entirely
 
 ```javascript
-HyperMatch.morph(document, newHtml, {
+HyperMorph.morph(document, newHtml, {
   head: {
     style: 'merge',
     block: true, // wait for CSS to load
@@ -185,7 +185,7 @@ Control how `<script>` elements in body are handled. **Disabled by default** to 
 - **External script** (`src`) → Waits for load event before resolving
 
 ```javascript
-HyperMatch.morph(el, html, {
+HyperMorph.morph(el, html, {
   scripts: {
     handle: true,
     shouldReAppend: (el) => el.dataset.reload === 'true',
@@ -198,7 +198,7 @@ HyperMatch.morph(el, html, {
 
 **Returns a Promise** when scripts need to load:
 ```javascript
-await HyperMatch.morph(el, html, { scripts: { handle: true } });
+await HyperMorph.morph(el, html, { scripts: { handle: true } });
 ```
 
 ---
@@ -227,10 +227,10 @@ Control element behavior via HTML attributes:
 ## Matching Priority
 
 1. **ID match** — Elements with matching `id` in subtree (Idiomorph's original logic)
-2. **HyperMatch** — Content-based matching for anonymous elements
+2. **HyperMorph** — Content-based matching for anonymous elements
 3. **Soft match** — Same tag/nodeType as fallback
 
-Elements with `id` attributes are excluded from HyperMatch and handled by ID-based logic.
+Elements with `id` attributes are excluded from HyperMorph and handled by ID-based logic.
 
 ---
 
@@ -255,7 +255,7 @@ Signature match alone (100) isn't sufficient. Requires at least one additional s
 Use the matching algorithm independently:
 
 ```javascript
-import { createMatcher } from 'hyper-match/matcher';
+import { createMatcher } from 'hyper-morph/matcher';
 
 const matcher = createMatcher();
 const { computeMatches, findMatch, explain } = matcher.session();
@@ -316,14 +316,14 @@ const matcher = createMatcher({
 Access and modify global defaults:
 
 ```javascript
-import HyperMatch from 'hyper-match';
+import HyperMorph from 'hyper-morph';
 
 // Read defaults
-console.log(HyperMatch.defaults);
+console.log(HyperMorph.defaults);
 
 // Modify globally
-HyperMatch.defaults.morphStyle = 'innerHTML';
-HyperMatch.defaults.restoreFocus = false;
+HyperMorph.defaults.morphStyle = 'innerHTML';
+HyperMorph.defaults.restoreFocus = false;
 ```
 
 ---

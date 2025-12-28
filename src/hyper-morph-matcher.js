@@ -1,5 +1,5 @@
 /**
- * hyper-match — Intelligent DOM Element Matching
+ * hyper-morph — Intelligent DOM Element Matching
  *
  * A content-addressable matching algorithm for DOM morphing. Finds corresponding
  * elements between two DOM trees without requiring explicit IDs or keys.
@@ -75,10 +75,10 @@
  *   matcher.invalidate(oldRoot);  // Call after DOM mutations
  *
  * INTEGRATION WITH IDIOMORPH:
- *   Hook into findBestMatch. If hyper-match returns high confidence, use it.
+ *   Hook into findBestMatch. If hyper-morph returns high confidence, use it.
  *   Otherwise fall back to Idiomorph's default positional matching.
  *
- * @module hyper-match
+ * @module hyper-morph
  */
 
 // =============================================================================

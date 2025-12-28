@@ -1,5 +1,5 @@
 {
-  "name": "hyper-match",
+  "name": "hyper-morph",
   "description": "content-based DOM morphing library",
   "keywords": [
     "HTML",
@@ -8,22 +8,23 @@
     "diff"
   ],
   "version": "0.1.0",
-  "homepage": "https://github.com/panphora/hyper-match",
+  "homepage": "https://github.com/panphora/hyper-morph",
   "bugs": {
-    "url": "https://github.com/panphora/hyper-match/issues"
+    "url": "https://github.com/panphora/hyper-morph/issues"
   },
   "license": "0BSD",
   "files": [
     "LICENSE",
     "README.md",
-    "src/*.js"
+    "src/*.js",
+    "dist/*.js"
   ],
-  "main": "src/hyper-match.js",
-  "module": "src/hyper-match.js",
+  "main": "src/hyper-morph.js",
+  "module": "src/hyper-morph.js",
   "type": "module",
   "exports": {
-    ".": "./src/hyper-match.js",
-    "./matcher": "./src/hyper-match-matcher.js"
+    ".": "./src/hyper-morph.js",
+    "./matcher": "./src/hyper-morph-matcher.js"
   },
   "scripts": {
     "dev": "http-server . -p 5692 -o demo/index.html",
@@ -42,7 +43,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/panphora/hyper-match.git"
+    "url": "git+https://github.com/panphora/hyper-morph.git"
   },
   "devDependencies": {
     "@web/test-runner": "^0.20.0",

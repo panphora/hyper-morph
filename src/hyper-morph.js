@@ -1,4 +1,4 @@
-import { createMatcher } from './hyper-match-matcher.js';
+import { createMatcher } from './hyper-morph-matcher.js';
 
 // Create a matcher instance for use in morphing
 const HyperMatchMatcher = createMatcher();
@@ -183,7 +183,7 @@ var Idiomorph = (function () {
   };
 
   //=============================================================================
-  // HYPER-MATCH: Content-based element matching (imported from hyper-match-matcher.js)
+  // HYPER-MORPH: Content-based element matching (imported from hyper-morph-matcher.js)
   //=============================================================================
   const HyperMatch = {
     /**
