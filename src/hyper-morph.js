@@ -116,12 +116,12 @@ const HyperMatchMatcher = createMatcher();
  * @returns {undefined | Node[]}
  */
 
-// base IIFE to define idiomorph
+// base IIFE to define HyperMorph
 /**
  *
  * @type {{defaults: ConfigInternal, morph: Morph}}
  */
-var Idiomorph = (function () {
+var HyperMorph = (function () {
   "use strict";
 
   /**
@@ -200,7 +200,7 @@ var Idiomorph = (function () {
   };
 
   /**
-   * Core idiomorph function for morphing one DOM tree to another
+   * Core morph function for morphing one DOM tree to another
    *
    * @param {Element | Document} oldNode
    * @param {Element | Node | HTMLCollection | Node[] | string | null} newContent
@@ -1229,7 +1229,7 @@ var Idiomorph = (function () {
     }
 
     /**
-     * Deep merges the config object and the Idiomorph.defaults object to
+     * Deep merges the config object and the HyperMorph.defaults object to
      * produce a final configuration object
      * @param {Config} config
      * @returns {ConfigInternal}
@@ -1356,7 +1356,7 @@ var Idiomorph = (function () {
       populateIdMapWithTree(idMap, persistentIds, oldContent, oldIdElements);
 
       /** @ts-ignore - if newContent is a duck-typed parent, pass its single child node as the root to halt upwards iteration */
-      const newRoot = newContent.__idiomorphRoot || newContent;
+      const newRoot = newContent.__hyperMorphRoot || newContent;
       populateIdMapWithTree(idMap, persistentIds, newRoot, newIdElements);
 
       return { persistentIds, idMap };
@@ -1406,7 +1406,7 @@ var Idiomorph = (function () {
   //=============================================================================
   const { normalizeElement, normalizeParent } = (function () {
     /** @type {WeakSet<Node>} */
-    const generatedByIdiomorph = new WeakSet();
+    const generatedByHyperMorph = new WeakSet();
 
     /**
      *
@@ -1423,7 +1423,7 @@ var Idiomorph = (function () {
 
     /**
      *
-     * @param {null | string | Node | HTMLCollection | Node[] | Document & {generatedByIdiomorph:boolean}} newContent
+     * @param {null | string | Node | HTMLCollection | Node[] | Document & {generatedByHyperMorph:boolean}} newContent
      * @returns {Element}
      */
     function normalizeParent(newContent) {
@@ -1432,9 +1432,9 @@ var Idiomorph = (function () {
       } else if (typeof newContent === "string") {
         return normalizeParent(parseContent(newContent));
       } else if (
-        generatedByIdiomorph.has(/** @type {Element} */ (newContent))
+        generatedByHyperMorph.has(/** @type {Element} */ (newContent))
       ) {
-        // the template tag created by idiomorph parsing can serve as a dummy parent
+        // the template tag created by HyperMorph parsing can serve as a dummy parent
         return /** @type {Element} */ (newContent);
       } else if (newContent instanceof Node) {
         if (newContent.parentNode) {
@@ -1530,7 +1530,7 @@ var Idiomorph = (function () {
        * for later use with populateIdMapWithTree to halt upwards iteration
        * @returns {Node}
        */
-      get __idiomorphRoot() {
+      get __hyperMorphRoot() {
         return this.originalNode;
       }
     }
@@ -1558,13 +1558,13 @@ var Idiomorph = (function () {
         let content = parser.parseFromString(newContent, "text/html");
         // if it is a full HTML document, return the document itself as the parent container
         if (contentWithSvgsRemoved.match(/<\/html>/)) {
-          generatedByIdiomorph.add(content);
+          generatedByHyperMorph.add(content);
           return content;
         } else {
           // otherwise return the html element as the parent container
           let htmlElement = content.firstChild;
           if (htmlElement) {
-            generatedByIdiomorph.add(htmlElement);
+            generatedByHyperMorph.add(htmlElement);
           }
           return htmlElement;
         }
@@ -1578,7 +1578,7 @@ var Idiomorph = (function () {
         let content = /** @type {HTMLTemplateElement} */ (
           responseDoc.body.querySelector("template")
         ).content;
-        generatedByIdiomorph.add(content);
+        generatedByHyperMorph.add(content);
         return content;
       }
     }
@@ -1587,7 +1587,7 @@ var Idiomorph = (function () {
   })();
 
   //=============================================================================
-  // This is what ends up becoming the Idiomorph global object
+  // This is what ends up becoming the HyperMorph global object
   //=============================================================================
   return {
     morph,
@@ -1596,7 +1596,7 @@ var Idiomorph = (function () {
 })();
 
 // ES module exports
-export { Idiomorph };
-export const morph = Idiomorph.morph;
-export const defaults = Idiomorph.defaults;
-export default Idiomorph;
+export { HyperMorph };
+export const morph = HyperMorph.morph;
+export const defaults = HyperMorph.defaults;
+export default HyperMorph;

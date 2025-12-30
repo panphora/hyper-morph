@@ -7,7 +7,7 @@
     "morph",
     "diff"
   ],
-  "version": "0.1.0",
+  "version": "0.2.0",
   "homepage": "https://github.com/panphora/hyper-morph",
   "bugs": {
     "url": "https://github.com/panphora/hyper-morph/issues"
@@ -27,6 +27,7 @@
     "./matcher": "./src/hyper-morph-matcher.js"
   },
   "scripts": {
+    "build": "npx esbuild src/hyper-morph.js --bundle --minify --format=iife --global-name=HyperMorph --outfile=dist/hyper-morph.min.js",
     "dev": "http-server . -p 5692 -o demo/index.html",
     "test": "web-test-runner",
     "test:debug": "web-test-runner --manual --open",
