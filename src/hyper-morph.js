@@ -150,6 +150,16 @@ var HyperMorph = (function () {
   //=============================================================================
 
   const noOp = () => {};
+
+  /**
+   * Check if an element should be ignored during morphing.
+   * Elements with save-ignore are preserved as-is (not morphed, not removed, not added).
+   * @param {Node} node
+   * @returns {boolean}
+   */
+  function shouldIgnoreForSync(node) {
+    return node instanceof Element && node.hasAttribute('save-ignore');
+  }
   /**
    * Default configuration values, updatable by users now
    * @type {ConfigInternal}
@@ -362,6 +372,11 @@ var HyperMorph = (function () {
 
       // run through all the new content
       for (const newChild of newParent.childNodes) {
+        // Skip elements with save-ignore - they shouldn't be synced from source
+        if (shouldIgnoreForSync(newChild)) {
+          continue;
+        }
+
         // once we reach the end of the old parent content skip to the end and insert the rest
         if (insertionPoint && insertionPoint != endPoint) {
           const bestMatch = findBestMatch(
@@ -431,7 +446,10 @@ var HyperMorph = (function () {
       while (insertionPoint && insertionPoint != endPoint) {
         const tempNode = insertionPoint;
         insertionPoint = insertionPoint.nextSibling;
-        removeNode(ctx, tempNode);
+        // Preserve elements with save-ignore - they shouldn't be removed during sync
+        if (!shouldIgnoreForSync(tempNode)) {
+          removeNode(ctx, tempNode);
+        }
       }
     }
 
@@ -639,7 +657,10 @@ var HyperMorph = (function () {
       while (cursor && cursor !== endExclusive) {
         let tempNode = /** @type {Node} */ (cursor);
         cursor = cursor.nextSibling;
-        removeNode(ctx, tempNode);
+        // Preserve elements with save-ignore
+        if (!shouldIgnoreForSync(tempNode)) {
+          removeNode(ctx, tempNode);
+        }
       }
       return cursor;
     }

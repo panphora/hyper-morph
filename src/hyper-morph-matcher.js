@@ -677,17 +677,5 @@ function createMatcher(configOverrides = {}) {
 // EXPORTS
 // =============================================================================
 
-// Support both ES modules and inline use with Idiomorph
-var HyperMatch = { createMatcher, DEFAULT_CONFIG };
-
-// ES module exports (if supported)
-if (typeof exports !== 'undefined') {
-  if (typeof module !== 'undefined' && module.exports) {
-    module.exports = HyperMatch;
-  }
-  exports.createMatcher = createMatcher;
-  exports.DEFAULT_CONFIG = DEFAULT_CONFIG;
-}
-
 export { createMatcher, DEFAULT_CONFIG };
 export default createMatcher;

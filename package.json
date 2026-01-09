@@ -28,6 +28,7 @@
   },
   "scripts": {
     "build": "npx esbuild src/hyper-morph.js --bundle --minify --format=iife --global-name=HyperMorph --outfile=dist/hyper-morph.min.js",
+    "copy-to-hyperclayjs": "npm run build && node scripts/copy-to-hyperclayjs.js",
     "dev": "http-server . -p 5692 -o demo/index.html",
     "test": "web-test-runner",
     "test:debug": "web-test-runner --manual --open",
