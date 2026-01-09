@@ -1082,17 +1082,35 @@ var HyperMorph = (function () {
 
     const matchMode = ctx.scripts.matchMode;
 
-    // Helper to get element signature (smart matching for scripts, outerHTML for others)
+    // Helper to get element signature (smart matching for scripts and links, outerHTML for others)
     const getSignature = (el) => {
       if (el.tagName === 'SCRIPT') {
         return getScriptSignature(el, matchMode);
+      }
+      // Smart matching for link elements (stylesheets, etc.)
+      if (el.tagName === 'LINK' && matchMode === 'smart') {
+        const href = el.getAttribute('href');
+        if (href) {
+          try {
+            const url = new URL(href, window.location.href);
+            const rel = el.getAttribute('rel') || '';
+            // Include rel to distinguish stylesheet vs preload vs icon, etc.
+            return `link:${rel}:${url.origin}${url.pathname}`;
+          } catch {
+            // Invalid URL, fall back to outerHTML
+          }
+        }
       }
       return el.outerHTML;
     };
 
     // put all new head elements into a Map by signature
+    // Skip elements with save-ignore - they shouldn't be synced from source
     let srcToNewHeadNodes = new Map();
     for (const newHeadChild of newHead.children) {
+      if (shouldIgnoreForSync(newHeadChild)) {
+        continue;
+      }
       srcToNewHeadNodes.set(getSignature(newHeadChild), newHeadChild);
     }
 
@@ -1123,7 +1141,8 @@ var HyperMorph = (function () {
           }
         } else {
           // if this is a merge, we remove this content since it is not in the new head
-          if (ctx.head.shouldRemove(currentHeadElt) !== false) {
+          // Preserve elements with save-ignore - they shouldn't be removed during sync
+          if (ctx.head.shouldRemove(currentHeadElt) !== false && !shouldIgnoreForSync(currentHeadElt)) {
             removed.push(currentHeadElt);
           }
         }
