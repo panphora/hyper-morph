@@ -19,6 +19,7 @@ const HyperMatchMatcher = createMatcher();
  * @typedef {object} ConfigScripts
  *
  * @property {boolean} [handle] - If true, handle scripts specially (execute new ones). Default: false
+ * @property {'outerHTML' | 'smart'} [matchMode] - How to match scripts. 'outerHTML' (exact match) or 'smart' (normalized URL/content hash). Default: 'outerHTML'
  * @property {function(Element): boolean} [shouldPreserve]
  * @property {function(Element): boolean} [shouldReAppend]
  * @property {function(Element): boolean} [shouldRemove]
@@ -71,6 +72,7 @@ const HyperMatchMatcher = createMatcher();
  * @typedef {object} ConfigScriptsInternal
  *
  * @property {boolean} handle
+ * @property {'outerHTML' | 'smart'} matchMode
  * @property {(function(Element): boolean) | NoOp} shouldPreserve
  * @property {(function(Element): boolean) | NoOp} shouldReAppend
  * @property {(function(Element): boolean) | NoOp} shouldRemove
@@ -160,6 +162,42 @@ var HyperMorph = (function () {
   function shouldIgnoreForSync(node) {
     return node instanceof Element && node.hasAttribute('save-ignore');
   }
+
+  /**
+   * Get a signature for script matching.
+   * - 'outerHTML' mode: exact outerHTML string (default, backward compatible)
+   * - 'smart' mode: normalized src URL (external) or content hash (inline)
+   * @param {Element} script
+   * @param {'outerHTML' | 'smart'} [mode='outerHTML']
+   * @returns {string}
+   */
+  function getScriptSignature(script, mode) {
+    if (mode !== 'smart') {
+      return script.outerHTML;
+    }
+
+    const src = script.getAttribute('src');
+    const type = script.getAttribute('type') || 'text/javascript';
+
+    if (src) {
+      // External script: normalize URL (strip query params and hash)
+      try {
+        const url = new URL(src, window.location.href);
+        return `ext:${type}:${url.origin}${url.pathname}`;
+      } catch {
+        return `ext:${type}:${src}`;
+      }
+    } else {
+      // Inline script: hash of trimmed content
+      const content = script.textContent.trim();
+      let hash = 5381;
+      for (let i = 0; i < content.length; i++) {
+        hash = ((hash << 5) + hash) ^ content.charCodeAt(i);
+      }
+      return `inline:${type}:${Math.abs(hash).toString(36)}`;
+    }
+  }
+
   /**
    * Default configuration values, updatable by users now
    * @type {ConfigInternal}
@@ -184,6 +222,7 @@ var HyperMorph = (function () {
     },
     scripts: {
       handle: false,
+      matchMode: 'outerHTML',  // 'outerHTML' | 'smart'
       shouldPreserve: (elt) => elt.getAttribute("im-preserve") === "true",
       shouldReAppend: (elt) => elt.getAttribute("im-re-append") === "true",
       shouldRemove: noOp,
@@ -223,8 +262,11 @@ var HyperMorph = (function () {
     const ctx = createMorphContext(oldNode, newNode, config);
 
     // Collect old script signatures before morph (for body script handling)
+    const matchMode = ctx.scripts.matchMode;
     const oldScriptSignatures = new Set(
-      Array.from(oldNode.querySelectorAll("script")).map((s) => s.outerHTML),
+      Array.from(oldNode.querySelectorAll("script")).map((s) =>
+        getScriptSignature(s, matchMode)
+      ),
     );
 
     const morphedNodes = saveAndRestoreFocus(ctx, () => {
@@ -1022,16 +1064,27 @@ var HyperMorph = (function () {
     let preserved = [];
     let nodesToAppend = [];
 
-    // put all new head elements into a Map, by their outerHTML
+    const matchMode = ctx.scripts.matchMode;
+
+    // Helper to get element signature (smart matching for scripts, outerHTML for others)
+    const getSignature = (el) => {
+      if (el.tagName === 'SCRIPT') {
+        return getScriptSignature(el, matchMode);
+      }
+      return el.outerHTML;
+    };
+
+    // put all new head elements into a Map by signature
     let srcToNewHeadNodes = new Map();
     for (const newHeadChild of newHead.children) {
-      srcToNewHeadNodes.set(newHeadChild.outerHTML, newHeadChild);
+      srcToNewHeadNodes.set(getSignature(newHeadChild), newHeadChild);
     }
 
     // for each elt in the current head
     for (const currentHeadElt of oldHead.children) {
       // If the current head element is in the map
-      let inNewContent = srcToNewHeadNodes.has(currentHeadElt.outerHTML);
+      const sig = getSignature(currentHeadElt);
+      let inNewContent = srcToNewHeadNodes.has(sig);
       let isReAppended = ctx.head.shouldReAppend(currentHeadElt);
       let isPreserved = ctx.head.shouldPreserve(currentHeadElt);
       if (inNewContent || isPreserved) {
@@ -1041,7 +1094,7 @@ var HyperMorph = (function () {
         } else {
           // this element already exists and should not be re-appended, so remove it from
           // the new content map, preserving it in the DOM
-          srcToNewHeadNodes.delete(currentHeadElt.outerHTML);
+          srcToNewHeadNodes.delete(sig);
           preserved.push(currentHeadElt);
         }
       } else {
@@ -1113,7 +1166,7 @@ var HyperMorph = (function () {
    * Handle body scripts after morph - execute new scripts, preserve existing ones
    * Mirrors head element handling behavior
    * @param {Element} container - The morphed container
-   * @param {Set<string>} oldScriptSignatures - Set of outerHTML from scripts before morph
+   * @param {Set<string>} oldScriptSignatures - Set of signatures from scripts before morph
    * @param {MorphContext} ctx
    * @returns {Promise<void>[]}
    */
@@ -1125,10 +1178,11 @@ var HyperMorph = (function () {
     const preserved = [];
     const scriptsToExecute = [];
 
+    const matchMode = ctx.scripts.matchMode;
     const currentScripts = Array.from(container.querySelectorAll("script"));
 
     for (const script of currentScripts) {
-      const signature = script.outerHTML;
+      const signature = getScriptSignature(script, matchMode);
       const existedBefore = oldScriptSignatures.has(signature);
       const isPreserved = ctx.scripts.shouldPreserve(script);
       const isReAppended = ctx.scripts.shouldReAppend(script);
