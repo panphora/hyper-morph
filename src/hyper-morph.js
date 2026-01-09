@@ -156,11 +156,27 @@ var HyperMorph = (function () {
   /**
    * Check if an element should be ignored during morphing.
    * Elements with save-ignore are preserved as-is (not morphed, not removed, not added).
+   * Browser extension elements (script/link with extension URLs) are also ignored.
    * @param {Node} node
    * @returns {boolean}
    */
   function shouldIgnoreForSync(node) {
-    return node instanceof Element && node.hasAttribute('save-ignore');
+    if (!(node instanceof Element)) return false;
+
+    // Explicit save-ignore attribute
+    if (node.hasAttribute('save-ignore')) return true;
+
+    // Browser extension elements (never sync these)
+    if (node.tagName === 'LINK' || node.tagName === 'SCRIPT') {
+      const url = node.getAttribute('src') || node.getAttribute('href') || '';
+      if (url.startsWith('chrome-extension://') ||
+          url.startsWith('moz-extension://') ||
+          url.startsWith('safari-web-extension://')) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /**
