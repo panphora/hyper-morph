@@ -24,9 +24,10 @@ let config = {
       <script src="/test/lib/morphdom.js"></script>
 
       <script type="module">
-        import HyperMatch from '/src/hyper-match.js';
-        window.HyperMatch = HyperMatch;
-        window.Idiomorph = HyperMatch;
+        import HyperMorph from '/src/hyper-morph.js';
+        window.HyperMorph = HyperMorph;
+        window.HyperMatch = HyperMorph;
+        window.Idiomorph = HyperMorph;
       </script>
       <script type="module" src="${testFramework}"></script>
     </head>
