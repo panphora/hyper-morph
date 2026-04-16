@@ -45,26 +45,29 @@ export { HyperMorph, morph };
 export default HyperMorph;
 `;
 
-// Check dist file exists
+const isCheck = process.argv.includes('--check');
+
 if (!fs.existsSync(distFile)) {
+  if (isCheck) process.exit(1);
   console.error('Error: dist/hyper-morph.min.js not found. Run "npm run build" first.');
   process.exit(1);
 }
 
-// Check hyperclayjs exists
+const minified = fs.readFileSync(distFile, 'utf8').trim();
+const expected = minified + '\n' + WRAPPER_CODE;
+
+if (isCheck) {
+  if (!fs.existsSync(vendorFile)) process.exit(1);
+  const actual = fs.readFileSync(vendorFile, 'utf8');
+  process.exit(actual === expected ? 0 : 1);
+}
+
 if (!fs.existsSync(vendorFile)) {
   console.error(`Error: hyperclayjs vendor file not found at ${vendorFile}`);
   console.error('Make sure hyperclayjs is in the parent directory.');
   process.exit(1);
 }
 
-// Read the minified bundle
-const minified = fs.readFileSync(distFile, 'utf8').trim();
-
-// Combine with wrapper
-const output = minified + '\n' + WRAPPER_CODE;
-
-// Write to vendor file
-fs.writeFileSync(vendorFile, output, 'utf8');
+fs.writeFileSync(vendorFile, expected, 'utf8');
 
 console.log('✓ Updated hyperclayjs/src/vendor/hyper-morph.vendor.js');
