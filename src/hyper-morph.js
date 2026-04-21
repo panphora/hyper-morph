@@ -196,10 +196,13 @@ var HyperMorph = (function () {
     const type = script.getAttribute('type') || 'text/javascript';
 
     if (src) {
-      // External script: normalize URL (strip query params and hash)
+      // External script: normalize URL (preserve query, strip hash).
+      // The query string is kept because cache-busting tokens like ?v=123 are
+      // semantically meaningful — stripping them would make different asset
+      // versions collide and block new versions from being loaded.
       try {
         const url = new URL(src, window.location.href);
-        return `ext:${type}:${url.origin}${url.pathname}`;
+        return `ext:${type}:${url.origin}${url.pathname}${url.search}`;
       } catch {
         return `ext:${type}:${src}`;
       }
@@ -1095,7 +1098,9 @@ var HyperMorph = (function () {
             const url = new URL(href, window.location.href);
             const rel = el.getAttribute('rel') || '';
             // Include rel to distinguish stylesheet vs preload vs icon, etc.
-            return `link:${rel}:${url.origin}${url.pathname}`;
+            // Preserve query (cache-busting tokens like ?v=123 are significant),
+            // drop hash (not meaningful for stylesheet loading).
+            return `link:${rel}:${url.origin}${url.pathname}${url.search}`;
           } catch {
             // Invalid URL, fall back to outerHTML
           }

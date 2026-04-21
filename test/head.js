@@ -220,4 +220,61 @@ describe("Tests to ensure that the head tag merging works correctly", function (
       .querySelector('script[src$="lib/fixture.js"]')
       .remove();
   });
+
+  describe("smart matching preserves cache-busting query strings", function () {
+    it("link: different version query replaces old stylesheet", function () {
+      let parser = new DOMParser();
+      let document = parser.parseFromString(
+        "<html><head><link rel='stylesheet' href='/app.css?v=1'></head></html>",
+        "text/html",
+      );
+      let originalHead = document.head;
+      Idiomorph.morph(
+        document,
+        "<html><head><link rel='stylesheet' href='/app.css?v=2'></head></html>",
+        { scripts: { matchMode: "smart" } },
+      );
+
+      const links = originalHead.querySelectorAll("link");
+      links.length.should.equal(1);
+      links[0].getAttribute("href").should.equal("/app.css?v=2");
+    });
+
+    it("link: same href with same query is preserved", function () {
+      let parser = new DOMParser();
+      let document = parser.parseFromString(
+        "<html><head><link rel='stylesheet' href='/app.css?v=1'></head></html>",
+        "text/html",
+      );
+      let originalHead = document.head;
+      let originalLink = originalHead.querySelector("link");
+      Idiomorph.morph(
+        document,
+        "<html><head><link rel='stylesheet' href='/app.css?v=1'></head></html>",
+        { scripts: { matchMode: "smart" } },
+      );
+
+      const links = originalHead.querySelectorAll("link");
+      links.length.should.equal(1);
+      links[0].should.equal(originalLink);
+    });
+
+    it("script: different version query is treated as a new script", function () {
+      let parser = new DOMParser();
+      let document = parser.parseFromString(
+        "<html><head><script src='/app.js?v=1'></script></head></html>",
+        "text/html",
+      );
+      let originalHead = document.head;
+      Idiomorph.morph(
+        document,
+        "<html><head><script src='/app.js?v=2'></script></head></html>",
+        { scripts: { matchMode: "smart" } },
+      );
+
+      const scripts = originalHead.querySelectorAll("script");
+      scripts.length.should.equal(1);
+      scripts[0].getAttribute("src").should.equal("/app.js?v=2");
+    });
+  });
 });
