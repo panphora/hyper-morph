@@ -516,8 +516,9 @@ function findMatch(newEl, oldRoot, config, metaCache, indexCache) {
  *
  * Hard rule: tags must match exactly. Slot identity never crosses tag
  * boundaries (a button in slot 3 and a div in slot 3 are not the same
- * element). Recursion only descends into pairs we just slot-matched; if the
- * tags don't match at level N, we don't trust slot identity at level N+1.
+ * element). Recursion descends into any same-tag slot at the same index
+ * regardless of whether a candidate was emitted; if tags don't match at
+ * level N, we don't trust slot identity at level N+1.
  *
  * @param {Element} newRoot
  * @param {Element} oldRoot
@@ -658,7 +659,6 @@ function computeMatches(oldRoot, newRoot, config, metaCache, indexCache) {
     const slotCandidates = computeSlotCandidates(newRoot, oldRoot, config, metaCache);
     for (const c of slotCandidates) candidates.push(c);
   }
-
 
   // Sort by score descending (highest scores first)
   candidates.sort((a, b) => b.score - a.score);
