@@ -68,6 +68,26 @@ describe("config.key matching", function () {
     old.children[1].should.equal(divB);
   });
 
+  it("duplicate keys in new tree fall through to content scoring", function () {
+    // Old has one <li data-id="x"> with text "A" and one <li data-id="other">
+    // with text "B". Both new <li>s share data-id="x" — duplicate. Without
+    // dup handling on the new side, the first new li (text "B") would
+    // key-pair with old `liA`, swapping its text to "B". With dup handling,
+    // key "x" is disqualified and content scoring pairs by text — `liA`
+    // moves to position 1 to stay with text "A".
+    let old = make(
+      '<ul><li data-id="x">A</li><li data-id="other">B</li></ul>',
+    );
+    let liA = old.children[0];
+    Idiomorph.morph(
+      old,
+      '<ul><li data-id="x">B</li><li data-id="x">A</li></ul>',
+      { key: keyByDataId },
+    );
+    old.children[1].should.equal(liA);
+    old.children[1].textContent.should.equal('A');
+  });
+
   it("key returning null for all elements is a no-op", function () {
     let old = make('<ul><li>Apple</li><li>Banana</li></ul>');
     let liApple = old.children[0];

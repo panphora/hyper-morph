@@ -48,6 +48,7 @@ const HyperMatchMatcher = createMatcher();
  * @property {ConfigCallbacks} [callbacks]
  * @property {ConfigHead} [head]
  * @property {ConfigScripts} [scripts]
+ * @property {function(Element): (string|null|undefined)} [key] - Optional identity callback. Equal non-null returns pair elements regardless of position or content scoring. Duplicate keys on either side fall through to content scoring.
  */
 
 /**
@@ -101,6 +102,7 @@ const HyperMatchMatcher = createMatcher();
  * @property {ConfigCallbacksInternal} callbacks
  * @property {ConfigHeadInternal} head
  * @property {ConfigScriptsInternal} scripts
+ * @property {function(Element): (string|null|undefined)} [key]
  */
 
 /**
@@ -1335,15 +1337,25 @@ var HyperMorph = (function () {
 
         // @ts-ignore — see createIdMaps for the same __hyperMorphRoot pattern
         const newRoot = newContent.__hyperMorphRoot || newContent;
-        const newKeyEls = newRoot instanceof Element ? [newRoot] : [];
-        for (const el of newRoot.querySelectorAll("*")) newKeyEls.push(el);
 
-        const seenNewKeys = new Set();
-        for (const newEl of newKeyEls) {
-          const k = config.key(newEl);
-          if (k == null) continue;
-          if (seenNewKeys.has(k)) continue;
-          seenNewKeys.add(k);
+        // Two-pass dup detection on the new side, mirroring the old-tree
+        // path. Without this, the first occurrence of a duplicate key
+        // would still pair while later occurrences are skipped — an
+        // asymmetry that breaks the "drop on either side" guarantee.
+        const newByKey = new Map();
+        const newDupKeys = new Set();
+        const visitNew = (el) => {
+          const k = config.key(el);
+          if (k != null) {
+            if (newByKey.has(k)) newDupKeys.add(k);
+            else newByKey.set(k, el);
+          }
+        };
+        if (newRoot instanceof Element) visitNew(newRoot);
+        for (const el of newRoot.querySelectorAll("*")) visitNew(el);
+        for (const k of newDupKeys) newByKey.delete(k);
+
+        for (const [k, newEl] of newByKey) {
           const oldEl = oldByKey.get(k);
           if (!oldEl) continue;
           if (oldEl.tagName !== newEl.tagName) continue;

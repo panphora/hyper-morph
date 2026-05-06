@@ -26,7 +26,7 @@ const WRAPPER_CODE = `
 // Convenience morph wrapper with data-id support
 var morph = function(oldEl, newEl, options = {}) {
     return HyperMorph.morph(oldEl, newEl, {
-        key: (el) => el.getAttribute('data-id') || el.id,
+        key: (el) => (el.getAttribute && el.getAttribute('data-id')) || el.id,
         ...options
     });
 };
