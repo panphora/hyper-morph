@@ -1311,7 +1311,55 @@ var HyperMorph = (function () {
       // Compute hyper-match results for content-based matching
       const hyperMatches = HyperMatch.computeMatches(oldNode, newContent);
 
-      // Build set of old elements that are hyper-matched (for pantry logic)
+      // Optional: override hyperMatches with caller-supplied identity via config.key.
+      // The function is invoked on every Element in both trees; equal non-null
+      // return values pair the elements regardless of content-scoring outcome.
+      // Duplicate keys on either side fall through to content scoring (mirrors
+      // createPersistentIds duplicate handling).
+      if (typeof config.key === "function") {
+        const oldByKey = new Map();
+        const oldDupKeys = new Set();
+        const visitOld = (el) => {
+          const k = config.key(el);
+          if (k != null) {
+            if (oldByKey.has(k)) oldDupKeys.add(k);
+            else oldByKey.set(k, el);
+          }
+        };
+        if (oldNode instanceof Element) visitOld(oldNode);
+        for (const el of oldNode.querySelectorAll("*")) visitOld(el);
+        for (const k of oldDupKeys) oldByKey.delete(k);
+
+        const reverse = new Map();
+        for (const [n, o] of hyperMatches) reverse.set(o, n);
+
+        // @ts-ignore — see createIdMaps for the same __hyperMorphRoot pattern
+        const newRoot = newContent.__hyperMorphRoot || newContent;
+        const newKeyEls = newRoot instanceof Element ? [newRoot] : [];
+        for (const el of newRoot.querySelectorAll("*")) newKeyEls.push(el);
+
+        const seenNewKeys = new Set();
+        for (const newEl of newKeyEls) {
+          const k = config.key(newEl);
+          if (k == null) continue;
+          if (seenNewKeys.has(k)) continue;
+          seenNewKeys.add(k);
+          const oldEl = oldByKey.get(k);
+          if (!oldEl) continue;
+          if (oldEl.tagName !== newEl.tagName) continue;
+
+          const prevNew = reverse.get(oldEl);
+          if (prevNew && prevNew !== newEl) hyperMatches.delete(prevNew);
+          const prevOld = hyperMatches.get(newEl);
+          if (prevOld && prevOld !== oldEl) reverse.delete(prevOld);
+
+          hyperMatches.set(newEl, oldEl);
+          reverse.set(oldEl, newEl);
+        }
+      }
+
+      // Build set of old elements that are hyper-matched (for pantry logic).
+      // Runs after the optional key block so it always reflects final pairings.
       const hyperMatchedOldElements = new Set();
       for (const oldEl of hyperMatches.values()) {
         hyperMatchedOldElements.add(oldEl);
