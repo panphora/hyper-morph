@@ -243,4 +243,76 @@ describe("HyperMatch Edge Cases", function () {
       old.children[0].textContent.should.equal("Dashboard");
     });
   });
+
+  // ==========================================================================
+  // Slot identity: pair same-tag-same-position elements when signatures
+  // differ (class/attr change). Required: same parent, same tag, same
+  // sibling index, identical child counts. Hard rule: never crosses tags.
+  // ==========================================================================
+
+  describe("Slot identity", function () {
+
+    it("preserves element across class change at same position", function () {
+      let old = make("<div><div class='card'><span>x</span></div></div>");
+      let card = old.children[0];
+      let span = card.children[0];
+      Idiomorph.morph(old, "<div><div class='card active'><span>x</span></div></div>");
+      old.children[0].should.equal(card);
+      old.children[0].getAttribute('class').should.equal('card active');
+      old.children[0].children[0].should.equal(span);
+    });
+
+    it("preserves element across attribute change at same position", function () {
+      let old = make("<div><a href='/old' class='link'>Click</a></div>");
+      let link = old.children[0];
+      Idiomorph.morph(old, "<div><a href='/new' class='link'>Click</a></div>");
+      old.children[0].should.equal(link);
+      old.children[0].getAttribute('href').should.equal('/new');
+    });
+
+    it("preserves nested element when middle wrapper class changes", function () {
+      let old = make("<div><div class='outer-a'><div class='inner'><span>x</span></div></div></div>");
+      let outer = old.children[0];
+      let inner = outer.children[0];
+      let span = inner.children[0];
+      Idiomorph.morph(old, "<div><div class='outer-b'><div class='inner'><span>x</span></div></div></div>");
+      old.children[0].should.equal(outer);
+      old.children[0].children[0].should.equal(inner);
+      old.children[0].children[0].children[0].should.equal(span);
+    });
+
+    it("does not slot-match across tag boundaries", function () {
+      // Same position but different tags: must not be paired by slot.
+      let old = make("<div><button class='primary'>Click</button></div>");
+      let button = old.children[0];
+      Idiomorph.morph(old, "<div><a class='primary'>Click</a></div>");
+      // The <button> should be removed and <a> created (different elements).
+      old.children[0].should.not.equal(button);
+      old.children[0].tagName.should.equal('A');
+    });
+
+    it("does not slot-match when sibling counts differ (insertion)", function () {
+      // Inserting a new sibling shifts positions; slot must not pair shifted
+      // elements together. The original elements should be preserved by
+      // signature matching, the new one created.
+      let old = make("<div><div class='a'>A</div><div class='b'>B</div></div>");
+      let divA = old.children[0];
+      let divB = old.children[1];
+      Idiomorph.morph(old, "<div><div class='new'>NEW</div><div class='a'>A</div><div class='b'>B</div></div>");
+      old.children[1].should.equal(divA);
+      old.children[2].should.equal(divB);
+    });
+
+    it("loses to signature matching when both apply", function () {
+      // Reorder with classes: signature matching pairs cross-position by
+      // class+text identity. Slot would propose same-position pairs but
+      // signature scores higher and wins.
+      let old = make("<div><div class='a'>A</div><div class='b'>B</div></div>");
+      let divA = old.children[0];
+      let divB = old.children[1];
+      Idiomorph.morph(old, "<div><div class='b'>B</div><div class='a'>A</div></div>");
+      old.children[0].should.equal(divB);
+      old.children[1].should.equal(divA);
+    });
+  });
 });

@@ -46,13 +46,19 @@
  * └─────────────────────────────────────────────────────────────────────────────┘
  *
  * SCORING MODEL:
- *   Base:    signature match     +100  (required — same tag/classes/attrs)
+ *   Base:    signature match     +100  (required for content-based path)
  *   Bonus:   path segment match  +10   (per matching ancestor, max 4)
  *   Bonus:   text hint match     +20   (element textContent, includes descendants)
  *   Bonus:   unique candidate    +50   (only one element with this signature, if text matches)
  *   Penalty: position drift      -1    (per index difference)
  *
- *   Accept if confidence ≥ 101. Signature alone isn't sufficient — requires additional signal.
+ *   Accept if confidence ≥ 101. Signature alone isn't sufficient, requires additional signal.
+ *
+ *   Slot identity (alternate path): when content signatures differ but tags
+ *   match and elements share the same parent at the same sibling index, score
+ *   = signature baseline (+100) + slot bonus (+30) = +130. Lets pairs survive
+ *   class or attribute changes that would otherwise break signature equality,
+ *   without licensing matches across tag boundaries.
  *
  * CACHING:
  *   Metadata and indexes are cached per matcher instance for performance within a morph.
@@ -105,6 +111,7 @@ const DEFAULT_CONFIG = {
     textMismatch: 25,  // Penalty when text differs or asymmetric (one has text, other doesn't)
     uniqueCandidate: 50,
     positionPenalty: 1,
+    slotMatch: 30,     // Added on top of signature baseline for slot-identity pairs (set to 0 to disable)
   },
 
   // Thresholds (101 requires at least one signal beyond signature match)
@@ -499,6 +506,104 @@ function findMatch(newEl, oldRoot, config, metaCache, indexCache) {
 }
 
 /**
+ * Walk two trees in parallel by sibling position. Emit candidate pairs that
+ * share the same parent slot, the same tag, and the same sibling index.
+ *
+ * Slot identity is a fallback for cases where content signatures differ (a
+ * class or attribute changed) but structural identity is unambiguous: same
+ * parent, same tag, same position. The pair scores at signature baseline
+ * (100) plus a slot bonus, putting it above minConfidence on its own.
+ *
+ * Hard rule: tags must match exactly. Slot identity never crosses tag
+ * boundaries (a button in slot 3 and a div in slot 3 are not the same
+ * element). Recursion only descends into pairs we just slot-matched; if the
+ * tags don't match at level N, we don't trust slot identity at level N+1.
+ *
+ * @param {Element} newRoot
+ * @param {Element} oldRoot
+ * @param {object} config
+ * @returns {Array<{ newEl: Element, oldEl: Element, score: number, breakdown: object }>}
+ */
+function computeSlotCandidates(newRoot, oldRoot, config, metaCache) {
+  const candidates = [];
+  const score = config.weights.signature + config.weights.slotMatch;
+  const breakdown = { slot: score };
+
+  // Some morph entry points pass a boundary-wrapper that exposes childNodes
+  // but not children. Filter childNodes to elements to handle both cases.
+  function elementChildren(parent) {
+    if (parent.children) return parent.children;
+    const nodes = parent.childNodes;
+    if (!nodes) return [];
+    const out = [];
+    for (let i = 0; i < nodes.length; i++) {
+      if (nodes[i].nodeType === 1) out.push(nodes[i]);
+    }
+    return out;
+  }
+
+  function walkPair(newParent, oldParent) {
+    const newKids = elementChildren(newParent);
+    const oldKids = elementChildren(oldParent);
+
+    // Strict alignment: only proceed when child counts match. When they
+    // differ, an insertion or deletion has shifted positions and the i-th
+    // child on each side no longer corresponds. Emitting slot candidates
+    // here would produce false matches that poison positional fallback.
+    if (newKids.length !== oldKids.length) return;
+
+    for (let i = 0; i < newKids.length; i++) {
+      const n = newKids[i];
+      const o = oldKids[i];
+
+      if (config.excludeIds && (n.id || o.id)) continue;
+      if (n.tagName !== o.tagName) continue;
+
+      const newSig = getMeta(n, config, metaCache).signature;
+      const oldSig = getMeta(o, config, metaCache).signature;
+      // Only propose slot candidates when signatures differ. Same-signature
+      // pairs go through content-scoring which has a more nuanced score
+      // (path, text, uniqueness, drift) and would otherwise lose to slot's
+      // flat 130 in same-position scenarios. Always recurse so descendants
+      // can still slot-match within aligned subtrees.
+      if (newSig !== oldSig) {
+        candidates.push({ newEl: n, oldEl: o, score, breakdown });
+      }
+      walkPair(n, o);
+    }
+  }
+
+  // Align structural levels. The matcher receives roots that may be
+  // structurally heterogeneous: newRoot might be a DocumentFragment or
+  // synthetic wrapper around the actual new content, oldRoot is always an
+  // Element but may be either the element being morphed (outerHTML mode) or
+  // a container whose children are being morphed (innerHTML mode). Descend
+  // through single-element-child wrappers on either side until tags align.
+  // If no aligned starting pair exists, skip slot matching entirely.
+  function findStart(newNode, oldNode) {
+    while (true) {
+      if (newNode.tagName === oldNode.tagName) return [newNode, oldNode];
+      const newKids = elementChildren(newNode);
+      if (!newNode.tagName && newKids.length === 1) {
+        newNode = newKids[0];
+        continue;
+      }
+      const oldKids = elementChildren(oldNode);
+      if (oldKids.length === 1 && oldKids[0].tagName === newNode.tagName) {
+        oldNode = oldKids[0];
+        continue;
+      }
+      return null;
+    }
+  }
+
+  const start = findStart(newRoot, oldRoot);
+  if (!start) return candidates;
+  walkPair(start[0], start[1]);
+  return candidates;
+}
+
+/**
  * Compute all matches between two trees using greedy sorted assignment.
  * Ensures one-to-one matching: each old element can only be matched once.
  * Higher-scoring pairs are assigned first, regardless of document order.
@@ -545,6 +650,15 @@ function computeMatches(oldRoot, newRoot, config, metaCache, indexCache) {
       }
     }
   }
+
+  // Slot identity fallback: pair same-tag elements at the same parent slot,
+  // even when their signatures differ. Competes with signature candidates via
+  // the same greedy sort below; signature wins when present, slot fills gaps.
+  if (config.weights.slotMatch > 0) {
+    const slotCandidates = computeSlotCandidates(newRoot, oldRoot, config, metaCache);
+    for (const c of slotCandidates) candidates.push(c);
+  }
+
 
   // Sort by score descending (highest scores first)
   candidates.sort((a, b) => b.score - a.score);
