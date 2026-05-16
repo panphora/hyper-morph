@@ -45,6 +45,7 @@ const HyperMatchMatcher = createMatcher();
  * @property {boolean} [ignoreActive]
  * @property {boolean} [ignoreActiveValue]
  * @property {boolean} [restoreFocus]
+ * @property {'attribute' | 'property'} [formStateSync] - How to sync form-control state across morphs. Default `'attribute'`: the new element's `value` / `checked` / `selected` ATTRIBUTES are authoritative — typical for HTML-serialization use cases like hyperclay-livesync where keystrokes are mirrored into attributes so cloneNode/outerHTML captures them. Set to `'property'` when callers build the new fragment via `document.createElement` + property assignment (e.g. an in-memory rebuild of a CMS form); in `'property'` mode the morph reads/writes form-control state via PROPERTY assignment only, leaving attributes untouched.
  * @property {ConfigCallbacks} [callbacks]
  * @property {ConfigHead} [head]
  * @property {ConfigScripts} [scripts]
@@ -99,6 +100,7 @@ const HyperMatchMatcher = createMatcher();
  * @property {boolean} [ignoreActive]
  * @property {boolean} [ignoreActiveValue]
  * @property {boolean} [restoreFocus]
+ * @property {'attribute' | 'property'} [formStateSync]
  * @property {ConfigCallbacksInternal} callbacks
  * @property {ConfigHeadInternal} head
  * @property {ConfigScriptsInternal} scripts
@@ -138,6 +140,7 @@ var HyperMorph = (function () {
    * @property {ConfigInternal['ignoreActive']} ignoreActive
    * @property {ConfigInternal['ignoreActiveValue']} ignoreActiveValue
    * @property {ConfigInternal['restoreFocus']} restoreFocus
+   * @property {ConfigInternal['formStateSync']} formStateSync
    * @property {Map<Node, Set<string>>} idMap
    * @property {Set<string>} persistentIds
    * @property {ConfigInternal['callbacks']} callbacks
@@ -926,7 +929,15 @@ var HyperMorph = (function () {
         syncBooleanAttribute(oldElement, newElement, "checked", ctx);
         syncBooleanAttribute(oldElement, newElement, "disabled", ctx);
 
-        if (!newElement.hasAttribute("value")) {
+        if (ctx.formStateSync === 'property') {
+          // Property-driven: the live property is authoritative on both sides.
+          // No attribute mutations — leaves serialization concerns to callers.
+          if (oldValue !== newValue) {
+            if (!ignoreAttribute("value", oldElement, "update", ctx)) {
+              oldElement.value = newValue;
+            }
+          }
+        } else if (!newElement.hasAttribute("value")) {
           if (!ignoreAttribute("value", oldElement, "remove", ctx)) {
             oldElement.value = "";
             oldElement.removeAttribute("value");
@@ -988,6 +999,10 @@ var HyperMorph = (function () {
           // @ts-ignore this function is only used on boolean attrs that are reflected as dom properties
           oldElement[attributeName] = newElement[attributeName];
         }
+        // Property-driven mode: skip attribute mutation. The property write
+        // above is enough — callers don't care about HTML-serializable form
+        // state (no livesync, no cloneNode roundtripping).
+        if (ctx.formStateSync === 'property') return;
         if (newLiveValue) {
           if (!ignoreUpdate) {
             // https://developer.mozilla.org/en-US/docs/Glossary/Boolean/HTML
@@ -1391,6 +1406,7 @@ var HyperMorph = (function () {
         ignoreActive: mergedConfig.ignoreActive,
         ignoreActiveValue: mergedConfig.ignoreActiveValue,
         restoreFocus: mergedConfig.restoreFocus,
+        formStateSync: mergedConfig.formStateSync || 'attribute',
         idMap: idMap,
         persistentIds: persistentIds,
         hyperMatches: hyperMatches,
