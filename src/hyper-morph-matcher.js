@@ -336,6 +336,9 @@ function buildIndex(root, config, metaCache, indexCache) {
     const meta = getMeta(el, config, metaCache);
     meta.domIndex = domIndex++;
 
+    // Sync-ignored chrome must never be a match candidate.
+    if (config.shouldIgnore?.(el)) continue;
+
     if (!index.has(meta.signature)) {
       index.set(meta.signature, []);
     }
@@ -557,6 +560,7 @@ function computeSlotCandidates(newRoot, oldRoot, config, metaCache) {
       const n = newKids[i];
       const o = oldKids[i];
 
+      if (config.shouldIgnore?.(n) || config.shouldIgnore?.(o)) continue;
       if (config.excludeIds && (n.id || o.id)) continue;
       if (n.tagName !== o.tagName) continue;
 
@@ -631,6 +635,7 @@ function computeMatches(oldRoot, newRoot, config, metaCache, indexCache) {
   // Skip elements with IDs if excludeIds is enabled
   const candidates = [];
   for (const newEl of newElements) {
+    if (config.shouldIgnore?.(newEl)) continue;
     if (config.excludeIds && newEl.id) continue;
 
     const newMeta = getMeta(newEl, config, metaCache);

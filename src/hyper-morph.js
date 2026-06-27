@@ -1,8 +1,5 @@
 import { createMatcher } from './hyper-morph-matcher.js';
 
-// Create a matcher instance for use in morphing
-const HyperMatchMatcher = createMatcher();
-
 /**
  * @typedef {object} ConfigHead
  *
@@ -160,16 +157,24 @@ var HyperMorph = (function () {
 
   /**
    * Check if an element should be ignored during morphing.
-   * Elements with save-ignore are preserved as-is (not morphed, not removed, not added).
-   * Browser extension elements (script/link with extension URLs) are also ignored.
+   * Sync-ignored nodes are local-instance chrome: never morphed into, removed,
+   * or synced, and never used as a morph target. Markers:
+   *   - save-ignore: explicit "leave me alone".
+   *   - snapshot-remove / no-snapshot: stripped from every snapshot (save, sync,
+   *     comparison), so a receiver must keep its own local copy rather than
+   *     delete it as a stray node.
+   * Browser extension <script>/<link> elements are also ignored.
    * @param {Node} node
    * @returns {boolean}
    */
   function shouldIgnoreForSync(node) {
     if (!(node instanceof Element)) return false;
 
-    // Explicit save-ignore attribute
+    // Local-only chrome markers: save-ignore (explicit) and the snapshot-remove
+    // family (stripped from every snapshot, so receivers must preserve them).
     if (node.hasAttribute('save-ignore')) return true;
+    if (node.hasAttribute('snapshot-remove')) return true;
+    if (node.hasAttribute('no-snapshot')) return true;
 
     // Browser extension elements (never sync these)
     if (node.tagName === 'LINK' || node.tagName === 'SCRIPT') {
@@ -183,6 +188,11 @@ var HyperMorph = (function () {
 
     return false;
   }
+
+  // Create a matcher instance for use in morphing. Sync-ignored chrome is
+  // excluded from candidacy so incoming content is never matched into a
+  // local-only node.
+  const HyperMatchMatcher = createMatcher({ shouldIgnore: shouldIgnoreForSync });
 
   /**
    * Get a signature for script matching.
@@ -579,6 +589,9 @@ var HyperMorph = (function () {
 
         let cursor = startPoint;
         while (cursor && cursor != endPoint) {
+          // Sync-ignored local nodes (chrome) are invisible to matching: never a
+          // morph target, so incoming content can't be morphed into them.
+          if (shouldIgnoreForSync(cursor)) { cursor = cursor.nextSibling; continue; }
           // soft matching is a prerequisite for id set matching and hyper-matching
           if (isSoftMatch(cursor, node)) {
             // Priority 1: ID set match (for elements with persistent IDs)
