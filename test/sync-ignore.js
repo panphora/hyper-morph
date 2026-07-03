@@ -70,4 +70,65 @@ describe("Sync-ignored chrome preservation", function () {
     has(parent, ".stray").should.equal(false);
     parent.querySelector("p").textContent.should.equal("new");
   });
+
+  it("preserves a local no-save region when morphing saved HTML that lacks it", function () {
+    let parent = morphInner(
+      `<div><aside no-save>RUNTIME</aside><p>old</p></div>`,
+      `<p>new</p>`,
+    );
+    has(parent, "[no-save]").should.equal(true);
+    parent.querySelector("[no-save]").textContent.should.equal("RUNTIME");
+    parent.querySelector("p").textContent.should.equal("new");
+  });
+
+  it("honors the save-remove legacy alias the same as no-save", function () {
+    let parent = morphInner(
+      `<div><aside save-remove>RUNTIME</aside><p>old</p></div>`,
+      `<p>new</p>`,
+    );
+    has(parent, "[save-remove]").should.equal(true);
+    parent.querySelector("p").textContent.should.equal("new");
+  });
+
+  it("skips an incoming no-save region instead of inserting a duplicate", function () {
+    let parent = morphInner(
+      `<div><aside no-save>MINE</aside><p>old</p></div>`,
+      `<aside no-save>THEIRS</aside><p>new</p>`,
+    );
+    parent.querySelectorAll("[no-save]").length.should.equal(1);
+    parent.querySelector("[no-save]").textContent.should.equal("MINE");
+    parent.querySelector("p").textContent.should.equal("new");
+  });
+
+  it("keeps a freeze region's runtime state instead of resetting to authored content", function () {
+    let parent = morphInner(
+      `<div><section freeze>RUNTIME STATE</section><p>old</p></div>`,
+      `<section freeze>AUTHORED</section><p>new</p>`,
+    );
+    parent.querySelectorAll("[freeze]").length.should.equal(1);
+    parent.querySelector("[freeze]").textContent.should.equal("RUNTIME STATE");
+    parent.querySelector("p").textContent.should.equal("new");
+  });
+
+  it("honors the save-freeze legacy alias the same as freeze", function () {
+    let parent = morphInner(
+      `<div><section save-freeze>RUNTIME STATE</section><p>old</p></div>`,
+      `<section save-freeze>AUTHORED</section><p>new</p>`,
+    );
+    parent.querySelectorAll("[save-freeze]").length.should.equal(1);
+    parent.querySelector("[save-freeze]").textContent.should.equal("RUNTIME STATE");
+    parent.querySelector("p").textContent.should.equal("new");
+  });
+
+  it("never morphs incoming content INTO a no-save node", function () {
+    let parent = morphInner(
+      `<div><div no-save class="chrome">RUNTIME</div><div class="editor">old</div></div>`,
+      `<div class="editor">new</div>`,
+    );
+    let chrome = parent.querySelector("[no-save]");
+    (chrome !== null).should.equal(true);
+    chrome.classList.contains("chrome").should.equal(true);
+    chrome.textContent.should.equal("RUNTIME");
+    parent.querySelector(".editor").textContent.should.equal("new");
+  });
 });

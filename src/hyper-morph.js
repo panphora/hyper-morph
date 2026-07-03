@@ -163,6 +163,11 @@ var HyperMorph = (function () {
    *   - snapshot-remove / no-snapshot: stripped from every snapshot (save, sync,
    *     comparison), so a receiver must keep its own local copy rather than
    *     delete it as a stray node.
+   *   - no-save / save-remove: stripped from every saved file. A receiver
+   *     morphing saved HTML would otherwise delete its own runtime copy.
+   *   - freeze / save-freeze: saved as authored; runtime changes are
+   *     per-instance, so a receiver keeps its own runtime state instead of
+   *     being reset to the sender's.
    * Browser extension <script>/<link> elements are also ignored.
    * @param {Node} node
    * @returns {boolean}
@@ -175,6 +180,14 @@ var HyperMorph = (function () {
     if (node.hasAttribute('save-ignore')) return true;
     if (node.hasAttribute('snapshot-remove')) return true;
     if (node.hasAttribute('no-snapshot')) return true;
+
+    // Runtime-only regions: stripped from saves (no-save family) or saved as
+    // authored (freeze family). Each instance owns its runtime copy — skipped
+    // symmetrically on both the incoming and the local side.
+    if (node.hasAttribute('no-save')) return true;
+    if (node.hasAttribute('save-remove')) return true;
+    if (node.hasAttribute('freeze')) return true;
+    if (node.hasAttribute('save-freeze')) return true;
 
     // Browser extension elements (never sync these)
     if (node.tagName === 'LINK' || node.tagName === 'SCRIPT') {
