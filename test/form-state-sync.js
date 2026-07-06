@@ -154,4 +154,63 @@ describe("formStateSync option — property-driven mode for non-livesync callers
       live.getAttribute("value").should.equal("fromAttr");
     });
   });
+
+  describe("textarea", function () {
+    it("property mode leaves textarea child text alone", function () {
+      const root = make("<div><textarea id='t'>old</textarea></div>");
+      getWorkArea().appendChild(root);
+      // The new textarea keeps the same serialized child text ("old") but a
+      // different live value ("new"). Property mode must sync the live value
+      // without rewriting the serialized child text to match it.
+      const newDiv = document.createElement("div");
+      const newTa = document.createElement("textarea");
+      newTa.id = "t";
+      newTa.textContent = "old";
+      newTa.value = "new";
+      newDiv.appendChild(newTa);
+
+      Idiomorph.morph(root, newDiv, {
+        morphStyle: "innerHTML",
+        formStateSync: "property",
+      });
+
+      const live = document.getElementById("t");
+      live.value.should.equal("new");
+      live.firstChild.nodeValue.should.equal("old");
+    });
+  });
+
+  describe("input[type=checkbox] indeterminate", function () {
+    it("property mode syncs indeterminate", function () {
+      const root = make(`<div><input id="c" type="checkbox"></div>`);
+      getWorkArea().appendChild(root);
+      document.getElementById("c").indeterminate = false;
+
+      const newDiv = document.createElement("div");
+      const newInput = document.createElement("input");
+      newInput.id = "c";
+      newInput.type = "checkbox";
+      newInput.indeterminate = true;
+      newDiv.appendChild(newInput);
+
+      Idiomorph.morph(root, newDiv, {
+        morphStyle: "innerHTML",
+        formStateSync: "property",
+      });
+
+      document.getElementById("c").indeterminate.should.equal(true);
+    });
+
+    it("attribute mode never touches indeterminate", function () {
+      const root = make(`<div><input id="c" type="checkbox"></div>`);
+      getWorkArea().appendChild(root);
+      document.getElementById("c").indeterminate = true;
+
+      Idiomorph.morph(root, `<div><input id="c" type="checkbox"></div>`, {
+        morphStyle: "innerHTML",
+      });
+
+      document.getElementById("c").indeterminate.should.equal(true);
+    });
+  });
 });

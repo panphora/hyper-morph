@@ -351,4 +351,37 @@ describe("lifecycle hooks", function () {
             </div>
         `);
   });
+
+  it("fires removal callbacks for pantried nodes that are never reclaimed", function () {
+    const beforeRemoved = sinon.spy();
+    const afterRemoved = sinon.spy();
+    const el = make(`<div><p id="keep">A</p><span>B</span></div>`);
+    getWorkArea().appendChild(el);
+
+    // The new content re-homes #keep inside a fresh <section>, but that section
+    // is vetoed by beforeNodeAdded — so #keep is pantried and never reclaimed.
+    Idiomorph.morph(
+      el,
+      `<div><span>B</span><section><p id="keep">A</p></section></div>`,
+      {
+        callbacks: {
+          beforeNodeAdded: (node) => {
+            if (
+              node.nodeType === Node.ELEMENT_NODE &&
+              node.tagName === "SECTION"
+            ) {
+              return false;
+            }
+          },
+          beforeNodeRemoved: beforeRemoved,
+          afterNodeRemoved: afterRemoved,
+        },
+      },
+    );
+
+    const keepWasRemoved = (spy) =>
+      spy.getCalls().some((c) => c.args[0]?.getAttribute?.("id") === "keep");
+    keepWasRemoved(beforeRemoved).should.equal(true);
+    keepWasRemoved(afterRemoved).should.equal(true);
+  });
 });

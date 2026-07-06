@@ -131,4 +131,34 @@ describe("Sync-ignored chrome preservation", function () {
     chrome.textContent.should.equal("RUNTIME");
     parent.querySelector(".editor").textContent.should.equal("new");
   });
+
+  it("never steals a node from inside a save-ignore region", function () {
+    let parent = morphInner(
+      `<div><div save-ignore class="toolbar"><div class="widget"><span>W</span></div></div><p>content</p></div>`,
+      `<p>content</p><div class="widget"><span>W</span></div>`,
+    );
+    // The widget inside the save-ignore toolbar must not be moved out.
+    parent
+      .querySelector(".toolbar")
+      .querySelectorAll(".widget")
+      .length.should.equal(1);
+    // A fresh widget was created at the container's top level instead.
+    parent.querySelectorAll(":scope > .widget").length.should.equal(1);
+  });
+
+  it("preserves a save-ignore element inside the head and never syncs one in", function () {
+    let parser = new DOMParser();
+    let document = parser.parseFromString(
+      `<html><head><title>T</title><meta save-ignore name="local"></head><body></body></html>`,
+      "text/html",
+    );
+    let originalHead = document.head;
+    Idiomorph.morph(
+      document,
+      `<html><head><title>T</title><meta save-ignore name="incoming"></head><body></body></html>`,
+    );
+    let marks = originalHead.querySelectorAll("[save-ignore]");
+    marks.length.should.equal(1);
+    marks[0].getAttribute("name").should.equal("local");
+  });
 });

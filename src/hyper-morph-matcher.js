@@ -50,7 +50,7 @@
  *   Bonus:   path segment match  +10   (per matching ancestor, max 4)
  *   Bonus:   text hint match     +20   (element textContent, includes descendants)
  *   Bonus:   unique candidate    +50   (only one element with this signature, if text matches)
- *   Penalty: position drift      -1    (per index difference)
+ *   Penalty: position drift      -1    (per index difference, capped at 19 so drift alone never vetoes a text-confirmed match)
  *
  *   Accept if confidence ≥ 101. Signature alone isn't sufficient, requires additional signal.
  *
@@ -111,11 +111,16 @@ const DEFAULT_CONFIG = {
     textMismatch: 25,  // Penalty when text differs or asymmetric (one has text, other doesn't)
     uniqueCandidate: 50,
     positionPenalty: 1,
+    maxDriftPenalty: 19,  // Cap on total drift penalty. Keep ≤ signature + textMatch − minConfidence: drift tie-breaks among identical candidates, it must never veto a text-confirmed match on its own
     slotMatch: 30,     // Added on top of signature baseline for slot-identity pairs (set to 0 to disable)
   },
 
   // Thresholds (101 requires at least one signal beyond signature match)
   minConfidence: 101,
+
+  // For oversized same-signature buckets, score only the plausible winners:
+  // exact text-hint matches plus a positional window. 0 disables capping.
+  maxScoredCandidates: 16,
 };
 
 // =============================================================================
@@ -227,7 +232,7 @@ function getNthOfType(el) {
  * @returns {boolean}
  */
 function isLandmark(el, config) {
-  if (el.id) return true;
+  if (el.getAttribute?.('id')) return true;
   if (el.getAttribute?.('role')) return true;
   return config.landmarks.includes(el.tagName);
 }
@@ -238,7 +243,8 @@ function isLandmark(el, config) {
  * @returns {string}
  */
 function getLandmarkToken(el) {
-  if (el.id) return `#${el.id}`;
+  const id = el.getAttribute?.('id');
+  if (id) return `#${id}`;
   const role = el.getAttribute?.('role');
   if (role) return `@${role}`;
   return el.tagName;
@@ -428,7 +434,7 @@ function scorePair(newEl, oldEl, config, metaCache, context) {
   // Position drift penalty
   if (typeof newMeta.domIndex === 'number' && typeof oldMeta.domIndex === 'number') {
     const drift = Math.abs(newMeta.domIndex - oldMeta.domIndex);
-    const penalty = Math.min(drift * weights.positionPenalty, 20);
+    const penalty = Math.min(drift * weights.positionPenalty, weights.maxDriftPenalty);
     score -= penalty;
     breakdown.drift = -penalty;
   }
@@ -451,7 +457,7 @@ function scorePair(newEl, oldEl, config, metaCache, context) {
  */
 function findMatch(newEl, oldRoot, config, metaCache, indexCache) {
   // Skip elements with IDs if excludeIds is enabled
-  if (config.excludeIds && newEl.id) {
+  if (config.excludeIds && newEl.getAttribute('id')) {
     return null;
   }
 
@@ -474,7 +480,7 @@ function findMatch(newEl, oldRoot, config, metaCache, indexCache) {
 
   // Filter out ID elements if excludeIds is enabled
   const candidates = config.excludeIds
-    ? allCandidates.filter(el => !el.id)
+    ? allCandidates.filter(el => !el.getAttribute('id'))
     : allCandidates;
 
   if (candidates.length === 0) {
@@ -561,7 +567,7 @@ function computeSlotCandidates(newRoot, oldRoot, config, metaCache) {
       const o = oldKids[i];
 
       if (config.shouldIgnore?.(n) || config.shouldIgnore?.(o)) continue;
-      if (config.excludeIds && (n.id || o.id)) continue;
+      if (config.excludeIds && (n.getAttribute('id') || o.getAttribute('id'))) continue;
       if (n.tagName !== o.tagName) continue;
 
       const newSig = getMeta(n, config, metaCache).signature;
@@ -634,19 +640,87 @@ function computeMatches(oldRoot, newRoot, config, metaCache, indexCache) {
   // Build all candidate pairs with scores
   // Skip elements with IDs if excludeIds is enabled
   const candidates = [];
+
+  // Lazy per-bucket text index: signature -> Map<textHint, Element[]>.
+  // Built once per oversized bucket, shared across all new elements that
+  // hit that bucket.
+  const bucketTextIndexes = new Map();
+
+  /**
+   * Pick the candidates that can plausibly win: every exact text-hint match
+   * (text is the strongest discriminator) plus a positional window around
+   * the new element's document index (the drift penalty makes everything
+   * further away strictly worse). Candidates arrive in document order, so
+   * the window is a binary search plus a slice.
+   * @param {{ signature: string, textHint: string, domIndex: number }} newMeta
+   * @param {Element[]} candidates
+   * @param {number} cap
+   * @returns {Element[]}
+   */
+  function selectCandidateSubset(newMeta, candidates, cap) {
+    const subset = new Set();
+
+    if (newMeta.textHint) {
+      let textIndex = bucketTextIndexes.get(newMeta.signature);
+      if (!textIndex) {
+        textIndex = new Map();
+        for (const el of candidates) {
+          const hint = getMeta(el, config, metaCache).textHint;
+          let arr = textIndex.get(hint);
+          if (!arr) {
+            arr = [];
+            textIndex.set(hint, arr);
+          }
+          arr.push(el);
+        }
+        bucketTextIndexes.set(newMeta.signature, textIndex);
+      }
+      const textMatches = textIndex.get(newMeta.textHint);
+      if (textMatches) {
+        for (let i = 0; i < textMatches.length && i < cap; i++) {
+          subset.add(textMatches[i]);
+        }
+      }
+    }
+
+    let lo = 0;
+    let hi = candidates.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (getMeta(candidates[mid], config, metaCache).domIndex < newMeta.domIndex) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    const start = Math.max(0, Math.min(lo - (cap >> 1), candidates.length - cap));
+    const end = Math.min(start + cap, candidates.length);
+    for (let i = start; i < end; i++) {
+      subset.add(candidates[i]);
+    }
+
+    return [...subset];
+  }
+
   for (const newEl of newElements) {
     if (config.shouldIgnore?.(newEl)) continue;
-    if (config.excludeIds && newEl.id) continue;
+    if (config.excludeIds && newEl.getAttribute('id')) continue;
 
     const newMeta = getMeta(newEl, config, metaCache);
     const allOldCandidates = index.get(newMeta.signature) || [];
 
     // Filter out ID elements if excludeIds is enabled (fixes candidate count inflation)
     const oldCandidates = config.excludeIds
-      ? allOldCandidates.filter(el => !el.id)
+      ? allOldCandidates.filter(el => !el.getAttribute('id'))
       : allOldCandidates;
 
-    for (const oldEl of oldCandidates) {
+    const cap = config.maxScoredCandidates;
+    const scoreTargets =
+      cap && oldCandidates.length > cap
+        ? selectCandidateSubset(newMeta, oldCandidates, cap)
+        : oldCandidates;
+
+    for (const oldEl of scoreTargets) {
       const { score, breakdown } = scorePair(newEl, oldEl, config, metaCache, {
         candidateCount: oldCandidates.length,
       });

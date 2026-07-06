@@ -3,6 +3,8 @@
  * These tests verify fixes for issues found during code review
  */
 
+import { createMatcher } from "/src/hyper-morph-matcher.js";
+
 describe("HyperMatch Edge Cases", function () {
   setup();
 
@@ -313,6 +315,64 @@ describe("HyperMatch Edge Cases", function () {
       Idiomorph.morph(old, "<div><div class='b'>B</div><div class='a'>A</div></div>");
       old.children[0].should.equal(divB);
       old.children[1].should.equal(divA);
+    });
+  });
+
+  describe("Form with a control named id", function () {
+    it("matches a form that contains an input named id", function () {
+      const el = make(
+        `<div><p>lead</p><form class="f"><input name="id"><span>x</span></form></div>`,
+      );
+      getWorkArea().appendChild(el);
+      const form = el.querySelector("form.f");
+      Idiomorph.morph(
+        el,
+        `<div><form class="f"><input name="id"><span>x</span></form><p>lead</p></div>`,
+      );
+      // The form's `id` property is shadowed by its input[name=id]; the matcher
+      // must read getAttribute('id') so the form stays hyper-matchable.
+      el.querySelector("form.f").should.equal(form);
+    });
+  });
+
+  describe("Matcher public API", function () {
+    it("findMatch returns a match object with element, confidence, breakdown", function () {
+      const oldRoot = make(
+        "<div><section class='card'><span>Alpha</span></section></div>",
+      );
+      const newRoot = make(
+        "<div><section class='card'><span>Alpha</span></section></div>",
+      );
+      const matcher = createMatcher();
+      const match = matcher.findMatch(newRoot.querySelector(".card"), oldRoot);
+      (match !== null).should.equal(true);
+      match.element.should.equal(oldRoot.querySelector(".card"));
+      match.confidence.should.be.above(100);
+      match.breakdown.should.be.an("object");
+    });
+
+    it("explain returns matches, score, and breakdown", function () {
+      const oldEl = make("<section class='card'><span>Alpha</span></section>");
+      const newEl = make("<section class='card'><span>Alpha</span></section>");
+      const matcher = createMatcher();
+      const result = matcher.explain(newEl, oldEl);
+      result.matches.should.equal(true);
+      result.score.should.be.a("number");
+      result.breakdown.should.be.an("object");
+    });
+
+    it("invalidate does not throw and reflects new state after a DOM mutation", function () {
+      const oldRoot = make("<div><p class='x'>one</p></div>");
+      const newP = make("<p class='x'>one</p>");
+      const matcher = createMatcher();
+      (matcher.findMatch(newP, oldRoot) !== null).should.equal(true);
+
+      // Mutate the old tree; without invalidate the cached index is stale.
+      oldRoot.querySelector(".x").className = "y";
+      (() => matcher.invalidate(oldRoot)).should.not.throw();
+
+      // The rebuilt index no longer has the .x signature, so nothing matches.
+      should.equal(matcher.findMatch(newP, oldRoot), null);
     });
   });
 });

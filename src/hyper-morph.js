@@ -15,7 +15,7 @@ import { createMatcher } from './hyper-morph-matcher.js';
 /**
  * @typedef {object} ConfigScripts
  *
- * @property {boolean} [handle] - If true, handle scripts specially (execute new ones). Default: false
+ * @property {boolean} [handle] - Whether to execute scripts. New scripts (ones not present before the morph) execute exactly once after the morph completes; scripts that already existed never re-execute (unless shouldReAppend opts them in). Set to false to keep new scripts inert. Default: true
  * @property {'outerHTML' | 'smart'} [matchMode] - How to match scripts. 'outerHTML' (exact match) or 'smart' (normalized URL/content hash). Default: 'outerHTML'
  * @property {function(Element): boolean} [shouldPreserve]
  * @property {function(Element): boolean} [shouldReAppend]
@@ -116,7 +116,7 @@ import { createMatcher } from './hyper-morph-matcher.js';
  * @param {Element | Document} oldNode
  * @param {Element | Node | HTMLCollection | Node[] | string | null} newContent
  * @param {Config} [config]
- * @returns {undefined | Node[]}
+ * @returns {Node[] | Promise<Node[]>}
  */
 
 // base IIFE to define HyperMorph
@@ -155,6 +155,9 @@ var HyperMorph = (function () {
 
   const noOp = () => {};
 
+  const SYNC_IGNORE_SELECTOR =
+    "[save-ignore],[snapshot-remove],[no-snapshot],[no-save],[save-remove],[freeze],[save-freeze]";
+
   /**
    * Check if an element should be ignored during morphing.
    * Sync-ignored nodes are local-instance chrome: never morphed into, removed,
@@ -175,26 +178,16 @@ var HyperMorph = (function () {
   function shouldIgnoreForSync(node) {
     if (!(node instanceof Element)) return false;
 
-    // Local-only chrome markers: save-ignore (explicit) and the snapshot-remove
-    // family (stripped from every snapshot, so receivers must preserve them).
-    if (node.hasAttribute('save-ignore')) return true;
-    if (node.hasAttribute('snapshot-remove')) return true;
-    if (node.hasAttribute('no-snapshot')) return true;
-
-    // Runtime-only regions: stripped from saves (no-save family) or saved as
-    // authored (freeze family). Each instance owns its runtime copy — skipped
-    // symmetrically on both the incoming and the local side.
-    if (node.hasAttribute('no-save')) return true;
-    if (node.hasAttribute('save-remove')) return true;
-    if (node.hasAttribute('freeze')) return true;
-    if (node.hasAttribute('save-freeze')) return true;
+    if (node.matches(SYNC_IGNORE_SELECTOR)) return true;
 
     // Browser extension elements (never sync these)
-    if (node.tagName === 'LINK' || node.tagName === 'SCRIPT') {
-      const url = node.getAttribute('src') || node.getAttribute('href') || '';
-      if (url.startsWith('chrome-extension://') ||
-          url.startsWith('moz-extension://') ||
-          url.startsWith('safari-web-extension://')) {
+    if (node.tagName === "LINK" || node.tagName === "SCRIPT") {
+      const url = node.getAttribute("src") || node.getAttribute("href") || "";
+      if (
+        url.startsWith("chrome-extension://") ||
+        url.startsWith("moz-extension://") ||
+        url.startsWith("safari-web-extension://")
+      ) {
         return true;
       }
     }
@@ -202,10 +195,25 @@ var HyperMorph = (function () {
     return false;
   }
 
+  /**
+   * Subtree-aware variant: true when the node OR ANY ANCESTOR is sync-ignored.
+   * The matcher must use this one — descendants of an ignored region would
+   * otherwise stay in the match index and get moved out of local-only chrome.
+   * @param {Node} node
+   * @returns {boolean}
+   */
+  function shouldIgnoreForSyncDeep(node) {
+    if (!(node instanceof Element)) return false;
+    if (node.closest(SYNC_IGNORE_SELECTOR)) return true;
+    return shouldIgnoreForSync(node);
+  }
+
   // Create a matcher instance for use in morphing. Sync-ignored chrome is
   // excluded from candidacy so incoming content is never matched into a
   // local-only node.
-  const HyperMatchMatcher = createMatcher({ shouldIgnore: shouldIgnoreForSync });
+  const HyperMatchMatcher = createMatcher({
+    shouldIgnore: shouldIgnoreForSyncDeep,
+  });
 
   /**
    * Get a signature for script matching.
@@ -245,6 +253,59 @@ var HyperMorph = (function () {
     }
   }
 
+  const HTML_NS = "http://www.w3.org/1999/xhtml";
+
+  /**
+   * @param {Node} node
+   * @returns {boolean}
+   */
+  function isHtmlScript(node) {
+    return (
+      node instanceof Element &&
+      node.tagName === "SCRIPT" &&
+      node.namespaceURI === HTML_NS
+    );
+  }
+
+  /**
+   * Build an inert copy of a script element. Fragment parsing marks scripts
+   * "already started", so the copy never executes — not when inserted, not when
+   * moved, not when cloned — while still serializing identically. This makes
+   * handleBodyScripts the single place scripts ever execute.
+   * @param {Element} script
+   * @returns {Element}
+   */
+  function makeInertScript(script) {
+    const container = document.createElement("div");
+    container.innerHTML = "<scr" + "ipt></scr" + "ipt>";
+    const inert = /** @type {Element} */ (container.firstChild);
+    for (const attr of script.attributes) {
+      inert.setAttribute(attr.name, attr.value);
+    }
+    inert.textContent = script.textContent;
+    return inert;
+  }
+
+  /**
+   * Replace every HTML script in the subtree (including the root itself) with
+   * an inert copy.
+   * @param {Node} root
+   * @returns {Node} the root, or its inert replacement if root was a script
+   */
+  function neutralizeScripts(root) {
+    if (isHtmlScript(root)) {
+      return makeInertScript(/** @type {Element} */ (root));
+    }
+    if (root instanceof Element) {
+      for (const script of root.querySelectorAll("script")) {
+        if (isHtmlScript(script)) {
+          script.replaceWith(makeInertScript(script));
+        }
+      }
+    }
+    return root;
+  }
+
   /**
    * Default configuration values, updatable by users now
    * @type {ConfigInternal}
@@ -268,7 +329,7 @@ var HyperMorph = (function () {
       afterHeadMorphed: noOp,
     },
     scripts: {
-      handle: false,
+      handle: true,
       matchMode: 'outerHTML',  // 'outerHTML' | 'smart'
       shouldPreserve: (elt) => elt.getAttribute("im-preserve") === "true",
       shouldReAppend: (elt) => elt.getAttribute("im-re-append") === "true",
@@ -309,46 +370,63 @@ var HyperMorph = (function () {
     const ctx = createMorphContext(oldNode, newNode, config);
 
     // Collect old script signatures before morph (for body script handling)
-    const matchMode = ctx.scripts.matchMode;
-    const oldScriptSignatures = new Set(
-      Array.from(oldNode.querySelectorAll("script")).map((s) =>
-        getScriptSignature(s, matchMode)
-      ),
+    const oldScriptSignatures = ctx.scripts.handle
+      ? new Set(
+          Array.from(oldNode.querySelectorAll("script")).map((s) =>
+            getScriptSignature(s, ctx.scripts.matchMode),
+          ),
+        )
+      : null;
+
+    const focusState = captureFocusState(ctx);
+
+    const morphed = withHeadBlocking(
+      ctx,
+      oldNode,
+      newNode,
+      /** @param {MorphContext} ctx */ (ctx) => {
+        if (ctx.morphStyle === "innerHTML") {
+          morphChildren(ctx, oldNode, newNode);
+          return Array.from(oldNode.childNodes);
+        } else {
+          return morphOuterHTML(ctx, oldNode, newNode);
+        }
+      },
     );
 
-    const morphedNodes = saveAndRestoreFocus(ctx, () => {
-      return withHeadBlocking(
-        ctx,
-        oldNode,
-        newNode,
-        /** @param {MorphContext} ctx */ (ctx) => {
-          if (ctx.morphStyle === "innerHTML") {
-            morphChildren(ctx, oldNode, newNode);
-            return Array.from(oldNode.childNodes);
-          } else {
-            return morphOuterHTML(ctx, oldNode, newNode);
-          }
-        },
-      );
-    });
-
-    ctx.pantry.remove();
-
-    // Handle body scripts after morph (execute new scripts, preserve existing)
-    const scriptPromises = handleBodyScripts(oldNode, oldScriptSignatures, ctx);
-
-    // If there are script promises, return a promise that resolves with morphedNodes
-    if (scriptPromises.length > 0) {
-      // If morphedNodes is already a promise, chain them
-      if (morphedNodes instanceof Promise) {
-        return morphedNodes.then((nodes) =>
-          Promise.all(scriptPromises).then(() => nodes),
-        );
+    // Everything after the morph body must wait for it: with head.block the
+    // body runs async, and scripts/pantry/focus all need the post-morph DOM.
+    /**
+     * @param {Node[]} morphedNodes
+     * @returns {Node[] | Promise<Node[]>}
+     */
+    const finish = (morphedNodes) => {
+      if (focusState) restoreFocusState(ctx, focusState);
+      drainPantry(ctx);
+      const scriptPromises = oldScriptSignatures
+        ? handleBodyScripts(morphedNodes, oldScriptSignatures, ctx)
+        : [];
+      if (scriptPromises.length > 0) {
+        return Promise.all(scriptPromises).then(() => morphedNodes);
       }
-      return Promise.all(scriptPromises).then(() => morphedNodes);
-    }
+      return morphedNodes;
+    };
 
-    return morphedNodes;
+    return morphed instanceof Promise ? morphed.then(finish) : finish(morphed);
+  }
+
+  /**
+   * Nodes parked in the pantry but never reclaimed still owe callers their
+   * removal callbacks before being discarded with the pantry.
+   * @param {MorphContext} ctx
+   */
+  function drainPantry(ctx) {
+    for (const node of Array.from(ctx.pantry.childNodes)) {
+      if (ctx.callbacks.beforeNodeRemoved(node) !== false) {
+        ctx.callbacks.afterNodeRemoved(node);
+      }
+    }
+    ctx.pantry.remove();
   }
 
   /**
@@ -375,15 +453,11 @@ var HyperMorph = (function () {
 
   /**
    * @param {MorphContext} ctx
-   * @param {Function} fn
-   * @returns {Promise<Node[]> | Node[]}
+   * @returns {{ element: HTMLInputElement | HTMLTextAreaElement, id: string, selectionStart: number | null, selectionEnd: number | null } | null}
    */
-  function saveAndRestoreFocus(ctx, fn) {
-    if (!ctx.config.restoreFocus) return fn();
-    let activeElement =
-      /** @type {HTMLInputElement|HTMLTextAreaElement|null} */ (
-        document.activeElement
-      );
+  function captureFocusState(ctx) {
+    if (!ctx.config.restoreFocus) return null;
+    const activeElement = document.activeElement;
 
     // don't bother if the active element is not an input or textarea
     if (
@@ -392,25 +466,42 @@ var HyperMorph = (function () {
         activeElement instanceof HTMLTextAreaElement
       )
     ) {
-      return fn();
+      return null;
     }
 
-    const { id: activeElementId, selectionStart, selectionEnd } = activeElement;
+    const { id, selectionStart, selectionEnd } = activeElement;
+    return { element: activeElement, id, selectionStart, selectionEnd };
+  }
 
-    const results = fn();
-
+  /**
+   * @param {MorphContext} ctx
+   * @param {NonNullable<ReturnType<typeof captureFocusState>>} focusState
+   */
+  function restoreFocusState(ctx, focusState) {
+    let activeElement = focusState.element;
     if (
-      activeElementId &&
-      activeElementId !== document.activeElement?.getAttribute("id")
+      focusState.id &&
+      focusState.id !== document.activeElement?.getAttribute("id")
     ) {
-      activeElement = ctx.target.querySelector(`[id="${activeElementId}"]`);
+      activeElement = ctx.target.querySelector(
+        `[id="${CSS.escape(focusState.id)}"]`,
+      );
       activeElement?.focus();
     }
-    if (activeElement && !activeElement.selectionEnd && selectionEnd != null) {
-      activeElement.setSelectionRange(selectionStart, selectionEnd);
+    if (
+      activeElement &&
+      !activeElement.selectionEnd &&
+      focusState.selectionEnd != null
+    ) {
+      try {
+        activeElement.setSelectionRange(
+          focusState.selectionStart,
+          focusState.selectionEnd,
+        );
+      } catch {
+        // selection is unsupported on the element's current input type
+      }
     }
-
-    return results;
   }
 
   const morphChildren = (function () {
@@ -508,7 +599,11 @@ var HyperMorph = (function () {
           // Only use hyper-match for elements without persistent IDs
           if (!ctx.idMap.has(newChild)) {
             const hyperMatch = ctx.hyperMatches.get(newChild);
-            if (hyperMatch && !ctx.idMap.has(hyperMatch)) {
+            if (
+              hyperMatch &&
+              !ctx.idMap.has(hyperMatch) &&
+              !containsMoveTarget(hyperMatch, oldParent)
+            ) {
               // Move the hyper-matched element here (from future or pantry)
               moveBefore(oldParent, hyperMatch, insertionPoint);
               morphNode(hyperMatch, newChild, ctx);
@@ -556,8 +651,10 @@ var HyperMorph = (function () {
       if (ctx.callbacks.beforeNodeAdded(newChild) === false) return null;
       if (ctx.idMap.has(newChild)) {
         // node has children with ids with possible state so create a dummy elt of same type and apply full morph algorithm
-        const newEmptyChild = document.createElement(
-          /** @type {Element} */ (newChild).tagName,
+        const newElt = /** @type {Element} */ (newChild);
+        const newEmptyChild = document.createElementNS(
+          newElt.namespaceURI,
+          newElt.localName,
         );
         oldParent.insertBefore(newEmptyChild, insertionPoint);
         morphNode(newEmptyChild, newChild, ctx);
@@ -565,7 +662,9 @@ var HyperMorph = (function () {
         return newEmptyChild;
       } else {
         // optimisation: no id state to preserve so we can just insert a clone of the newChild and its descendants
-        const newClonedChild = document.importNode(newChild, true); // importNode to not mutate newParent
+        const newClonedChild = neutralizeScripts(
+          document.importNode(newChild, true),
+        ); // importNode to not mutate newParent
         oldParent.insertBefore(newClonedChild, insertionPoint);
         ctx.callbacks.afterNodeAdded(newClonedChild);
         return newClonedChild;
@@ -774,8 +873,8 @@ var HyperMorph = (function () {
           // ctx.target.id unsafe because of form input shadowing
           // ctx.target could be a document fragment which doesn't have `getAttribute`
           (ctx.target.getAttribute?.("id") === id && ctx.target) ||
-            ctx.target.querySelector(`[id="${id}"]`) ||
-            ctx.pantry.querySelector(`[id="${id}"]`)
+            ctx.target.querySelector(`[id="${CSS.escape(id)}"]`) ||
+            ctx.pantry.querySelector(`[id="${CSS.escape(id)}"]`)
         );
       removeElementFromAncestorsIdMaps(target, ctx);
       moveBefore(parentNode, target, after);
@@ -828,6 +927,22 @@ var HyperMorph = (function () {
       } else {
         parentNode.insertBefore(element, after);
       }
+    }
+
+    /**
+     * True when moving `element` into `oldParent` would create a cycle
+     * (element is an ancestor of the destination) — both moveBefore and
+     * insertBefore throw HierarchyRequestError on such moves.
+     * @param {Element} element
+     * @param {Element} oldParent - may be a SlicedParentNode duck-type
+     * @returns {boolean}
+     */
+    function containsMoveTarget(element, oldParent) {
+      const parentEl =
+        oldParent instanceof Element
+          ? oldParent
+          : /** @type {any} */ (oldParent).realParentNode;
+      return !!parentEl && element.contains(parentEl);
     }
 
     return morphChildren;
@@ -955,6 +1070,16 @@ var HyperMorph = (function () {
         syncBooleanAttribute(oldElement, newElement, "checked", ctx);
         syncBooleanAttribute(oldElement, newElement, "disabled", ctx);
 
+        // indeterminate is property-only (invisible to serialization), so only
+        // property mode may sync it — attribute mode would clear local state
+        // on every snapshot morph.
+        if (
+          ctx.formStateSync === "property" &&
+          oldElement.indeterminate !== newElement.indeterminate
+        ) {
+          oldElement.indeterminate = newElement.indeterminate;
+        }
+
         if (ctx.formStateSync === 'property') {
           // Property-driven: the live property is authoritative on both sides.
           // No attribute mutations — leaves serialization concerns to callers.
@@ -993,6 +1118,7 @@ var HyperMorph = (function () {
         if (newValue !== oldValue) {
           oldElement.value = newValue;
         }
+        if (ctx.formStateSync === "property") return;
         if (
           oldElement.firstChild &&
           oldElement.firstChild.nodeValue !== newValue
@@ -1098,18 +1224,30 @@ var HyperMorph = (function () {
         const promises = handleHeadElement(oldHead, newHead, ctx);
         // when head promises resolve, proceed ignoring the head tag
         return Promise.all(promises).then(() => {
-          const newCtx = Object.assign(ctx, {
-            head: {
-              block: false,
-              ignore: true,
-            },
-          });
-          return callback(newCtx);
+          ctx.head.block = false;
+          ctx.head.ignore = true;
+          return callback(ctx);
         });
       }
     }
     // just proceed if we not head blocking
     return callback(ctx);
+  }
+
+  /**
+   * Only elements that reliably fire a load event are awaited: scripts with a
+   * src, and stylesheet links. Other href-bearing head elements (canonical,
+   * alternate, manifest) never fire load and would hang head blocking forever.
+   * @param {Element} elt
+   * @returns {boolean}
+   */
+  function waitsForLoad(elt) {
+    if (elt.tagName === "SCRIPT") return !!elt.getAttribute("src");
+    if (elt.tagName === "LINK") {
+      const rel = (elt.getAttribute("rel") || "").toLowerCase().split(/\s+/);
+      return rel.includes("stylesheet") && !!elt.getAttribute("href");
+    }
+    return false;
   }
 
   /**
@@ -1152,21 +1290,30 @@ var HyperMorph = (function () {
       return el.outerHTML;
     };
 
-    // put all new head elements into a Map by signature
+    // put all new head elements into buckets by signature — a Map<sig, Element[]>
+    // multiset, so duplicate identical elements (e.g. two same preload links)
+    // are each accounted for instead of collapsing.
     // Skip elements with save-ignore - they shouldn't be synced from source
     let srcToNewHeadNodes = new Map();
     for (const newHeadChild of newHead.children) {
       if (shouldIgnoreForSync(newHeadChild)) {
         continue;
       }
-      srcToNewHeadNodes.set(getSignature(newHeadChild), newHeadChild);
+      const sig = getSignature(newHeadChild);
+      let bucket = srcToNewHeadNodes.get(sig);
+      if (!bucket) {
+        bucket = [];
+        srcToNewHeadNodes.set(sig, bucket);
+      }
+      bucket.push(newHeadChild);
     }
 
     // for each elt in the current head
     for (const currentHeadElt of oldHead.children) {
       // If the current head element is in the map
       const sig = getSignature(currentHeadElt);
-      let inNewContent = srcToNewHeadNodes.has(sig);
+      const bucket = srcToNewHeadNodes.get(sig);
+      let inNewContent = !!(bucket && bucket.length);
       let isReAppended = ctx.head.shouldReAppend(currentHeadElt);
       let isPreserved = ctx.head.shouldPreserve(currentHeadElt);
       if (inNewContent || isPreserved) {
@@ -1176,7 +1323,10 @@ var HyperMorph = (function () {
         } else {
           // this element already exists and should not be re-appended, so remove it from
           // the new content map, preserving it in the DOM
-          srcToNewHeadNodes.delete(sig);
+          if (bucket && bucket.length) {
+            bucket.pop();
+            if (!bucket.length) srcToNewHeadNodes.delete(sig);
+          }
           preserved.push(currentHeadElt);
         }
       } else {
@@ -1199,7 +1349,9 @@ var HyperMorph = (function () {
 
     // Push the remaining new head elements in the Map into the
     // nodes to append to the head tag
-    nodesToAppend.push(...srcToNewHeadNodes.values());
+    for (const bucket of srcToNewHeadNodes.values()) {
+      nodesToAppend.push(...bucket);
+    }
 
     let promises = [];
     for (const newNode of nodesToAppend) {
@@ -1209,16 +1361,16 @@ var HyperMorph = (function () {
           .firstChild
       );
       if (ctx.callbacks.beforeNodeAdded(newElt) !== false) {
-        if (
-          ("href" in newElt && newElt.href) ||
-          ("src" in newElt && newElt.src)
-        ) {
+        if (newElt instanceof Element && waitsForLoad(newElt)) {
           /** @type {(result?: any) => void} */ let resolve;
           let promise = new Promise(function (_resolve) {
             resolve = _resolve;
           });
           newElt.addEventListener("load", function () {
             resolve();
+          });
+          newElt.addEventListener("error", function () {
+            resolve(); // resolve on error too — head.block must never hang
           });
           promises.push(promise);
         }
@@ -1246,14 +1398,17 @@ var HyperMorph = (function () {
   }
 
   /**
-   * Handle body scripts after morph - execute new scripts, preserve existing ones
-   * Mirrors head element handling behavior
-   * @param {Element} container - The morphed container
+   * Execute new scripts after a morph. Insertion is inert (see
+   * neutralizeScripts), so this is the single place scripts run: a script that
+   * wasn't in the pre-morph DOM executes exactly once, after the morph
+   * settles. Head scripts are handled by handleHeadElement; sync-ignored
+   * regions are local chrome and are left alone.
+   * @param {Node[]} morphedNodes - The nodes the morph produced
    * @param {Set<string>} oldScriptSignatures - Set of signatures from scripts before morph
    * @param {MorphContext} ctx
    * @returns {Promise<void>[]}
    */
-  function handleBodyScripts(container, oldScriptSignatures, ctx) {
+  function handleBodyScripts(morphedNodes, oldScriptSignatures, ctx) {
     if (!ctx.scripts.handle) return [];
 
     const added = [];
@@ -1262,9 +1417,18 @@ var HyperMorph = (function () {
     const scriptsToExecute = [];
 
     const matchMode = ctx.scripts.matchMode;
-    const currentScripts = Array.from(container.querySelectorAll("script"));
+    const currentScripts = [];
+    for (const node of morphedNodes) {
+      if (!(node instanceof Element)) continue;
+      if (isHtmlScript(node)) currentScripts.push(node);
+      for (const script of node.querySelectorAll("script")) {
+        if (isHtmlScript(script)) currentScripts.push(script);
+      }
+    }
 
     for (const script of currentScripts) {
+      if (script.closest("head")) continue;
+      if (shouldIgnoreForSyncDeep(script)) continue;
       const signature = getScriptSignature(script, matchMode);
       const existedBefore = oldScriptSignatures.has(signature);
       const isPreserved = ctx.scripts.shouldPreserve(script);
@@ -1272,11 +1436,9 @@ var HyperMorph = (function () {
 
       if (existedBefore || isPreserved) {
         if (isReAppended) {
-          // Remove and re-execute
           removed.push(script);
           scriptsToExecute.push(script);
         } else {
-          // Keep as-is, already in DOM from morph
           preserved.push(script);
         }
       } else {
@@ -1285,29 +1447,19 @@ var HyperMorph = (function () {
       }
     }
 
-    // Check for scripts that were removed (in old but not in current)
-    // These were already removed by the morph, just track them
-    for (const oldSig of oldScriptSignatures) {
-      const stillExists = currentScripts.some((s) => s.outerHTML === oldSig);
-      if (!stillExists) {
-        // Script was removed - already handled by morph
-        // We could add tracking here if needed
-      }
-    }
-
     const promises = [];
 
-    // Execute new/re-appended scripts by replacing with executable clones
     for (const script of scriptsToExecute) {
       if (ctx.callbacks.beforeNodeAdded(script) === false) continue;
 
-      // Create executable script via createContextualFragment
-      const executableScript = /** @type {HTMLScriptElement} */ (
-        document.createRange().createContextualFragment(script.outerHTML)
-          .firstChild
-      );
+      // A fresh createElement copy has no "already started" flag, so
+      // inserting it executes it (inline) or loads it (src).
+      const executableScript = document.createElement("script");
+      for (const attr of script.attributes) {
+        executableScript.setAttribute(attr.name, attr.value);
+      }
+      executableScript.textContent = script.textContent;
 
-      // Wait for external scripts to load
       if (executableScript.src) {
         /** @type {(result?: any) => void} */ let resolve;
         const promise = new Promise(function (_resolve) {
@@ -1322,13 +1474,12 @@ var HyperMorph = (function () {
         promises.push(promise);
       }
 
-      // Replace the non-executable script with the executable one
       script.replaceWith(executableScript);
       ctx.callbacks.afterNodeAdded(executableScript);
       added.push(executableScript);
     }
 
-    ctx.scripts.afterScriptsHandled(container, {
+    ctx.scripts.afterScriptsHandled(ctx.target, {
       added: added,
       kept: preserved,
       removed: removed,
@@ -1421,7 +1572,7 @@ var HyperMorph = (function () {
       const mergedConfig = mergeDefaults(config);
       const morphStyle = mergedConfig.morphStyle || "outerHTML";
       if (!["innerHTML", "outerHTML"].includes(morphStyle)) {
-        throw `Do not understand how to morph style ${morphStyle}`;
+        throw new Error(`Do not understand how to morph style ${morphStyle}`);
       }
 
       return {
@@ -1591,19 +1742,21 @@ var HyperMorph = (function () {
 
       /** @type {Map<string, string>} */
       let oldIdTagNameMap = new Map();
-      for (const { id, tagName } of oldIdElements) {
+      for (const elt of oldIdElements) {
+        const id = /** @type {String} */ (elt.getAttribute("id"));
         if (oldIdTagNameMap.has(id)) {
           duplicateIds.add(id);
         } else {
-          oldIdTagNameMap.set(id, tagName);
+          oldIdTagNameMap.set(id, elt.tagName);
         }
       }
 
       let persistentIds = new Set();
-      for (const { id, tagName } of newIdElements) {
+      for (const elt of newIdElements) {
+        const id = /** @type {String} */ (elt.getAttribute("id"));
         if (persistentIds.has(id)) {
           duplicateIds.add(id);
-        } else if (oldIdTagNameMap.get(id) === tagName) {
+        } else if (oldIdTagNameMap.get(id) === elt.tagName) {
           persistentIds.add(id);
         }
         // skip if tag types mismatch because its not possible to morph one tag into another
@@ -1753,6 +1906,33 @@ var HyperMorph = (function () {
     }
 
     /**
+     * Strip the regions where a literal </body>-like token can appear as raw
+     * text — comments, RCDATA/RAWTEXT elements (script/style/textarea/title),
+     * and svg — so full-document detection only sees real structure. The svg
+     * strip loops until stable so nested svgs collapse fully. Open-tag
+     * matching is quoted-attribute-aware.
+     * @param {string} html
+     * @returns {string}
+     */
+    function sanitizeForDetection(html) {
+      const openTag = (name) => `<${name}(?:\\s(?:[^>"']|"[^"]*"|'[^']*')*)?>`;
+      let out = html.replace(/<!--[\s\S]*?-->/g, "");
+      for (const tag of ["script", "style", "textarea", "title"]) {
+        out = out.replace(
+          new RegExp(`${openTag(tag)}[\\s\\S]*?</${tag}\\s*>`, "gi"),
+          "",
+        );
+      }
+      const svgRe = new RegExp(`${openTag("svg")}[\\s\\S]*?</svg\\s*>`, "gi");
+      let prev;
+      do {
+        prev = out;
+        out = out.replace(svgRe, "");
+      } while (out !== prev);
+      return out;
+    }
+
+    /**
      *
      * @param {string} newContent
      * @returns {Node | null | DocumentFragment}
@@ -1760,21 +1940,17 @@ var HyperMorph = (function () {
     function parseContent(newContent) {
       let parser = new DOMParser();
 
-      // remove svgs to avoid false-positive matches on head, etc.
-      let contentWithSvgsRemoved = newContent.replace(
-        /<svg(\s[^>]*>|>)([\s\S]*?)<\/svg>/gim,
-        "",
-      );
+      let detectionContent = sanitizeForDetection(newContent);
 
       // if the newContent contains a html, head or body tag, we can simply parse it w/o wrapping
       if (
-        contentWithSvgsRemoved.match(/<\/html>/) ||
-        contentWithSvgsRemoved.match(/<\/head>/) ||
-        contentWithSvgsRemoved.match(/<\/body>/)
+        detectionContent.match(/<\/html>/) ||
+        detectionContent.match(/<\/head>/) ||
+        detectionContent.match(/<\/body>/)
       ) {
         let content = parser.parseFromString(newContent, "text/html");
         // if it is a full HTML document, return the document itself as the parent container
-        if (contentWithSvgsRemoved.match(/<\/html>/)) {
+        if (detectionContent.match(/<\/html>/)) {
           generatedByHyperMorph.add(content);
           return content;
         } else {

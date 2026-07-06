@@ -806,4 +806,55 @@ describe("Option to forcibly restore focus after morph", function () {
       assertNoFocus("focused");
     });
   });
+
+  describe("edge cases", function () {
+    it("restores focus when the focused element's id contains a double quote", function () {
+      getWorkArea().innerHTML = `
+        <div>
+          <input type="text" id="other">
+          <div>
+            <input type="text" id='we"ird' value="abc">
+          </div>
+        </div>
+      `;
+      // Force the insertBefore path so the input is reparented and refocused
+      // via the id selector, which must be CSS.escaped to survive the quote.
+      for (const elt of getWorkArea().querySelectorAll("input")) {
+        elt.parentElement.moveBefore = undefined;
+      }
+      const focused = document.getElementById('we"ird');
+      focused.focus();
+      focused.setSelectionRange(1, 2);
+
+      const finalSrc = `
+        <div>
+          <input type="text" id="other">
+          <input type="text" id='we"ird' value="abc">
+        </div>
+      `;
+      Idiomorph.morph(getWorkArea(), finalSrc, { morphStyle: "innerHTML" });
+
+      document.activeElement.should.equal(document.getElementById('we"ird'));
+    });
+
+    it("does not throw when a focused text input becomes type=number during the morph", function () {
+      getWorkArea().innerHTML = `
+        <div>
+          <input type="text" id="focused" value="123">
+          <input type="text" id="other">
+        </div>
+      `;
+      setFocusAndSelection("focused", "2");
+
+      const finalSrc = `
+        <div>
+          <input type="number" id="other">
+          <input type="number" id="focused" value="123">
+        </div>
+      `;
+      (() => {
+        Idiomorph.morph(getWorkArea(), finalSrc, { morphStyle: "innerHTML" });
+      }).should.not.throw();
+    });
+  });
 });

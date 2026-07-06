@@ -277,4 +277,52 @@ describe("Tests to ensure that the head tag merging works correctly", function (
       scripts[0].getAttribute("src").should.equal("/app.js?v=2");
     });
   });
+
+  describe("head.block load handling and duplicates", function () {
+    it("head.block resolves even when a new stylesheet fails to load", async function () {
+      const result = Idiomorph.morph(
+        window.document,
+        `<head><link rel="stylesheet" href="/definitely-missing-404.css"></head>${window.document.body.outerHTML}`,
+        { morphStyle: "innerHTML", head: { block: true, style: "append" } },
+      );
+      // Must resolve via the error listener rather than hanging forever.
+      await result;
+      window.document.head
+        .querySelectorAll('link[href$="404.css"]')
+        .forEach((l) => l.remove());
+    });
+
+    it("head.block does not wait on non-loading link elements", async function () {
+      let parser = new DOMParser();
+      let document = parser.parseFromString(
+        "<html><head></head><body></body></html>",
+        "text/html",
+      );
+      const result = Idiomorph.morph(
+        document,
+        `<html><head><link rel="canonical" href="https://example.com/"></head><body></body></html>`,
+        { head: { block: true } },
+      );
+      // A canonical link never fires load; the morph must still complete.
+      await result;
+      (
+        document.head.querySelector('link[rel="canonical"]') !== null
+      ).should.equal(true);
+    });
+
+    it("keeps duplicate identical head elements", function () {
+      let parser = new DOMParser();
+      let document = parser.parseFromString(
+        "<html><head></head><body></body></html>",
+        "text/html",
+      );
+      Idiomorph.morph(
+        document,
+        `<html><head><link rel="preload" as="script" href="/a.js"><link rel="preload" as="script" href="/a.js"></head><body></body></html>`,
+      );
+      document.head
+        .querySelectorAll('link[rel="preload"]')
+        .length.should.equal(2);
+    });
+  });
 });

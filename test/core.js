@@ -606,4 +606,55 @@ describe("Core morphing tests", function () {
     // included in the persistent ID set or it will pantry the id'ed node in error
     initial.outerHTML.should.equal("<span>Bar</span>");
   });
+
+  it("morphs id'd elements whose id contains a double quote without losing them", function () {
+    const el = make(
+      `<div><section><p id='we"ird'>x</p></section><footer>f</footer></div>`,
+    );
+    getWorkArea().appendChild(el);
+    (() => {
+      Idiomorph.morph(el, `<div><footer>f</footer><p id='we"ird'>x</p></div>`);
+    }).should.not.throw();
+    const p = el.querySelector("p");
+    (p !== null).should.equal(true);
+    p.getAttribute("id").should.equal('we"ird');
+    p.textContent.should.equal("x");
+  });
+
+  it("creates SVG subtrees containing persistent ids in the SVG namespace", function () {
+    const el = make(
+      `<div><aside><svg width="1"><circle id="c" r="1"></circle></svg></aside><p>keep</p></div>`,
+    );
+    getWorkArea().appendChild(el);
+    Idiomorph.morph(
+      el,
+      `<div><p>keep</p><svg width="1"><circle id="c" r="1"></circle></svg></div>`,
+    );
+    const svg = el.querySelector("svg");
+    (svg !== null).should.equal(true);
+    svg.namespaceURI.should.equal("http://www.w3.org/2000/svg");
+    const circle = el.querySelector("circle");
+    (circle !== null).should.equal(true);
+    circle.getAttribute("id").should.equal("c");
+    circle.namespaceURI.should.equal("http://www.w3.org/2000/svg");
+  });
+
+  it("treats a fragment whose textarea mentions </body> as a fragment", function () {
+    const el = make("<div><span>x</span></div>");
+    getWorkArea().appendChild(el);
+    Idiomorph.morph(el, "<div><textarea>literal </body> text</textarea></div>");
+    el.tagName.should.equal("DIV");
+    el.querySelector("textarea").value.should.equal("literal </body> text");
+  });
+
+  it("handles nested svg content in strings", function () {
+    const el = make("<div>old</div>");
+    getWorkArea().appendChild(el);
+    Idiomorph.morph(
+      el,
+      `<div><svg><g><svg><circle r="1"></circle></svg></g></svg><textarea>after </body> text</textarea></div>`,
+    );
+    (el.querySelector("svg svg circle") !== null).should.equal(true);
+    el.querySelector("textarea").value.should.equal("after </body> text");
+  });
 });

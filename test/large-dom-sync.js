@@ -988,3 +988,88 @@ describe("Large DOM Sync: DOM Node Preservation", function () {
     });
   });
 });
+
+
+describe("Large DOM Sync: Oversized same-signature buckets", function () {
+  setup();
+
+  it("matches correctly and quickly with 1500 same-signature rows", function () {
+    const N = 1500;
+    const rows = Array.from(
+      { length: N },
+      (_, i) => `<li class="item">unique text ${i}</li>`,
+    ).join("");
+    const initial = make(`<ul>${rows}</ul>`);
+    getWorkArea().appendChild(initial);
+
+    // Stamp identity on a sample of rows that stay put (they only shift by 3,
+    // which keeps them above the confidence threshold via their unique text).
+    const sampleIdx = [3, 100, 750, 1400, 1499];
+    const stamped = {};
+    const lis = initial.querySelectorAll("li");
+    for (const i of sampleIdx) {
+      lis[i].__probe = `probe-${i}`;
+      stamped[i] = lis[i];
+    }
+
+    // New order: move the first 3 rows to the end and append 5 brand-new rows.
+    const texts = Array.from({ length: N }, (_, i) => `unique text ${i}`);
+    const reordered = texts.slice(3).concat(texts.slice(0, 3));
+    const extra = Array.from({ length: 5 }, (_, i) => `brand new ${i}`);
+    const newRows = reordered
+      .concat(extra)
+      .map((t) => `<li class="item">${t}</li>`)
+      .join("");
+    const final = make(`<ul>${newRows}</ul>`);
+
+    const start = performance.now();
+    Idiomorph.morph(initial, final);
+    const duration = performance.now() - start;
+
+    for (const i of sampleIdx) {
+      const match = Array.from(initial.querySelectorAll("li")).find(
+        (li) => li.textContent === `unique text ${i}`,
+      );
+      (match === stamped[i]).should.equal(true);
+      match.__probe.should.equal(`probe-${i}`);
+    }
+    initial.querySelectorAll("li").length.should.equal(N + 5);
+    duration.should.be.below(3000);
+  });
+
+  it("preserves identity across reorders larger than the drift cap", function () {
+    // Rows shift by 30 positions — far past maxDriftPenalty (19). The capped
+    // drift must never cancel a text-confirmed match: signature (100) +
+    // textMatch (20) − cap (19) = 101 = minConfidence.
+    const N = 80;
+    const texts = Array.from({ length: N }, (_, i) => `unique text ${i}`);
+    const initial = make(
+      `<ul>${texts.map((t) => `<li class="item">${t}</li>`).join("")}</ul>`,
+    );
+    getWorkArea().appendChild(initial);
+
+    const sampleIdx = [0, 15, 29, 30, 55, 79];
+    const stamped = {};
+    const lis = initial.querySelectorAll("li");
+    for (const i of sampleIdx) {
+      lis[i].__probe = `probe-${i}`;
+      stamped[i] = lis[i];
+    }
+
+    const reordered = texts.slice(30).concat(texts.slice(0, 30));
+    const final = make(
+      `<ul>${reordered.map((t) => `<li class="item">${t}</li>`).join("")}</ul>`,
+    );
+
+    Idiomorph.morph(initial, final);
+
+    for (const i of sampleIdx) {
+      const match = Array.from(initial.querySelectorAll("li")).find(
+        (li) => li.textContent === `unique text ${i}`,
+      );
+      (match === stamped[i]).should.equal(true);
+      match.__probe.should.equal(`probe-${i}`);
+    }
+    initial.querySelectorAll("li").length.should.equal(N);
+  });
+});
