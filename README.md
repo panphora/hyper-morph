@@ -169,20 +169,23 @@ HyperMorph.morph(document, newHtml, {
 
 ### Scripts Configuration
 
-Control how `<script>` elements in body are handled. **Disabled by default** to preserve backwards compatibility.
+Control how `<script>` elements in body are handled. **Enabled by default**: new scripts execute exactly once after the morph settles, so synced components from another author stay functional. Insertion itself is inert — script execution happens in exactly one place, gated by this config.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `handle` | `boolean` | `false` | Enable special script handling |
+| `handle` | `boolean` | `true` | Execute new scripts exactly once. Set `false` to keep new scripts inert (markup preserved, never executed) |
+| `matchMode` | `'outerHTML' \| 'smart'` | `'outerHTML'` | How scripts are matched: exact `outerHTML`, or normalized src URL / inline content hash |
 | `shouldPreserve` | `(el) => boolean` | Check `im-preserve` | Keep script even if not in new content |
 | `shouldReAppend` | `(el) => boolean` | Check `im-re-append` | Force re-execution of existing script |
 | `shouldRemove` | `(el) => boolean` | `() => {}` | Return `false` to prevent removal |
 | `afterScriptsHandled` | `(container, {added, kept, removed}) => void` | noop | Called after script processing |
 
-**Script behavior when `handle: true`:**
-- **Same script exists** (matching `outerHTML`) → Preserved, not re-executed
-- **New script** → Executed via `createContextualFragment`
-- **External script** (`src`) → Waits for load event before resolving
+**Script behavior when `handle: true` (default):**
+- **Same script exists** (matching signature) → Preserved, not re-executed
+- **New script** → Executed exactly once, after the morph completes
+- **External script** (`src`) → Waits for load (or error) before the returned promise resolves
+- **Head scripts** → Handled by head merging, not this path
+- **Sync-ignored regions** (`save-ignore` etc.) → Left alone entirely
 
 ```javascript
 HyperMorph.morph(el, html, {
@@ -243,7 +246,7 @@ Elements with `id` attributes are excluded from HyperMorph and handled by ID-bas
 | Text match | +20 | Element's text content matches |
 | Text mismatch | -25 | Text differs or one has text, other doesn't |
 | Unique candidate | +50 | Only one element with this signature (when text matches) |
-| Position drift | -1 per | Index difference between old and new position |
+| Position drift | -1 per | Index difference between old and new position, capped at 19 so drift alone never vetoes a text-confirmed match |
 
 **Acceptance threshold:** ≥ 101
 Signature match alone (100) isn't sufficient. Requires at least one additional signal.
@@ -297,8 +300,10 @@ const matcher = createMatcher({
     textMismatch: 25,
     uniqueCandidate: 50,
     positionPenalty: 1,
+    maxDriftPenalty: 19,
   },
   minConfidence: 101,
+  maxScoredCandidates: 16,
 });
 ```
 
