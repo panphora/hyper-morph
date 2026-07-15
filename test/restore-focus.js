@@ -342,7 +342,7 @@ describe("Option to forcibly restore focus after morph", function () {
       assertFocusAndSelection("focused", "b");
     });
 
-    it("retains focus but loses selection state when elements are moved to different levels of the DOM", function () {
+    it("retains focus and selection state when elements are moved to different levels of the DOM", function () {
       getWorkArea().innerHTML = `
         <div>
           <input type="text" id="other">
@@ -366,13 +366,13 @@ describe("Option to forcibly restore focus after morph", function () {
 
       getWorkArea().innerHTML.should.equal(finalSrc);
       if (document.moveBefore) {
-        assertFocusAndSelection("focused", "");
+        assertFocusAndSelection("focused", "b");
       } else {
         assertNoFocus();
       }
     });
 
-    it("retains focus but loses selection state when elements are moved between different containers", function () {
+    it("retains focus and selection state when elements are moved between different containers", function () {
       getWorkArea().innerHTML = `
         <div>
           <div id="left">
@@ -402,7 +402,7 @@ describe("Option to forcibly restore focus after morph", function () {
 
       getWorkArea().innerHTML.should.equal(finalSrc);
       if (document.moveBefore) {
-        assertFocusAndSelection("focused", "");
+        assertFocusAndSelection("focused", "b");
       } else {
         assertNoFocus();
       }
@@ -465,7 +465,7 @@ describe("Option to forcibly restore focus after morph", function () {
       assertFocusAndSelection("focused", "b");
     });
 
-    it("retains focus but loses selection state when elements are moved to different levels of the DOM", function () {
+    it("retains focus and selection state when elements are moved to different levels of the DOM", function () {
       getWorkArea().innerHTML = `
         <div>
           <input type="text" id="other">
@@ -489,13 +489,13 @@ describe("Option to forcibly restore focus after morph", function () {
 
       getWorkArea().innerHTML.should.equal(finalSrc);
       if (document.moveBefore) {
-        assertFocusAndSelection("focused", "");
+        assertFocusAndSelection("focused", "b");
       } else {
         assertNoFocus();
       }
     });
 
-    it("retains focus but loses selection state when elements are moved between different containers", function () {
+    it("retains focus and selection state when elements are moved between different containers", function () {
       getWorkArea().innerHTML = `
         <div>
           <div id="left">
@@ -525,7 +525,7 @@ describe("Option to forcibly restore focus after morph", function () {
 
       getWorkArea().innerHTML.should.equal(finalSrc);
       if (document.moveBefore) {
-        assertFocusAndSelection("focused", "");
+        assertFocusAndSelection("focused", "b");
       } else {
         assertNoFocus();
       }
