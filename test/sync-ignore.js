@@ -81,6 +81,16 @@ describe("Sync-ignored chrome preservation", function () {
     parent.querySelector("p").textContent.should.equal("new");
   });
 
+  it("preserves a local clay=\"no-save\" region when morphing saved HTML that lacks it", function () {
+    let parent = morphInner(
+      `<div><aside clay="no-save">RUNTIME</aside><p>old</p></div>`,
+      `<p>new</p>`,
+    );
+    has(parent, '[clay~="no-save"]').should.equal(true);
+    parent.querySelector('[clay~="no-save"]').textContent.should.equal("RUNTIME");
+    parent.querySelector("p").textContent.should.equal("new");
+  });
+
   it("honors the save-remove legacy alias the same as no-save", function () {
     let parent = morphInner(
       `<div><aside save-remove>RUNTIME</aside><p>old</p></div>`,

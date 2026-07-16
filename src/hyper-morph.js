@@ -156,7 +156,7 @@ var HyperMorph = (function () {
   const noOp = () => {};
 
   const SYNC_IGNORE_SELECTOR =
-    "[save-ignore],[snapshot-remove],[no-snapshot],[no-save],[save-remove],[freeze],[save-freeze]";
+    "[save-ignore],[snapshot-remove],[no-snapshot],[no-save],[save-remove],[freeze],[save-freeze],[clay~=\"no-save\"],[clay~=\"no-snapshot\"],[clay~=\"freeze\"]";
 
   /**
    * Check if an element should be ignored during morphing.
