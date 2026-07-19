@@ -1,4 +1,9 @@
-import { createMatcher } from './hyper-morph-matcher.js';
+import { createMatcher } from "./hyper-morph-matcher.js";
+import { mergeJson, mergeScriptText } from "./hyper-morph-json-merge.js";
+import {
+  parseJsonRelaxed,
+  parseRulesRelaxed,
+} from "./hyper-morph-json-parse.js";
 
 /**
  * @typedef {object} ConfigHead
@@ -13,10 +18,21 @@ import { createMatcher } from './hyper-morph-matcher.js';
  */
 
 /**
+ * @typedef {object} MergeTagRecognizer
+ *
+ * @property {function(Element): boolean} match - Whether this recognizer handles the script element.
+ * @property {function(Element): (string|null|undefined)} identity - Stable identity pairing the tag across base, local, and incoming HTML. null/undefined/empty disables merging for the tag.
+ * @property {function(string): any} [parse] - Parser for this tag family's JSON dialect. Must throw on invalid input. Default: JSON.parse
+ */
+
+/**
  * @typedef {object} ConfigScripts
  *
  * @property {boolean} [handle] - Whether to execute scripts. New scripts (ones not present before the morph) execute exactly once after the morph completes; scripts that already existed never re-execute (unless shouldReAppend opts them in). Set to false to keep new scripts inert. Default: true
  * @property {'outerHTML' | 'smart'} [matchMode] - How to match scripts. 'outerHTML' (exact match) or 'smart' (normalized URL/content hash). Default: 'outerHTML'
+ * @property {boolean} [merge] - Set false to disable script-tag merging entirely for this morph (deliberate rewinds/restores must overwrite, not merge). Default: true
+ * @property {string | Element | Document | null} [mergeBase] - Last-synced HTML (string, Element, or Document): the base version for three-way merging of mergeable script tags. Without it, merges degrade to two-way (local additions survive, deletions don't propagate). Default: null
+ * @property {MergeTagRecognizer[]} [mergeTags] - Extra recognizers for mergeable JSON script tags, checked after the built-in recognizer for the `merge` attribute.
  * @property {function(Element): boolean} [shouldPreserve]
  * @property {function(Element): boolean} [shouldReAppend]
  * @property {function(Element): boolean} [shouldRemove]
@@ -72,6 +88,9 @@ import { createMatcher } from './hyper-morph-matcher.js';
  *
  * @property {boolean} handle
  * @property {'outerHTML' | 'smart'} matchMode
+ * @property {boolean} [merge]
+ * @property {string | Element | Document | null} [mergeBase]
+ * @property {MergeTagRecognizer[]} [mergeTags]
  * @property {(function(Element): boolean) | NoOp} shouldPreserve
  * @property {(function(Element): boolean) | NoOp} shouldReAppend
  * @property {(function(Element): boolean) | NoOp} shouldRemove
@@ -143,6 +162,7 @@ var HyperMorph = (function () {
    * @property {ConfigInternal['callbacks']} callbacks
    * @property {ConfigInternal['head']} head
    * @property {ConfigInternal['scripts']} scripts
+   * @property {MergeContext | null} merge - mergeable-script pairing/base state, null when neither tree has a mergeable script
    * @property {HTMLDivElement} pantry
    * @property {Element[]} activeElementAndParents
    * @property {Map<Element, Element>} hyperMatches - hyper-match results (newEl -> oldEl)
@@ -156,7 +176,7 @@ var HyperMorph = (function () {
   const noOp = () => {};
 
   const SYNC_IGNORE_SELECTOR =
-    "[save-ignore],[snapshot-remove],[no-snapshot],[no-save],[save-remove],[freeze],[save-freeze],[clay~=\"no-save\"],[clay~=\"no-snapshot\"],[clay~=\"freeze\"]";
+    '[save-ignore],[snapshot-remove],[no-snapshot],[no-save],[save-remove],[freeze],[save-freeze],[clay~="no-save"],[clay~="no-snapshot"],[clay~="freeze"]';
 
   /**
    * Check if an element should be ignored during morphing.
@@ -217,19 +237,29 @@ var HyperMorph = (function () {
 
   /**
    * Get a signature for script matching.
+   * - mergeable scripts (both modes): identity-based, so a content change
+   *   never reads as a new script — this is what stops the clone-swap and
+   *   re-execution churn for merge tags
    * - 'outerHTML' mode: exact outerHTML string (default, backward compatible)
    * - 'smart' mode: normalized src URL (external) or content hash (inline)
    * @param {Element} script
    * @param {'outerHTML' | 'smart'} [mode='outerHTML']
+   * @param {MergeContext | null} [merge]
    * @returns {string}
    */
-  function getScriptSignature(script, mode) {
-    if (mode !== 'smart') {
+  function getScriptSignature(script, mode, merge) {
+    if (merge) {
+      const found = merge.identityOf(script);
+      if (found && !merge.disabled.has(found.key)) {
+        return "hm-merge:" + found.key;
+      }
+    }
+    if (mode !== "smart") {
       return script.outerHTML;
     }
 
-    const src = script.getAttribute('src');
-    const type = script.getAttribute('type') || 'text/javascript';
+    const src = script.getAttribute("src");
+    const type = script.getAttribute("type") || "text/javascript";
 
     if (src) {
       // External script: normalize URL (preserve query, strip hash).
@@ -307,6 +337,199 @@ var HyperMorph = (function () {
   }
 
   /**
+   * True for script types whose content is JSON data, never executable code.
+   * Merging is restricted to these: merging JS text is meaningless, and the
+   * merge path must never interact with script execution.
+   * @param {Element} script
+   * @returns {boolean}
+   */
+  function isJsonScript(script) {
+    const type = (script.getAttribute("type") || "")
+      .split(";")[0]
+      .trim()
+      .toLowerCase();
+    return type === "application/json" || type.endsWith("+json");
+  }
+
+  /**
+   * Built-in recognizer: `merge="<name>"` opts a JSON script tag into
+   * three-way merging; the attribute value is its identity.
+   * @type {MergeTagRecognizer}
+   */
+  const builtinMergeRecognizer = {
+    match: (el) => el.hasAttribute("merge"),
+    identity: (el) => el.getAttribute("merge"),
+  };
+
+  /**
+   * @typedef {object} MergeIdentity
+   * @property {string} key - recognizer-namespaced identity used for pairing/signatures
+   * @property {string} raw - the author-visible identity (for warnings)
+   * @property {MergeTagRecognizer} recognizer
+   */
+
+  /**
+   * @typedef {object} MergeContext
+   * @property {function(Node): (MergeIdentity | null)} identityOf
+   * @property {Set<string>} disabled - identities that appear more than once in a tree (merge off, today's behavior)
+   * @property {Map<string, Element>} oldByKey
+   * @property {Map<string, Element>} newByKey
+   * @property {function(): Map<string, string>} baseTexts - lazy: parses mergeBase on first merged pair
+   */
+
+  /**
+   * Build the merge context for mergeable script tags (`[merge]` plus any
+   * scripts.mergeTags recognizers). Returns null when neither tree contains
+   * one, so the common case costs a single scan and never parses mergeBase.
+   * @param {Element} oldNode
+   * @param {Element} newContent - normalized parent (possibly a SlicedParentNode duck-type)
+   * @param {ConfigScriptsInternal} scriptsConfig
+   * @returns {MergeContext | null}
+   */
+  function createMergeContext(oldNode, newContent, scriptsConfig) {
+    if (scriptsConfig.merge === false) return null;
+    const recognizers = [
+      builtinMergeRecognizer,
+      ...(scriptsConfig.mergeTags || []),
+    ];
+    const identityCache = new WeakMap();
+
+    /** @type {MergeContext['identityOf']} */
+    const identityOf = (node) => {
+      if (identityCache.has(node)) return identityCache.get(node);
+      let found = null;
+      if (
+        isHtmlScript(node) &&
+        !(/** @type {Element} */ (node).getAttribute("src")) &&
+        !shouldIgnoreForSyncDeep(node)
+      ) {
+        const el = /** @type {Element} */ (node);
+        for (let i = 0; i < recognizers.length; i++) {
+          if (!recognizers[i].match(el)) continue;
+          if (!isJsonScript(el)) {
+            console.warn(
+              "[hyper-morph] merge ignored: script type is not JSON",
+              el,
+            );
+          } else {
+            const raw = recognizers[i].identity(el);
+            if (raw != null && raw !== "") {
+              found = { key: i + ":" + raw, raw, recognizer: recognizers[i] };
+            }
+          }
+          break;
+        }
+      }
+      identityCache.set(node, found);
+      return found;
+    };
+
+    const disabled = new Set();
+    /** @param {Element} root */
+    const collect = (root) => {
+      const map = new Map();
+      /** @param {Element} el */
+      const visit = (el) => {
+        const found = identityOf(el);
+        if (!found) return;
+        if (map.has(found.key)) {
+          disabled.add(found.key);
+          console.warn(
+            `[hyper-morph] merge disabled for duplicate identity "${found.raw}"`,
+          );
+        } else {
+          map.set(found.key, el);
+        }
+      };
+      if (isHtmlScript(root)) visit(root);
+      for (const el of root.querySelectorAll("script")) visit(el);
+      return map;
+    };
+    const oldByKey = collect(oldNode);
+    const newByKey = collect(
+      // @ts-ignore - unwrap a SlicedParentNode to its real single-node root
+      /** @type {Element} */ (newContent.__hyperMorphRoot || newContent),
+    );
+
+    if (oldByKey.size === 0 && newByKey.size === 0) return null;
+
+    /** @type {Map<string, string> | null} */
+    let baseTextsMap = null;
+    const baseTexts = () => {
+      if (baseTextsMap) return baseTextsMap;
+      baseTextsMap = new Map();
+      const mergeBase = scriptsConfig.mergeBase;
+      if (!mergeBase) return baseTextsMap;
+      /** @type {Element} */
+      let baseRoot;
+      if (typeof mergeBase === "string") {
+        baseRoot = new DOMParser().parseFromString(
+          mergeBase,
+          "text/html",
+        ).documentElement;
+      } else if (mergeBase instanceof Document) {
+        baseRoot = mergeBase.documentElement;
+      } else {
+        baseRoot = mergeBase;
+      }
+      /** @param {Element} el */
+      const record = (el) => {
+        const found = identityOf(el);
+        if (found && !baseTextsMap.has(found.key)) {
+          baseTextsMap.set(found.key, el.textContent);
+        }
+      };
+      if (isHtmlScript(baseRoot)) record(baseRoot);
+      for (const el of baseRoot.querySelectorAll("script")) record(el);
+      return baseTextsMap;
+    };
+
+    return { identityOf, disabled, oldByKey, newByKey, baseTexts };
+  }
+
+  /**
+   * If old and new are the same mergeable script (same recognizer identity),
+   * merge their JSON text three-way against the base version and write the
+   * result into the old element. Returns true when handled: the caller must
+   * then skip child morphing so the merged text survives.
+   * @param {MorphContext} ctx
+   * @param {Node} oldNode
+   * @param {Node} newContent
+   * @returns {boolean}
+   */
+  function morphMergeableScript(ctx, oldNode, newContent) {
+    const merge = ctx.merge;
+    if (!merge) return false;
+    const oldFound = merge.identityOf(oldNode);
+    if (!oldFound || merge.disabled.has(oldFound.key)) return false;
+    const newFound = merge.identityOf(newContent);
+    if (!newFound || newFound.key !== oldFound.key) return false;
+
+    const oldEl = /** @type {Element} */ (oldNode);
+    const newEl = /** @type {Element} */ (newContent);
+    const keyAttr =
+      newEl.getAttribute("merge-key") || oldEl.getAttribute("merge-key");
+    const { text, warnings } = mergeScriptText(
+      merge.baseTexts().get(oldFound.key),
+      oldEl.textContent,
+      newEl.textContent,
+      {
+        parse: oldFound.recognizer.parse,
+        keyCandidates: keyAttr
+          ? keyAttr.split(/[\s,]+/).filter(Boolean)
+          : undefined,
+      },
+    );
+    for (const warning of warnings) {
+      console.warn(`[hyper-morph] merge "${oldFound.raw}": ${warning}`);
+    }
+    if (oldEl.textContent !== text) {
+      oldEl.textContent = text;
+    }
+    return true;
+  }
+
+  /**
    * Default configuration values, updatable by users now
    * @type {ConfigInternal}
    */
@@ -330,7 +553,7 @@ var HyperMorph = (function () {
     },
     scripts: {
       handle: true,
-      matchMode: 'outerHTML',  // 'outerHTML' | 'smart'
+      matchMode: "outerHTML", // 'outerHTML' | 'smart'
       shouldPreserve: (elt) => elt.getAttribute("im-preserve") === "true",
       shouldReAppend: (elt) => elt.getAttribute("im-re-append") === "true",
       shouldRemove: noOp,
@@ -353,7 +576,7 @@ var HyperMorph = (function () {
     computeMatches(oldRoot, newRoot) {
       const { computeMatches } = HyperMatchMatcher.session();
       return computeMatches(oldRoot, newRoot);
-    }
+    },
   };
 
   /**
@@ -373,7 +596,7 @@ var HyperMorph = (function () {
     const oldScriptSignatures = ctx.scripts.handle
       ? new Set(
           Array.from(oldNode.querySelectorAll("script")).map((s) =>
-            getScriptSignature(s, ctx.scripts.matchMode),
+            getScriptSignature(s, ctx.scripts.matchMode, ctx.merge),
           ),
         )
       : null;
@@ -691,9 +914,10 @@ var HyperMorph = (function () {
       function findBestMatch(ctx, node, startPoint, endPoint) {
         // Check if hyper-match found a result for this node (only for Elements)
         // Skip hyper-match for nodes with persistent IDs (let ID-based matching handle them)
-        const hyperMatch = (node instanceof Element && !ctx.idMap.has(node))
-          ? ctx.hyperMatches.get(node)
-          : null;
+        const hyperMatch =
+          node instanceof Element && !ctx.idMap.has(node)
+            ? ctx.hyperMatches.get(node)
+            : null;
 
         let softMatch = null;
         let nextSibling = node.nextSibling;
@@ -703,7 +927,10 @@ var HyperMorph = (function () {
         while (cursor && cursor != endPoint) {
           // Sync-ignored local nodes (chrome) are invisible to matching: never a
           // morph target, so incoming content can't be morphed into them.
-          if (shouldIgnoreForSync(cursor)) { cursor = cursor.nextSibling; continue; }
+          if (shouldIgnoreForSync(cursor)) {
+            cursor = cursor.nextSibling;
+            continue;
+          }
           // soft matching is a prerequisite for id set matching and hyper-matching
           if (isSoftMatch(cursor, node)) {
             // Priority 1: ID set match (for elements with persistent IDs)
@@ -720,7 +947,9 @@ var HyperMorph = (function () {
             // Priority 3: Save soft match as fallback
             if (softMatch === null) {
               // Skip if cursor will hard match something else in the future
-              const isHyperMatched = cursor instanceof Element && ctx.hyperMatchedOldElements.has(cursor);
+              const isHyperMatched =
+                cursor instanceof Element &&
+                ctx.hyperMatchedOldElements.has(cursor);
               if (!ctx.idMap.has(cursor) && !isHyperMatched) {
                 softMatch = cursor;
               }
@@ -820,7 +1049,8 @@ var HyperMorph = (function () {
     function removeNode(ctx, node) {
       // are we going to id set match or hyper-match this later?
       // Note: hyper-match only applies to elements without persistent IDs
-      const isHyperMatched = node instanceof Element &&
+      const isHyperMatched =
+        node instanceof Element &&
         ctx.hyperMatchedOldElements.has(node) &&
         !ctx.idMap.has(node);
       if (ctx.idMap.has(node) || isHyperMatched) {
@@ -982,9 +1212,11 @@ var HyperMorph = (function () {
         );
       } else {
         morphAttributes(oldNode, newContent, ctx);
-        if (!ignoreValueOfActiveElement(oldNode, ctx)) {
-          // @ts-ignore newContent can be a node here because .firstChild will be null
-          morphChildren(ctx, oldNode, newContent);
+        if (!morphMergeableScript(ctx, oldNode, newContent)) {
+          if (!ignoreValueOfActiveElement(oldNode, ctx)) {
+            // @ts-ignore newContent can be a node here because .firstChild will be null
+            morphChildren(ctx, oldNode, newContent);
+          }
         }
       }
       ctx.callbacks.afterNodeMorphed(oldNode, newContent);
@@ -1080,7 +1312,7 @@ var HyperMorph = (function () {
           oldElement.indeterminate = newElement.indeterminate;
         }
 
-        if (ctx.formStateSync === 'property') {
+        if (ctx.formStateSync === "property") {
           // Property-driven: the live property is authoritative on both sides.
           // No attribute mutations — leaves serialization concerns to callers.
           if (oldValue !== newValue) {
@@ -1154,7 +1386,7 @@ var HyperMorph = (function () {
         // Property-driven mode: skip attribute mutation. The property write
         // above is enough — callers don't care about HTML-serializable form
         // state (no livesync, no cloneNode roundtripping).
-        if (ctx.formStateSync === 'property') return;
+        if (ctx.formStateSync === "property") return;
         if (newLiveValue) {
           if (!ignoreUpdate) {
             // https://developer.mozilla.org/en-US/docs/Glossary/Boolean/HTML
@@ -1268,16 +1500,16 @@ var HyperMorph = (function () {
 
     // Helper to get element signature (smart matching for scripts and links, outerHTML for others)
     const getSignature = (el) => {
-      if (el.tagName === 'SCRIPT') {
-        return getScriptSignature(el, matchMode);
+      if (el.tagName === "SCRIPT") {
+        return getScriptSignature(el, matchMode, ctx.merge);
       }
       // Smart matching for link elements (stylesheets, etc.)
-      if (el.tagName === 'LINK' && matchMode === 'smart') {
-        const href = el.getAttribute('href');
+      if (el.tagName === "LINK" && matchMode === "smart") {
+        const href = el.getAttribute("href");
         if (href) {
           try {
             const url = new URL(href, window.location.href);
-            const rel = el.getAttribute('rel') || '';
+            const rel = el.getAttribute("rel") || "";
             // Include rel to distinguish stylesheet vs preload vs icon, etc.
             // Preserve query (cache-busting tokens like ?v=123 are significant),
             // drop hash (not meaningful for stylesheet loading).
@@ -1324,8 +1556,12 @@ var HyperMorph = (function () {
           // this element already exists and should not be re-appended, so remove it from
           // the new content map, preserving it in the DOM
           if (bucket && bucket.length) {
-            bucket.pop();
+            const newHeadElt = bucket.pop();
             if (!bucket.length) srcToNewHeadNodes.delete(sig);
+            // Mergeable scripts match by identity, so the preserved element's
+            // text may differ from the incoming one: merge it in place. Head
+            // preserve keeps attributes as-is, matching head semantics.
+            morphMergeableScript(ctx, currentHeadElt, newHeadElt);
           }
           preserved.push(currentHeadElt);
         }
@@ -1340,7 +1576,10 @@ var HyperMorph = (function () {
         } else {
           // if this is a merge, we remove this content since it is not in the new head
           // Preserve elements with save-ignore - they shouldn't be removed during sync
-          if (ctx.head.shouldRemove(currentHeadElt) !== false && !shouldIgnoreForSync(currentHeadElt)) {
+          if (
+            ctx.head.shouldRemove(currentHeadElt) !== false &&
+            !shouldIgnoreForSync(currentHeadElt)
+          ) {
             removed.push(currentHeadElt);
           }
         }
@@ -1429,7 +1668,7 @@ var HyperMorph = (function () {
     for (const script of currentScripts) {
       if (script.closest("head")) continue;
       if (shouldIgnoreForSyncDeep(script)) continue;
-      const signature = getScriptSignature(script, matchMode);
+      const signature = getScriptSignature(script, matchMode, ctx.merge);
       const existedBefore = oldScriptSignatures.has(signature);
       const isPreserved = ctx.scripts.shouldPreserve(script);
       const isReAppended = ctx.scripts.shouldReAppend(script);
@@ -1562,6 +1801,34 @@ var HyperMorph = (function () {
         }
       }
 
+      const mergedConfig = mergeDefaults(config);
+
+      // Force-pair mergeable scripts by identity so a content-changed data
+      // tag still morphs into its live counterpart instead of soft-matching
+      // a stranger or being treated as new. Runs after the config.key block
+      // so merge pairing wins for merge tags; same reciprocal-cleanup
+      // discipline as that block.
+      const mergeCtx = createMergeContext(
+        oldNode,
+        newContent,
+        mergedConfig.scripts,
+      );
+      if (mergeCtx) {
+        const reverse = new Map();
+        for (const [n, o] of hyperMatches) reverse.set(o, n);
+        for (const [key, newEl] of mergeCtx.newByKey) {
+          if (mergeCtx.disabled.has(key)) continue;
+          const oldEl = mergeCtx.oldByKey.get(key);
+          if (!oldEl) continue;
+          const prevNew = reverse.get(oldEl);
+          if (prevNew && prevNew !== newEl) hyperMatches.delete(prevNew);
+          const prevOld = hyperMatches.get(newEl);
+          if (prevOld && prevOld !== oldEl) reverse.delete(prevOld);
+          hyperMatches.set(newEl, oldEl);
+          reverse.set(oldEl, newEl);
+        }
+      }
+
       // Build set of old elements that are hyper-matched (for pantry logic).
       // Runs after the optional key block so it always reflects final pairings.
       const hyperMatchedOldElements = new Set();
@@ -1569,7 +1836,6 @@ var HyperMorph = (function () {
         hyperMatchedOldElements.add(oldEl);
       }
 
-      const mergedConfig = mergeDefaults(config);
       const morphStyle = mergedConfig.morphStyle || "outerHTML";
       if (!["innerHTML", "outerHTML"].includes(morphStyle)) {
         throw new Error(`Do not understand how to morph style ${morphStyle}`);
@@ -1583,11 +1849,12 @@ var HyperMorph = (function () {
         ignoreActive: mergedConfig.ignoreActive,
         ignoreActiveValue: mergedConfig.ignoreActiveValue,
         restoreFocus: mergedConfig.restoreFocus,
-        formStateSync: mergedConfig.formStateSync || 'attribute',
+        formStateSync: mergedConfig.formStateSync || "attribute",
         idMap: idMap,
         persistentIds: persistentIds,
         hyperMatches: hyperMatches,
         hyperMatchedOldElements: hyperMatchedOldElements,
+        merge: mergeCtx,
         pantry: createPantry(),
         activeElementAndParents: createActiveElementAndParents(oldNode),
         callbacks: mergedConfig.callbacks,
@@ -1985,6 +2252,10 @@ var HyperMorph = (function () {
   return {
     morph,
     defaults,
+    mergeJson,
+    mergeScriptText,
+    parseJsonRelaxed,
+    parseRulesRelaxed,
   };
 })();
 
@@ -1992,4 +2263,5 @@ var HyperMorph = (function () {
 export { HyperMorph };
 export const morph = HyperMorph.morph;
 export const defaults = HyperMorph.defaults;
+export { mergeJson, mergeScriptText, parseJsonRelaxed, parseRulesRelaxed };
 export default HyperMorph;

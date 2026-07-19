@@ -7,7 +7,7 @@
     "morph",
     "diff"
   ],
-  "version": "0.3.1",
+  "version": "0.4.0",
   "homepage": "https://github.com/panphora/hyper-morph",
   "bugs": {
     "url": "https://github.com/panphora/hyper-morph/issues"
@@ -24,7 +24,9 @@
   "type": "module",
   "exports": {
     ".": "./src/hyper-morph.js",
-    "./matcher": "./src/hyper-morph-matcher.js"
+    "./matcher": "./src/hyper-morph-matcher.js",
+    "./json-merge": "./src/hyper-morph-json-merge.js",
+    "./json-parse": "./src/hyper-morph-json-parse.js"
   },
   "scripts": {
     "build": "npx esbuild src/hyper-morph.js --bundle --minify --format=iife --global-name=HyperMorph --outfile=dist/hyper-morph.min.js",

@@ -175,6 +175,9 @@ Control how `<script>` elements in body are handled. **Enabled by default**: new
 |--------|------|---------|-------------|
 | `handle` | `boolean` | `true` | Execute new scripts exactly once. Set `false` to keep new scripts inert (markup preserved, never executed) |
 | `matchMode` | `'outerHTML' \| 'smart'` | `'outerHTML'` | How scripts are matched: exact `outerHTML`, or normalized src URL / inline content hash |
+| `merge` | `boolean` | `true` | Set `false` to disable script-tag JSON merging for this morph (deliberate rewinds/restores must overwrite, not merge) |
+| `mergeBase` | `string \| Element \| Document \| null` | `null` | Last-synced HTML: the base version for three-way merging of mergeable script tags (see below) |
+| `mergeTags` | `MergeTagRecognizer[]` | `[]` | Extra recognizers for mergeable JSON script tags, checked after the built-in `merge` attribute recognizer |
 | `shouldPreserve` | `(el) => boolean` | Check `im-preserve` | Keep script even if not in new content |
 | `shouldReAppend` | `(el) => boolean` | Check `im-re-append` | Force re-execution of existing script |
 | `shouldRemove` | `(el) => boolean` | `() => {}` | Return `false` to prevent removal |
@@ -206,6 +209,42 @@ await HyperMorph.morph(el, html, { scripts: { handle: true } });
 
 ---
 
+### Mergeable Script Tags (three-way JSON merge)
+
+A morph normally replaces a matched inline script's text wholesale: last write wins, and in `smart` matchMode a content-changed data script even reads as a brand-new script (element churn plus re-execution for executable types). For JSON state stored in script tags, opt into merging instead:
+
+```html
+<script type="application/json" merge="store">
+  { "todos": [{ "id": "a1", "title": "Ship it", "done": false }], "theme": "dark" }
+</script>
+```
+
+- `merge="<name>"` is both the opt-in and the identity: the same name pairs the tag across the base, current, and incoming HTML. Non-empty value required; duplicate names in one document disable merging for those tags (console warning, replace behavior).
+- Only JSON script types merge (`application/json` or any `*+json`). A `merge` attribute on an executable type warns and is ignored: merging never interacts with script execution.
+- Pass the last-synced HTML as `scripts.mergeBase` to get a true three-way merge: base→local and base→remote diffs both apply, deletions propagate, and genuine same-key conflicts resolve remote-wins. Without a base the merge degrades to two-way (local-only keys survive, deletions don't propagate).
+- Arrays merge by identity, not position: object elements by an inferred key field (`id`, `_id`, `uuid`, `key`, `slug`, `code`, `name`, or name your own with `merge-key="taskId slug"` on the tag), primitive elements by value. Arrays without usable identity resolve remote-wins wholesale: a wrong match is worse than a predictable replacement.
+- Tag bodies parse as relaxed JSON by default: strict JSON plus unquoted identifier keys, single-quoted strings, trailing commas, and comments. Values must still be JSON literals or quoted strings — barewords never coerce to strings, so typos and truncated streams fail parse instead of merging garbage.
+- Malformed JSON degrades safely, keeping only valid JSON: invalid incoming keeps local, invalid local takes incoming, invalid base falls back to two-way. Each degraded case logs one console warning.
+- Merged tags keep their element identity (no clone swap) and never re-execute. Ordering takes remote's sequence and anchors local-only insertions after their nearest surviving neighbor.
+- `scripts.mergeTags` extends recognition to other tag families (custom attribute, custom identity, custom JSON dialect parser):
+
+```javascript
+HyperMorph.morph(document.documentElement, incomingHtml, {
+  scripts: {
+    mergeBase: lastSyncedHtml,
+    mergeTags: [{
+      match: (el) => el.hasAttribute('data-rules-name'),
+      identity: (el) => 'rules:' + el.getAttribute('data-rules-name'),
+      parse: HyperMorph.parseRulesRelaxed, // optional custom dialect, must throw on invalid input; default is relaxed JSON
+    }],
+  },
+});
+```
+
+The merge engine is exported standalone as `HyperMorph.mergeJson(base, local, remote, options)` and `HyperMorph.mergeScriptText(baseText, localText, remoteText, options)` (also via `hyper-morph/json-merge`). The two parsers are exported too (also via `hyper-morph/json-parse`): `HyperMorph.parseJsonRelaxed` (the merge default described above) and `HyperMorph.parseRulesRelaxed` (the Hyperclay rules-tag dialect, where unquoted selector barewords like `#hero .quote` become strings — pass it as a recognizer's `parse`).
+
+---
+
 ### HTML Attributes
 
 Control element behavior via HTML attributes:
@@ -214,6 +253,8 @@ Control element behavior via HTML attributes:
 |-----------|--------|
 | `im-preserve="true"` | Keep element even if removed from new content |
 | `im-re-append="true"` | Force re-insertion (re-executes scripts) |
+| `merge="<name>"` | Three-way merge this JSON script tag's content instead of replacing it (see Mergeable Script Tags) |
+| `merge-key="<field> …"` | Ordered identity-field candidates for keyed-array merging inside this tag's JSON |
 
 ```html
 <!-- This script will re-execute on every morph -->
