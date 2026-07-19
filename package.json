@@ -61,6 +61,7 @@
     "http-server": "^14.1.1",
     "lcov-parse": "^1.0.0",
     "mocha": "^11.0.1",
+    "playwright": "1.56.1",
     "prettier": "^3.4.2",
     "sinon": "^9.2.4",
     "tachometer": "^0.7.1",
