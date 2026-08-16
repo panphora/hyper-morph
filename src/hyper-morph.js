@@ -2328,8 +2328,11 @@ var HyperMorph = (function () {
   /**
    * Diff two same-domain trees and return the minimal disjoint set of local
    * changes as entries:
-   *   { type: 'subtree',  el }  - local element whose whole subtree must survive
-   *   { type: 'attrs',    el, names } - only these attributes changed locally
+   *   { type: 'subtree',  el, base } - local element whose whole subtree must
+   *     survive; `base` is its counterpart in the base tree, null when the
+   *     element is locally new
+   *   { type: 'attrs',    el, names, base } - only these attributes changed
+   *     locally; `base` is the element's base-tree counterpart
    *   { type: 'deletion', el }  - BASE element the local side deleted
    *   { type: 'head',     el }  - local <head> differs (always one region)
    *
@@ -2367,6 +2370,17 @@ var HyperMorph = (function () {
       return localDocIndex;
     }
 
+    let baseDocIndex = null;
+    function baseIndex() {
+      if (!baseDocIndex) {
+        baseDocIndex = buildTierIndex(
+          [baseRoot, ...baseRoot.querySelectorAll("*")],
+          tiers,
+        );
+      }
+      return baseDocIndex;
+    }
+
     // html / body / head: addressable without keys, and the promotion ceiling.
     function isStructural(el) {
       return !el.parentElement || !el.parentElement.parentElement;
@@ -2375,9 +2389,15 @@ var HyperMorph = (function () {
     // A dirty subtree entry is only worth emitting where the splice can
     // address it. A keyless dirty root promotes to its parent instead
     // (returns true), bubbling until a keyed or structural ancestor.
-    function emitOrPromote(el, out) {
+    //
+    // `base` is the element's counterpart in the base tree (null when the
+    // element is locally new). The splice needs it to arbitrate the
+    // no-counterpart case: an element whose own key does not resolve in the
+    // target may still exist there under its BASE identity (the key was added
+    // locally), and inserting without that check duplicates sections.
+    function emitOrPromote(el, base, out) {
       if (isStructural(el) || hasUsableKey(el, localIndex(), tiers)) {
-        out.push({ type: "subtree", el });
+        out.push({ type: "subtree", el, base });
         return false;
       }
       return true;
@@ -2398,17 +2418,32 @@ var HyperMorph = (function () {
     }
 
     // Children that participate in the diff: elements not skipped, plus text
-    // and comment nodes. Other node types can't appear under an element.
+    // runs and comment nodes. Adjacent text nodes coalesce into one synthetic
+    // run: the local side is a live-DOM clone whose text is split by typing,
+    // pasting and IME, while the base side is a parsed string whose text is
+    // coalesced by the parser — comparing raw nodes reads byte-identical
+    // trees as dirty. Runs also merge ACROSS skipped elements, because a
+    // skipped element present on one side only would otherwise split the run
+    // on that side alone.
     function comparableChildren(el) {
       const kids = [];
-      for (const node of el.childNodes) {
-        if (node.nodeType === 1) {
-          if (skip(node)) continue;
-          kids.push(node);
-        } else if (node.nodeType === 3 || node.nodeType === 8) {
-          kids.push(node);
+      let textRun = null;
+      const flushText = () => {
+        if (textRun !== null) {
+          kids.push({ nodeType: 3, nodeValue: textRun });
+          textRun = null;
         }
+      };
+      for (const node of el.childNodes) {
+        if (node.nodeType === 3) {
+          textRun = (textRun === null ? "" : textRun) + node.nodeValue;
+          continue;
+        }
+        if (node.nodeType === 1 && skip(node)) continue;
+        flushText();
+        if (node.nodeType === 1 || node.nodeType === 8) kids.push(node);
       }
+      flushText();
       return kids;
     }
 
@@ -2496,21 +2531,11 @@ var HyperMorph = (function () {
         }
       }
 
-      // A local reorder of identified children is local state (drag-sorted
-      // lists). It cannot be expressed as a subtree entry on any child, so
-      // the parent is promoted wholesale.
-      let lastBasePos = -1;
-      for (const [, b] of pairs) {
-        const pos = elB.indexOf(b);
-        if (pos < lastBasePos) return true;
-        lastBasePos = pos;
-      }
-
       const keylessL = [];
       for (const l of unmatchedL) {
         if (hasUsableKey(l, idxL, tiers)) {
           // Identified locally, absent from base: locally new (or moved in).
-          out.push({ type: "subtree", el: l });
+          out.push({ type: "subtree", el: l, base: null });
         } else {
           keylessL.push(l);
         }
@@ -2535,6 +2560,27 @@ var HyperMorph = (function () {
         if (!lockstepCompatible(keylessL[i], keylessB[i])) return true;
       }
 
+      // A local reorder of paired children is local state (drag-sorted
+      // lists). It cannot be expressed as a subtree entry on any child, so
+      // the parent is promoted wholesale. The check runs over the COMBINED
+      // sequence — keyed pairs interleaved with positionally-paired keyless
+      // runs — because a single keyed element moved past keyless siblings
+      // produces no keyed-pair inversion at all, and reporting that page
+      // clean would let a full morph revert the move and then record the
+      // reverted state as saved.
+      const baseOf = new Map(pairs);
+      for (let i = 0; i < keylessL.length; i++) {
+        baseOf.set(keylessL[i], keylessB[i]);
+      }
+      let lastBasePos = -1;
+      for (const l of elL) {
+        const b = baseOf.get(l);
+        if (!b) continue; // locally new: no base position to violate
+        const pos = elB.indexOf(b);
+        if (pos < lastBasePos) return true;
+        lastBasePos = pos;
+      }
+
       for (let i = 0; i < keylessL.length; i++) {
         if (diffPair(keylessL[i], keylessB[i], out)) return true;
       }
@@ -2553,21 +2599,24 @@ var HyperMorph = (function () {
      */
     function diffPair(localEl, baseEl, out) {
       if (localEl.tagName !== baseEl.tagName) {
-        return emitOrPromote(localEl, out);
+        return emitOrPromote(localEl, baseEl, out);
       }
       const names = diffAttrNames(localEl, baseEl);
       const buf = [];
       if (diffChildren(localEl, baseEl, buf)) {
-        return emitOrPromote(localEl, out);
+        return emitOrPromote(localEl, baseEl, out);
       }
       if (names.length) {
-        // An attr edit on a keyless element is unaddressable by the splice
-        // (it would be silently dropped as skippedAttrs even though the
-        // element survives remotely). Promote so the edit is protected.
-        if (!isStructural(localEl) && !hasUsableKey(localEl, localIndex(), tiers)) {
+        // An attr edit is splice-addressable only through the element's
+        // SAVED identity: the incoming doc carries the remote's identity,
+        // which matches the base side, never a locally-added key. Without a
+        // usable base key the entry would be silently dropped as
+        // skippedAttrs even though the element survives remotely, so the
+        // edit promotes into the parent to be protected as a subtree.
+        if (!isStructural(localEl) && !hasUsableKey(baseEl, baseIndex(), tiers)) {
           return true;
         }
-        out.push({ type: "attrs", el: localEl, names });
+        out.push({ type: "attrs", el: localEl, names, base: baseEl });
       }
       out.push(...buf);
       return false;
@@ -2600,7 +2649,7 @@ var HyperMorph = (function () {
     if (localBody && baseBody) {
       diffPair(localBody, baseBody, entries);
     } else if (localBody) {
-      entries.push({ type: "subtree", el: localBody });
+      entries.push({ type: "subtree", el: localBody, base: null });
     }
 
     return { entries };
@@ -2678,6 +2727,17 @@ var HyperMorph = (function () {
       return matchByTiers(el, sideIndexFor(el), targetIndex, tiers);
     }
 
+    // A tier match can name a node an earlier entry already detached (a
+    // deletion removed it, or a placed subtree replaced it). Operating on a
+    // detached node is a silent no-op — replaceWith on a parentless element
+    // drops the entry from the merge entirely — so only nodes still in the
+    // target document count as counterparts.
+    function resolveLive(el) {
+      if (!el) return null;
+      const match = resolve(el);
+      return match && match.isConnected ? match : null;
+    }
+
     function register(imported) {
       for (let t = 0; t < tiers.length; t++) {
         const v = tiers[t](imported);
@@ -2715,7 +2775,10 @@ var HyperMorph = (function () {
       }
 
       if (entry.type === "attrs") {
-        const counterpart = resolve(entry.el);
+        // The element's own identity may have been edited locally (a changed
+        // id is itself an attr entry), so its BASE identity — what the
+        // incoming doc still carries — is tried as a fallback.
+        const counterpart = resolveLive(entry.el) || resolveLive(entry.base);
         if (!counterpart) {
           // The element is gone remotely and the only local change was an
           // attribute: reinserting the subtree would resurrect stale content,
@@ -2740,7 +2803,7 @@ var HyperMorph = (function () {
       // replacing the entire incoming document defeats the sync.
       if (structuralTarget(el)) return hold(entry);
 
-      const counterpart = resolve(el);
+      const counterpart = resolveLive(el) || resolveLive(entry.base);
       if (counterpart) {
         const imported = targetDoc.importNode(el, true);
         counterpart.replaceWith(imported);
@@ -2749,19 +2812,32 @@ var HyperMorph = (function () {
         continue;
       }
 
-      // No counterpart: locally new, or remotely deleted while locally
-      // edited. Both reinsert — but only an identified root can be placed
-      // without guessing, and a bad guess duplicates sections.
+      // No counterpart, under either identity. Three cases:
+      // - Locally new (base == null): insert at the local position.
+      // - Existed before under a usable identity (base keyed) the target no
+      //   longer contains: the remote deleted it; edits beat deletes, so it
+      //   reinserts.
+      // - Existed before but never addressably (base keyless — its only
+      //   identity was added locally, unsaved): the target may still contain
+      //   it somewhere this splice cannot see, and inserting would duplicate
+      //   the section on disk. The frame holds instead; the tab keeps its
+      //   local state and converges through its own save.
+      if (
+        entry.base != null &&
+        !hasUsableKey(entry.base, sideIndexFor(entry.base), tiers)
+      ) {
+        return hold(entry);
+      }
       if (!hasUsableKey(el, sideIndexFor(el), tiers)) return hold(entry);
 
       const parentEl = el.parentElement;
       if (!parentEl) return hold(entry);
-      const parentC = resolve(parentEl);
+      const parentC = resolveLive(parentEl);
       if (!parentC) return hold(entry);
 
       let anchor = null;
       for (let s = el.previousElementSibling; s; s = s.previousElementSibling) {
-        const c = resolve(s);
+        const c = resolveLive(s);
         if (c && c.parentNode === parentC) {
           anchor = c;
           break;
@@ -2769,10 +2845,15 @@ var HyperMorph = (function () {
       }
 
       const imported = targetDoc.importNode(el, true);
-      parentC.insertBefore(
-        imported,
-        anchor ? anchor.nextSibling : parentC.firstChild,
-      );
+      if (anchor) {
+        parentC.insertBefore(imported, anchor.nextSibling);
+      } else {
+        // No identified preceding sibling: fall back to the local child
+        // index, so an element appended at the end of a keyless run lands
+        // at the end, not the front.
+        const idx = Array.prototype.indexOf.call(parentEl.children, el);
+        parentC.insertBefore(imported, parentC.children[idx] || null);
+      }
       register(imported);
       placed.push({ entry, imported });
     }

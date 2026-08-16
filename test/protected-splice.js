@@ -115,18 +115,68 @@ describe("Protected splice (findChangedRoots + spliceProtected)", function () {
 
   it("pairs equal-length keyless runs positionally", function () {
     const local = doc(
-      `<div id="wrap"><span id="k">key</span><p><em id="deep">EDITED</em></p><p>two</p></div>`,
+      `<div id="wrap"><span id="k">key</span><p><em id="deep">EDITED</em></p><p>two</p><section id="new">added</section></div>`,
     );
     const base = doc(
-      `<div id="wrap"><p><em id="deep">original</em></p><p>two</p><span id="k">key</span></div>`,
+      `<div id="wrap"><span id="k">key</span><p><em id="deep">original</em></p><p>two</p></div>`,
     );
-    // keyed span matched (moved: order check only applies among keyed pairs);
-    // the two keyless <p>s pair positionally, so the edit stays scoped to the
-    // keyed <em> inside the first pair instead of promoting to #wrap.
+    // Lockstep breaks on the added keyed section; the two keyless <p>s pair
+    // positionally, so the edit stays scoped to the keyed <em> inside the
+    // first pair instead of promoting to #wrap.
     const entries = diff(local, base);
     const subtrees = byType(entries, "subtree");
-    subtrees.length.should.equal(1);
-    subtrees[0].el.getAttribute("id").should.equal("deep");
+    subtrees.length.should.equal(2);
+    const ids = subtrees.map((e) => e.el.getAttribute("id")).sort();
+    ids.should.deep.equal(["deep", "new"]);
+  });
+
+  it("promotes the parent when a keyed child moved past keyless siblings", function () {
+    // A single keyed element has no keyed-pair inversion to trip on; the
+    // order check must run over the combined keyed + keyless sequence or the
+    // move reads as clean and a full morph reverts it.
+    const local = doc(
+      `<div id="wrap"><span id="k">key</span><p>one</p><p>two</p></div>`,
+    );
+    const base = doc(
+      `<div id="wrap"><p>one</p><p>two</p><span id="k">key</span></div>`,
+    );
+    const entries = diff(local, base);
+    entries.length.should.equal(1);
+    entries[0].type.should.equal("subtree");
+    entries[0].el.getAttribute("id").should.equal("wrap");
+  });
+
+  it("reads a browser-split text node as clean (coalesced runs)", function () {
+    const local = doc(`<div id="a"><p>hello world</p></div>`);
+    const base = doc(`<div id="a"><p>hello world</p></div>`);
+    // Typing/IME splits live text nodes without changing content; the parsed
+    // base side is always coalesced, so raw node comparison would read dirty.
+    local.querySelector("p").firstChild.splitText(5);
+    diff(local, base).length.should.equal(0);
+  });
+
+  it("coalesces text runs across skipped elements", function () {
+    const local = doc(
+      `<div id="a"><p>hello<span no-save>chrome</span> world</p></div>`,
+    );
+    const base = doc(`<div id="a"><p>hello world</p></div>`);
+    diff(local, base, {
+      skip: (el) => el.hasAttribute("no-save"),
+    }).length.should.equal(0);
+  });
+
+  it("promotes an attrs edit whose element is only keyed LOCALLY", function () {
+    // The incoming doc carries the remote's identity, which matches the base
+    // side; an id added locally (unsaved) can never resolve there, so the
+    // attrs entry would be silently dropped as skippedAttrs. It must promote.
+    const local = doc(
+      `<main id="m"><p id="added-locally" class="x">same</p></main>`,
+    );
+    const base = doc(`<main id="m"><p>same</p></main>`);
+    const entries = diff(local, base);
+    entries.length.should.equal(1);
+    entries[0].type.should.equal("subtree");
+    entries[0].el.getAttribute("id").should.equal("m");
   });
 
   it("excludes skip-matched subtrees on both sides", function () {
@@ -403,6 +453,54 @@ describe("Protected splice (findChangedRoots + spliceProtected)", function () {
     splice(target, diff(local, base)).ok.should.equal(true);
     target.querySelector("title").textContent.should.equal("local");
     (target.querySelector("style") !== null).should.equal(true);
+  });
+
+  it("survives a cross-parent keyed move (deletion must not orphan the insert)", function () {
+    // The move splits into a deletion (old parent) and a keyed insert (new
+    // parent). The deletion detaches the target's copy first; the insert's
+    // tier match still names that detached node, and replaceWith on it would
+    // silently drop the element from the merge.
+    const local = doc(
+      `<div id="a"></div><div id="b"><section id="x">moved</section></div>`,
+    );
+    const base = doc(
+      `<div id="a"><section id="x">moved</section></div><div id="b"></div>`,
+    );
+    const target = doc(
+      `<div id="a"><section id="x">moved</section></div><div id="b"></div>`,
+    );
+    const res = splice(target, diff(local, base));
+    res.ok.should.equal(true);
+    target.querySelectorAll("#x").length.should.equal(1);
+    target.querySelector("#b > #x").textContent.should.equal("moved");
+  });
+
+  it("holds when a dirty section's only identity was added locally", function () {
+    // The target may still contain the section keylessly; inserting under
+    // the unsaved local id would duplicate it on disk. base is keyless, so
+    // deletion cannot be proven and the frame holds.
+    const local = doc(
+      `<main id="m"><section data-id="loc1">EDITED</section></main>`,
+    );
+    const base = doc(`<main id="m"><section>orig</section></main>`);
+    const target = doc(
+      `<main id="m"><section>orig</section><aside id="other">REMOTE</aside></main>`,
+    );
+    const res = splice(target, diff(local, base));
+    res.ok.should.equal(false);
+    (res.held !== null).should.equal(true);
+  });
+
+  it("appends at the local position when no keyed anchor precedes", function () {
+    // All preceding siblings are keyless: the anchor scan finds nothing, and
+    // the fallback must use the local child index, not the parent's front.
+    const local = doc(
+      `<main id="m"><p>one</p><p>two</p><section id="s9">NEW</section></main>`,
+    );
+    const base = doc(`<main id="m"><p>one</p><p>two</p></main>`);
+    const target = doc(`<main id="m"><p>one</p><p>two</p></main>`);
+    splice(target, diff(local, base)).ok.should.equal(true);
+    target.querySelector("main").lastElementChild.id.should.equal("s9");
   });
 
   it("returns placed entries with their imported clones", function () {
