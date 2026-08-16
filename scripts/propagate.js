@@ -44,6 +44,8 @@ if (!window.__hyperclayNoAutoExport) {
 }
 
 export { HyperMorph, morph };
+export const findChangedRoots = HyperMorph.findChangedRoots;
+export const spliceProtected = HyperMorph.spliceProtected;
 export default HyperMorph;
 `;
 

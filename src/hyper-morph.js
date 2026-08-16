@@ -2247,11 +2247,507 @@ var HyperMorph = (function () {
   })();
 
   //=============================================================================
+  // Protected splice: findChangedRoots + spliceProtected
+  //
+  // Scoped live sync's shared core. findChangedRoots walks two SAME-DOMAIN
+  // trees (a local capture vs the last-synced/last-saved base) and returns the
+  // minimal disjoint set of local changes. spliceProtected patches those local
+  // changes into an incoming parsed document so a subsequent normal morph
+  // cannot clobber them. Pure tree logic: serialization domains, capture
+  // pipelines, and identity maps are the caller's business, supplied via
+  // options (skip / ignoreAttr / tiers).
+  //=============================================================================
+
+  // Sibling/doc index slot marking a tier value that appears more than once on
+  // one side. A duplicated value identifies nothing, so it is disabled at that
+  // tier (mirrors createPersistentIds' duplicate discipline).
+  const DUPLICATE_KEY = Symbol("hyper-morph-duplicate-key");
+
+  const DEFAULT_TIERS = [
+    (el) => el.getAttribute("data-id"),
+    (el) => el.getAttribute("id"),
+  ];
+
+  /**
+   * Build one Map per tier over a set of elements: value -> element, with
+   * duplicated values collapsed to DUPLICATE_KEY.
+   * @param {Iterable<Element>} els
+   * @param {Array<function(Element): (string|null)>} tiers
+   * @returns {Map<string, Element|Symbol>[]}
+   */
+  function buildTierIndex(els, tiers) {
+    return tiers.map((tierOf) => {
+      const map = new Map();
+      for (const el of els) {
+        if (el.nodeType !== 1) continue;
+        const v = tierOf(el);
+        if (v == null || v === "") continue;
+        map.set(v, map.has(v) ? DUPLICATE_KEY : el);
+      }
+      return map;
+    });
+  }
+
+  /**
+   * Same-tier, both-sides-unique identity match: the first tier whose value
+   * uniquely names `el` on its own side AND uniquely names a same-tag element
+   * on the other side wins. A value present on one side but duplicated or
+   * tag-mismatched on the other disables that tier and the next tier is tried.
+   * @param {Element} el
+   * @param {Map[]} ownIndex - tier index over el's own side
+   * @param {Map[]} otherIndex - tier index over the other side
+   * @param {Array<function>} tiers
+   * @returns {Element|null}
+   */
+  function matchByTiers(el, ownIndex, otherIndex, tiers) {
+    for (let t = 0; t < tiers.length; t++) {
+      const v = tiers[t](el);
+      if (v == null || v === "") continue;
+      if (ownIndex[t].get(v) !== el) continue;
+      const hit = otherIndex[t].get(v);
+      if (!hit || hit === DUPLICATE_KEY) continue;
+      if (hit.tagName !== el.tagName) continue;
+      return hit;
+    }
+    return null;
+  }
+
+  /**
+   * True when some tier value uniquely names `el` on its own side — the
+   * precondition for the splice to place it in a foreign tree.
+   */
+  function hasUsableKey(el, ownIndex, tiers) {
+    for (let t = 0; t < tiers.length; t++) {
+      const v = tiers[t](el);
+      if (v == null || v === "") continue;
+      if (ownIndex[t].get(v) === el) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Diff two same-domain trees and return the minimal disjoint set of local
+   * changes as entries:
+   *   { type: 'subtree',  el }  - local element whose whole subtree must survive
+   *   { type: 'attrs',    el, names } - only these attributes changed locally
+   *   { type: 'deletion', el }  - BASE element the local side deleted
+   *   { type: 'head',     el }  - local <head> differs (always one region)
+   *
+   * Both roots must be same-domain <html> elements (or any corresponding
+   * element pair). An empty entries array means the local tree matches base.
+   *
+   * @param {Element} localRoot
+   * @param {Element} baseRoot
+   * @param {object} [options]
+   * @param {function(Element): boolean} [options.skip] - subtrees excluded from
+   *   both sides of the walk (per-tab chrome that legitimately diverges)
+   * @param {function(Element, string): boolean} [options.ignoreAttr] -
+   *   attributes excluded from comparison (tab-local root attrs)
+   * @param {Array<function(Element): (string|null)>} [options.tiers] - identity
+   *   tiers for child alignment; MUST be the same tiers the splice uses
+   * @returns {{ entries: Array<object> }}
+   */
+  function findChangedRoots(localRoot, baseRoot, options = {}) {
+    const skip = options.skip || (() => false);
+    const ignoreAttr = options.ignoreAttr || (() => false);
+    const tiers =
+      options.tiers && options.tiers.length ? options.tiers : DEFAULT_TIERS;
+
+    function diffAttrNames(localEl, baseEl) {
+      const names = [];
+      for (const attr of localEl.attributes) {
+        if (ignoreAttr(localEl, attr.name)) continue;
+        if (baseEl.getAttribute(attr.name) !== attr.value)
+          names.push(attr.name);
+      }
+      for (const attr of baseEl.attributes) {
+        if (ignoreAttr(localEl, attr.name)) continue;
+        if (!localEl.hasAttribute(attr.name)) names.push(attr.name);
+      }
+      return names;
+    }
+
+    // Children that participate in the diff: elements not skipped, plus text
+    // and comment nodes. Other node types can't appear under an element.
+    function comparableChildren(el) {
+      const kids = [];
+      for (const node of el.childNodes) {
+        if (node.nodeType === 1) {
+          if (skip(node)) continue;
+          kids.push(node);
+        } else if (node.nodeType === 3 || node.nodeType === 8) {
+          kids.push(node);
+        }
+      }
+      return kids;
+    }
+
+    // Lockstep pairing precondition: same node type; elements need the same
+    // tag and no tier where both sides carry DIFFERENT values (same value or
+    // one side absent is fine — an added identity attr is an attr edit).
+    function lockstepCompatible(l, b) {
+      if (l.nodeType !== b.nodeType) return false;
+      if (l.nodeType !== 1) return true;
+      if (l.tagName !== b.tagName) return false;
+      for (const tierOf of tiers) {
+        const lv = tierOf(l);
+        const bv = tierOf(b);
+        if (lv != null && lv !== "" && bv != null && bv !== "" && lv !== bv)
+          return false;
+      }
+      return true;
+    }
+
+    // Non-element content that matters during keyed (non-lockstep) analysis:
+    // whitespace-only text between moved/added elements is layout, not state.
+    function significantText(kids) {
+      let out = "";
+      for (const node of kids) {
+        if (node.nodeType === 3 && node.nodeValue.trim() !== "")
+          out += " " + node.nodeValue;
+        else if (node.nodeType === 8) out += "" + node.nodeValue;
+      }
+      return out;
+    }
+
+    /**
+     * Diff the children of a corresponding pair, writing entries into `out`.
+     * Returns true when the pair itself must be promoted to one dirty subtree
+     * (text edited, ambiguous keyless structure, or locally reordered keys).
+     */
+    function diffChildren(localEl, baseEl, out) {
+      const L = comparableChildren(localEl);
+      const B = comparableChildren(baseEl);
+
+      // Fast path: strict lockstep. Covers the overwhelmingly common case of
+      // "same shape, something inside changed".
+      if (L.length === B.length) {
+        let lockstep = true;
+        for (let i = 0; i < L.length; i++) {
+          if (!lockstepCompatible(L[i], B[i])) {
+            lockstep = false;
+            break;
+          }
+        }
+        if (lockstep) {
+          for (let i = 0; i < L.length; i++) {
+            const l = L[i];
+            if (l.nodeType === 1) {
+              diffPair(l, B[i], out);
+            } else if (l.nodeValue !== B[i].nodeValue) {
+              // A text/comment edit dirties the nearest containing element.
+              return true;
+            }
+          }
+          return false;
+        }
+      }
+
+      // Keyed analysis: shapes differ. Elements align by identity; the
+      // keyless remainder aligns positionally only when unambiguous.
+      const elL = L.filter((n) => n.nodeType === 1);
+      const elB = B.filter((n) => n.nodeType === 1);
+
+      if (significantText(L) !== significantText(B)) return true;
+
+      const idxL = buildTierIndex(elL, tiers);
+      const idxB = buildTierIndex(elB, tiers);
+
+      const pairs = [];
+      const matchedB = new Set();
+      const unmatchedL = [];
+      for (const l of elL) {
+        const b = matchByTiers(l, idxL, idxB, tiers);
+        if (b && !matchedB.has(b)) {
+          pairs.push([l, b]);
+          matchedB.add(b);
+        } else {
+          unmatchedL.push(l);
+        }
+      }
+
+      // A local reorder of identified children is local state (drag-sorted
+      // lists). It cannot be expressed as a subtree entry on any child, so
+      // the parent is promoted wholesale.
+      let lastBasePos = -1;
+      for (const [, b] of pairs) {
+        const pos = elB.indexOf(b);
+        if (pos < lastBasePos) return true;
+        lastBasePos = pos;
+      }
+
+      const keylessL = [];
+      for (const l of unmatchedL) {
+        if (hasUsableKey(l, idxL, tiers)) {
+          // Identified locally, absent from base: locally new (or moved in).
+          out.push({ type: "subtree", el: l });
+        } else {
+          keylessL.push(l);
+        }
+      }
+
+      const keylessB = [];
+      for (const b of elB) {
+        if (matchedB.has(b)) continue;
+        if (hasUsableKey(b, idxB, tiers)) {
+          // Identified in base, absent locally: locally deleted.
+          out.push({ type: "deletion", el: b });
+        } else {
+          keylessB.push(b);
+        }
+      }
+
+      // Keyless remainders pair positionally only when the runs line up
+      // one-to-one by tag. Anything murkier promotes the parent: guessing
+      // here is how sections get duplicated.
+      if (keylessL.length !== keylessB.length) return true;
+      for (let i = 0; i < keylessL.length; i++) {
+        if (!lockstepCompatible(keylessL[i], keylessB[i])) return true;
+      }
+
+      for (let i = 0; i < keylessL.length; i++) {
+        diffPair(keylessL[i], keylessB[i], out);
+      }
+      for (const [l, b] of pairs) {
+        diffPair(l, b, out);
+      }
+      return false;
+    }
+
+    /**
+     * Diff a corresponding element pair into `out`. Child entries buffer
+     * locally so a late promotion discards them instead of double-reporting.
+     */
+    function diffPair(localEl, baseEl, out) {
+      if (localEl.tagName !== baseEl.tagName) {
+        out.push({ type: "subtree", el: localEl });
+        return;
+      }
+      const names = diffAttrNames(localEl, baseEl);
+      const buf = [];
+      if (diffChildren(localEl, baseEl, buf)) {
+        out.push({ type: "subtree", el: localEl });
+        return;
+      }
+      if (names.length) out.push({ type: "attrs", el: localEl, names });
+      out.push(...buf);
+    }
+
+    const entries = [];
+
+    const rootNames = diffAttrNames(localRoot, baseRoot);
+    if (rootNames.length)
+      entries.push({ type: "attrs", el: localRoot, names: rootNames });
+
+    const childOf = (root, tag) =>
+      Array.from(root.children).find((c) => c.tagName === tag) || null;
+
+    // <head> is one region: any difference inside it yields one head entry,
+    // because partial head protection can't be expressed without duplicating
+    // signature-bucketed head elements.
+    const localHead = childOf(localRoot, "HEAD");
+    const baseHead = childOf(baseRoot, "HEAD");
+    if (localHead && baseHead) {
+      const headBuf = [];
+      diffPair(localHead, baseHead, headBuf);
+      if (headBuf.length) entries.push({ type: "head", el: localHead });
+    } else if (localHead || baseHead) {
+      if (localHead) entries.push({ type: "head", el: localHead });
+    }
+
+    const localBody = childOf(localRoot, "BODY");
+    const baseBody = childOf(baseRoot, "BODY");
+    if (localBody && baseBody) {
+      diffPair(localBody, baseBody, entries);
+    } else if (localBody) {
+      entries.push({ type: "subtree", el: localBody });
+    }
+
+    return { entries };
+  }
+
+  /**
+   * Patch local changes (entries from findChangedRoots) into an incoming
+   * parsed document, in place. After a successful splice, a normal full
+   * morph of targetDoc applies the incoming content everywhere EXCEPT the
+   * regions the local side changed.
+   *
+   * Conflict policy: edits beat deletes (a locally-edited section a remote
+   * deleted is reinserted); local deletions beat remote edits to the deleted
+   * section; a dirty root that cannot be identified or placed holds the WHOLE
+   * frame back ({ ok: false }) — the caller must then apply nothing.
+   *
+   * @param {Document} targetDoc - parsed incoming document (mutated)
+   * @param {Array<object>} entries
+   * @param {object} [options]
+   * @param {Array<function(Element): (string|null)>} [options.tiers] - the
+   *   same identity tiers findChangedRoots used
+   * @returns {{ ok: boolean, placed: Array<{entry: object, imported: Element}>,
+   *   held: object|null, skippedAttrs: number }}
+   */
+  function spliceProtected(targetDoc, entries, options = {}) {
+    const tiers =
+      options.tiers && options.tiers.length ? options.tiers : DEFAULT_TIERS;
+    const targetRoot = targetDoc.documentElement;
+    const placed = [];
+    let skippedAttrs = 0;
+
+    const hold = (entry) => ({ ok: false, placed, held: entry, skippedAttrs });
+
+    if (!targetRoot) return hold(null);
+
+    function indexOver(root) {
+      const all = [root, ...root.querySelectorAll("*")];
+      return buildTierIndex(all, tiers);
+    }
+
+    const targetIndex = indexOver(targetRoot);
+
+    // Per-source-tree indexes for the entries' own sides (subtree/attrs/head
+    // entries hold local-capture nodes; deletion entries hold base nodes).
+    const sideIndexes = new Map();
+    const sideIndexFor = (el) => {
+      const root = el.getRootNode();
+      let idx = sideIndexes.get(root);
+      if (!idx) {
+        const rootEl = root.nodeType === 9 ? root.documentElement : root;
+        idx = indexOver(rootEl);
+        sideIndexes.set(root, idx);
+      }
+      return idx;
+    };
+
+    // html/body/head are addressable without keys; everything else resolves
+    // through the tiers.
+    function structuralTarget(el) {
+      if (!el.parentElement && el.tagName === "HTML") return targetRoot;
+      if (
+        el.parentElement &&
+        !el.parentElement.parentElement &&
+        el.parentElement.tagName === "HTML"
+      ) {
+        if (el.tagName === "BODY") return targetDoc.body || null;
+        if (el.tagName === "HEAD") return targetDoc.head || null;
+      }
+      return null;
+    }
+
+    function resolve(el) {
+      const structural = structuralTarget(el);
+      if (structural) return structural;
+      return matchByTiers(el, sideIndexFor(el), targetIndex, tiers);
+    }
+
+    function register(imported) {
+      for (let t = 0; t < tiers.length; t++) {
+        const v = tiers[t](imported);
+        if (v != null && v !== "") targetIndex[t].set(v, imported);
+      }
+    }
+
+    // Local deletions first: they only remove, so they can't invalidate a
+    // later entry's anchor (anchors resolve from the local tree, where the
+    // deleted element does not exist).
+    for (const entry of entries) {
+      if (entry.type !== "deletion") continue;
+      const counterpart = resolve(entry.el);
+      if (counterpart && counterpart !== targetRoot) counterpart.remove();
+    }
+
+    const rest = entries
+      .filter((e) => e.type !== "deletion")
+      .sort((a, b) => {
+        if (a.el === b.el) return 0;
+        const pos = a.el.compareDocumentPosition(b.el);
+        return pos & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+      });
+
+    for (const entry of rest) {
+      if (entry.type === "head") {
+        const imported = targetDoc.importNode(entry.el, true);
+        if (targetDoc.head) {
+          targetDoc.head.replaceWith(imported);
+        } else {
+          targetRoot.insertBefore(imported, targetRoot.firstChild);
+        }
+        placed.push({ entry, imported });
+        continue;
+      }
+
+      if (entry.type === "attrs") {
+        const counterpart = resolve(entry.el);
+        if (!counterpart) {
+          // The element is gone remotely and the only local change was an
+          // attribute: reinserting the subtree would resurrect stale content,
+          // so the remote delete wins and the attribute edit is dropped.
+          skippedAttrs++;
+          continue;
+        }
+        for (const name of entry.names) {
+          if (entry.el.hasAttribute(name)) {
+            counterpart.setAttribute(name, entry.el.getAttribute(name));
+          } else {
+            counterpart.removeAttribute(name);
+          }
+        }
+        continue;
+      }
+
+      // subtree
+      const el = entry.el;
+
+      // A whole-document dirty root is not a splice, it's a hold: silently
+      // replacing the entire incoming document defeats the sync.
+      if (structuralTarget(el)) return hold(entry);
+
+      const counterpart = resolve(el);
+      if (counterpart) {
+        const imported = targetDoc.importNode(el, true);
+        counterpart.replaceWith(imported);
+        register(imported);
+        placed.push({ entry, imported });
+        continue;
+      }
+
+      // No counterpart: locally new, or remotely deleted while locally
+      // edited. Both reinsert — but only an identified root can be placed
+      // without guessing, and a bad guess duplicates sections.
+      if (!hasUsableKey(el, sideIndexFor(el), tiers)) return hold(entry);
+
+      const parentEl = el.parentElement;
+      if (!parentEl) return hold(entry);
+      const parentC = resolve(parentEl);
+      if (!parentC) return hold(entry);
+
+      let anchor = null;
+      for (let s = el.previousElementSibling; s; s = s.previousElementSibling) {
+        const c = resolve(s);
+        if (c && c.parentNode === parentC) {
+          anchor = c;
+          break;
+        }
+      }
+
+      const imported = targetDoc.importNode(el, true);
+      parentC.insertBefore(
+        imported,
+        anchor ? anchor.nextSibling : parentC.firstChild,
+      );
+      register(imported);
+      placed.push({ entry, imported });
+    }
+
+    return { ok: true, placed, held: null, skippedAttrs };
+  }
+
+  //=============================================================================
   // This is what ends up becoming the HyperMorph global object
   //=============================================================================
   return {
     morph,
     defaults,
+    findChangedRoots,
+    spliceProtected,
     mergeJson,
     mergeScriptText,
     parseJsonRelaxed,
@@ -2263,5 +2759,7 @@ var HyperMorph = (function () {
 export { HyperMorph };
 export const morph = HyperMorph.morph;
 export const defaults = HyperMorph.defaults;
+export const findChangedRoots = HyperMorph.findChangedRoots;
+export const spliceProtected = HyperMorph.spliceProtected;
 export { mergeJson, mergeScriptText, parseJsonRelaxed, parseRulesRelaxed };
 export default HyperMorph;
