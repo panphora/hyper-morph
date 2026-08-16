@@ -46,13 +46,27 @@ describe("Protected splice (findChangedRoots + spliceProtected)", function () {
     entries[0].el.tagName.should.equal("HTML");
   });
 
-  it("promotes the nearest element for a text edit", function () {
+  it("promotes an attr edit on a KEYLESS element instead of emitting an unaddressable attrs entry", function () {
+    // An attrs entry on a keyless element would be silently dropped by the
+    // splice (skippedAttrs) even though the element survives remotely; the
+    // local edit must instead ride up to the keyed ancestor as a subtree.
+    const local = doc(`<div id="a"><p class="highlight">hi</p></div>`);
+    const base = doc(`<div id="a"><p>hi</p></div>`);
+    const entries = diff(local, base);
+    entries.length.should.equal(1);
+    entries[0].type.should.equal("subtree");
+    entries[0].el.getAttribute("id").should.equal("a");
+  });
+
+  it("promotes a text edit to the nearest KEYED element", function () {
+    // The <p> holding the edit is keyless; the splice could never address it
+    // in a foreign tree, so the dirty root climbs to the keyed div.
     const local = doc(`<div id="a"><p>edited</p></div>`);
     const base = doc(`<div id="a"><p>original</p></div>`);
     const entries = diff(local, base);
     entries.length.should.equal(1);
     entries[0].type.should.equal("subtree");
-    entries[0].el.tagName.should.equal("P");
+    entries[0].el.getAttribute("id").should.equal("a");
   });
 
   it("keeps a locally-added keyed child as its own entry (no parent promotion)", function () {
@@ -101,18 +115,18 @@ describe("Protected splice (findChangedRoots + spliceProtected)", function () {
 
   it("pairs equal-length keyless runs positionally", function () {
     const local = doc(
-      `<div id="wrap"><span id="k">key</span><p>EDITED</p><p>two</p></div>`,
+      `<div id="wrap"><span id="k">key</span><p><em id="deep">EDITED</em></p><p>two</p></div>`,
     );
     const base = doc(
-      `<div id="wrap"><p>one</p><p>two</p><span id="k">key</span></div>`,
+      `<div id="wrap"><p><em id="deep">original</em></p><p>two</p><span id="k">key</span></div>`,
     );
     // keyed span matched (moved: order check only applies among keyed pairs);
-    // the two keyless <p>s pair positionally, first one edited.
+    // the two keyless <p>s pair positionally, so the edit stays scoped to the
+    // keyed <em> inside the first pair instead of promoting to #wrap.
     const entries = diff(local, base);
     const subtrees = byType(entries, "subtree");
     subtrees.length.should.equal(1);
-    subtrees[0].el.tagName.should.equal("P");
-    subtrees[0].el.textContent.should.equal("EDITED");
+    subtrees[0].el.getAttribute("id").should.equal("deep");
   });
 
   it("excludes skip-matched subtrees on both sides", function () {
@@ -326,11 +340,23 @@ describe("Protected splice (findChangedRoots + spliceProtected)", function () {
     ids.should.deep.equal(["s1", "s8", "s9"]);
   });
 
-  it("holds the frame for a keyless dirty root instead of guessing", function () {
+  it("promotes a keyless dirty root to its keyed ancestor (edits beat deletes)", function () {
     const local = doc(`<main id="m"><div>MY EDIT</div></main>`);
     const base = doc(`<main id="m"><div>one</div></main>`);
-    // Remote deleted the keyless div: no counterpart, no usable key.
+    // Remote deleted the keyless div, but the dirty root promoted to main#m,
+    // which IS addressable: the edited subtree survives wholesale.
     const target = doc(`<main id="m"></main>`);
+    const res = splice(target, diff(local, base));
+    res.ok.should.equal(true);
+    target.querySelector("main#m > div").textContent.should.equal("MY EDIT");
+  });
+
+  it("holds the frame when a dirty root has no keyed ancestor below <body>", function () {
+    const local = doc(`<main><div><p>MY EDIT</p></div></main>`);
+    const base = doc(`<main><div><p>one</p></div></main>`);
+    // Nothing keyed anywhere: promotion climbs to <body>, and a body-level
+    // dirty root is a hold, not a wholesale replace.
+    const target = doc(`<main></main>`);
     const res = splice(target, diff(local, base));
     res.ok.should.equal(false);
     (res.held !== null).should.equal(true);

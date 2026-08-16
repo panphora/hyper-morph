@@ -2353,6 +2353,36 @@ var HyperMorph = (function () {
     const tiers =
       options.tiers && options.tiers.length ? options.tiers : DEFAULT_TIERS;
 
+    // Doc-level index over the local tree, built lazily on the first dirty
+    // root: promotion decisions must use the same identity scope the splice
+    // resolves against (the whole tree), not sibling-level uniqueness.
+    let localDocIndex = null;
+    function localIndex() {
+      if (!localDocIndex) {
+        localDocIndex = buildTierIndex(
+          [localRoot, ...localRoot.querySelectorAll("*")],
+          tiers,
+        );
+      }
+      return localDocIndex;
+    }
+
+    // html / body / head: addressable without keys, and the promotion ceiling.
+    function isStructural(el) {
+      return !el.parentElement || !el.parentElement.parentElement;
+    }
+
+    // A dirty subtree entry is only worth emitting where the splice can
+    // address it. A keyless dirty root promotes to its parent instead
+    // (returns true), bubbling until a keyed or structural ancestor.
+    function emitOrPromote(el, out) {
+      if (isStructural(el) || hasUsableKey(el, localIndex(), tiers)) {
+        out.push({ type: "subtree", el });
+        return false;
+      }
+      return true;
+    }
+
     function diffAttrNames(localEl, baseEl) {
       const names = [];
       for (const attr of localEl.attributes) {
@@ -2433,7 +2463,7 @@ var HyperMorph = (function () {
           for (let i = 0; i < L.length; i++) {
             const l = L[i];
             if (l.nodeType === 1) {
-              diffPair(l, B[i], out);
+              if (diffPair(l, B[i], out)) return true;
             } else if (l.nodeValue !== B[i].nodeValue) {
               // A text/comment edit dirties the nearest containing element.
               return true;
@@ -2506,10 +2536,10 @@ var HyperMorph = (function () {
       }
 
       for (let i = 0; i < keylessL.length; i++) {
-        diffPair(keylessL[i], keylessB[i], out);
+        if (diffPair(keylessL[i], keylessB[i], out)) return true;
       }
       for (const [l, b] of pairs) {
-        diffPair(l, b, out);
+        if (diffPair(l, b, out)) return true;
       }
       return false;
     }
@@ -2517,20 +2547,30 @@ var HyperMorph = (function () {
     /**
      * Diff a corresponding element pair into `out`. Child entries buffer
      * locally so a late promotion discards them instead of double-reporting.
+     * Returns true when this pair's change must promote into the PARENT
+     * (the local element is dirty but keyless, so the splice couldn't
+     * address it — see emitOrPromote).
      */
     function diffPair(localEl, baseEl, out) {
       if (localEl.tagName !== baseEl.tagName) {
-        out.push({ type: "subtree", el: localEl });
-        return;
+        return emitOrPromote(localEl, out);
       }
       const names = diffAttrNames(localEl, baseEl);
       const buf = [];
       if (diffChildren(localEl, baseEl, buf)) {
-        out.push({ type: "subtree", el: localEl });
-        return;
+        return emitOrPromote(localEl, out);
       }
-      if (names.length) out.push({ type: "attrs", el: localEl, names });
+      if (names.length) {
+        // An attr edit on a keyless element is unaddressable by the splice
+        // (it would be silently dropped as skippedAttrs even though the
+        // element survives remotely). Promote so the edit is protected.
+        if (!isStructural(localEl) && !hasUsableKey(localEl, localIndex(), tiers)) {
+          return true;
+        }
+        out.push({ type: "attrs", el: localEl, names });
+      }
       out.push(...buf);
+      return false;
     }
 
     const entries = [];
