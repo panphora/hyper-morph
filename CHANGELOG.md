@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1] - 2026-08-21
+
+### Changed
+- Update hyper-morph
+
+
+
 ## [Unreleased]
 
 ### Changed
