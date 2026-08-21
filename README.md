@@ -385,4 +385,5 @@ npm run test:all  # Run tests in all browsers
 
 ## License
 
-0BSD (Zero-Clause BSD)
+MIT-0 (MIT No Attribution) for our code. HyperMorph is derived from Idiomorph
+(0BSD); see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

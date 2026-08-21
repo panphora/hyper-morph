@@ -12,10 +12,11 @@
   "bugs": {
     "url": "https://github.com/panphora/hyper-morph/issues"
   },
-  "license": "0BSD",
+  "license": "MIT-0",
   "files": [
     "LICENSE",
     "README.md",
+    "THIRD-PARTY-NOTICES.md",
     "src/*.js",
     "dist/*.js"
   ],

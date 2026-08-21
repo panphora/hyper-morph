@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+- License: relicensed to MIT-0 (MIT No Attribution). Same rights, attribution no longer required for our code; Idiomorph-derived portions are covered in the new THIRD-PARTY-NOTICES.md.
+
 ## [0.5.0] - 2026-08-16
 
 ### Added
