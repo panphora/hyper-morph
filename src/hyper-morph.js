@@ -4,6 +4,7 @@ import {
   parseJsonRelaxed,
   parseRulesRelaxed,
 } from "./hyper-morph-json-parse.js";
+import { capabilitySelector } from './lib/region-capabilities.js';
 
 /**
  * @typedef {object} ConfigHead
@@ -63,6 +64,7 @@ import {
  * @property {ConfigHead} [head]
  * @property {ConfigScripts} [scripts]
  * @property {function(Element): (string|null|undefined)} [key] - Optional identity callback. Equal non-null returns pair elements regardless of position or content scoring. Duplicate keys on either side fall through to content scoring.
+ * @property {'sync' | 'history' | 'raw'} [policy] - Exclusion policy. History preserves authored freeze/no-save content and retains only editor-ui. Raw applies no semantic exclusions for internal UI trees.
  */
 
 /**
@@ -163,7 +165,8 @@ var HyperMorph = (function () {
    * @property {ConfigInternal['head']} head
    * @property {ConfigInternal['scripts']} scripts
    * @property {MergeContext | null} merge - mergeable-script pairing/base state, null when neither tree has a mergeable script
-   * @property {HTMLDivElement} pantry
+   * @property {HTMLDivElement | null} pantry
+   * @property {Map<Node, {parent: Node, nextSibling: Node | null}>} stagedNodes
    * @property {Element[]} activeElementAndParents
    * @property {Map<Element, Element>} hyperMatches - hyper-match results (newEl -> oldEl)
    * @property {Set<Element>} hyperMatchedOldElements - old elements that are hyper-matched
@@ -176,7 +179,8 @@ var HyperMorph = (function () {
   const noOp = () => {};
 
   const SYNC_IGNORE_SELECTOR =
-    '[save-ignore],[snapshot-remove],[no-snapshot],[no-save],[save-remove],[freeze],[save-freeze],[clay~="no-save"],[clay~="no-snapshot"],[clay~="freeze"]';
+    '[editor-ui],[clay~="editor-ui"],[save-ignore],[snapshot-remove],[no-snapshot],[no-save],[save-remove],[freeze],[save-freeze],[clay~="no-save"],[clay~="no-snapshot"],[clay~="freeze"]';
+  const HISTORY_IGNORE_SELECTOR = `${capabilitySelector('history')},[no-undo],[clay~="no-undo"]`;
 
   /**
    * Check if an element should be ignored during morphing.
@@ -196,7 +200,7 @@ var HyperMorph = (function () {
    * @returns {boolean}
    */
   function shouldIgnoreForSync(node) {
-    if (!(node instanceof Element)) return false;
+    if (node?.nodeType !== 1) return false;
 
     if (node.matches(SYNC_IGNORE_SELECTOR)) return true;
 
@@ -223,7 +227,7 @@ var HyperMorph = (function () {
    * @returns {boolean}
    */
   function shouldIgnoreForSyncDeep(node) {
-    if (!(node instanceof Element)) return false;
+    if (node?.nodeType !== 1) return false;
     if (node.closest(SYNC_IGNORE_SELECTOR)) return true;
     return shouldIgnoreForSync(node);
   }
@@ -231,10 +235,6 @@ var HyperMorph = (function () {
   // Create a matcher instance for use in morphing. Sync-ignored chrome is
   // excluded from candidacy so incoming content is never matched into a
   // local-only node.
-  const HyperMatchMatcher = createMatcher({
-    shouldIgnore: shouldIgnoreForSyncDeep,
-  });
-
   /**
    * Get a signature for script matching.
    * - mergeable scripts (both modes): identity-based, so a content change
@@ -291,7 +291,7 @@ var HyperMorph = (function () {
    */
   function isHtmlScript(node) {
     return (
-      node instanceof Element &&
+      node?.nodeType === 1 &&
       node.tagName === "SCRIPT" &&
       node.namespaceURI === HTML_NS
     );
@@ -326,7 +326,7 @@ var HyperMorph = (function () {
     if (isHtmlScript(root)) {
       return makeInertScript(/** @type {Element} */ (root));
     }
-    if (root instanceof Element) {
+    if (root?.nodeType === 1) {
       for (const script of root.querySelectorAll("script")) {
         if (isHtmlScript(script)) {
           script.replaceWith(makeInertScript(script));
@@ -467,7 +467,7 @@ var HyperMorph = (function () {
           mergeBase,
           "text/html",
         ).documentElement;
-      } else if (mergeBase instanceof Document) {
+      } else if (mergeBase?.nodeType === 9) {
         baseRoot = mergeBase.documentElement;
       } else {
         baseRoot = mergeBase;
@@ -573,8 +573,8 @@ var HyperMorph = (function () {
      * @param {Element} newRoot
      * @returns {Map<Element, Element>} Map of newEl -> oldEl
      */
-    computeMatches(oldRoot, newRoot) {
-      const { computeMatches } = HyperMatchMatcher.session();
+    computeMatches(oldRoot, newRoot, shouldIgnore = shouldIgnoreForSyncDeep) {
+      const { computeMatches } = createMatcher({ shouldIgnore }).session();
       return computeMatches(oldRoot, newRoot);
     },
   };
@@ -603,19 +603,25 @@ var HyperMorph = (function () {
 
     const focusState = captureFocusState(ctx);
 
-    const morphed = withHeadBlocking(
-      ctx,
-      oldNode,
-      newNode,
-      /** @param {MorphContext} ctx */ (ctx) => {
-        if (ctx.morphStyle === "innerHTML") {
-          morphChildren(ctx, oldNode, newNode);
-          return Array.from(oldNode.childNodes);
-        } else {
-          return morphOuterHTML(ctx, oldNode, newNode);
-        }
-      },
-    );
+    let morphed;
+    try {
+      morphed = withHeadBlocking(
+        ctx,
+        oldNode,
+        newNode,
+        /** @param {MorphContext} ctx */ (ctx) => {
+          if (ctx.morphStyle === "innerHTML") {
+            morphChildren(ctx, oldNode, newNode);
+            return Array.from(oldNode.childNodes);
+          } else {
+            return morphOuterHTML(ctx, oldNode, newNode);
+          }
+        },
+      );
+    } catch (error) {
+      recoverPantry(ctx);
+      throw error;
+    }
 
     // Everything after the morph body must wait for it: with head.block the
     // body runs async, and scripts/pantry/focus all need the post-morph DOM.
@@ -635,7 +641,28 @@ var HyperMorph = (function () {
       return morphedNodes;
     };
 
-    return morphed instanceof Promise ? morphed.then(finish) : finish(morphed);
+    if (morphed instanceof Promise) {
+      return morphed.then(
+        (morphedNodes) => {
+          try {
+            return finish(morphedNodes);
+          } catch (error) {
+            recoverPantry(ctx);
+            throw error;
+          }
+        },
+        (error) => {
+          recoverPantry(ctx);
+          throw error;
+        },
+      );
+    }
+    try {
+      return finish(morphed);
+    } catch (error) {
+      recoverPantry(ctx);
+      throw error;
+    }
   }
 
   /**
@@ -644,12 +671,103 @@ var HyperMorph = (function () {
    * @param {MorphContext} ctx
    */
   function drainPantry(ctx) {
-    for (const node of Array.from(ctx.pantry.childNodes)) {
+    const pantry = ctx.pantry;
+    if (!pantry) return;
+    for (const node of Array.from(pantry.childNodes)) {
       if (ctx.callbacks.beforeNodeRemoved(node) !== false) {
         ctx.callbacks.afterNodeRemoved(node);
       }
     }
-    ctx.pantry.remove();
+    for (const node of Array.from(pantry.childNodes)) {
+      pantry.removeChild(node);
+    }
+    pantry.remove();
+    ctx.pantry = null;
+    ctx.stagedNodes.clear();
+  }
+
+  /**
+   * Restore authored nodes that are still parked when morphing fails. This only
+   * unwinds staging moves; mutations already completed elsewhere are left alone.
+   * @param {MorphContext} ctx
+   */
+  function recoverPantry(ctx) {
+    const pantry = ctx.pantry;
+    if (!pantry) return;
+    const staged = Array.from(ctx.stagedNodes.entries()).reverse();
+    for (const [node, placement] of staged) {
+      if (!pantry.contains(node)) continue;
+      const before = placement.nextSibling?.parentNode === placement.parent
+        ? placement.nextSibling
+        : null;
+      try {
+        moveBefore(placement.parent, node, before);
+      } catch {
+        // Keep trying the remaining nodes. Anything that cannot be restored is
+        // detached below rather than deleted with the staging container.
+      }
+    }
+    for (const node of Array.from(pantry.childNodes)) {
+      pantry.removeChild(node);
+    }
+    pantry.remove();
+    ctx.pantry = null;
+    ctx.stagedNodes.clear();
+  }
+
+  /**
+   * Create the temporary staging container only when a node actually moves.
+   * The ownership marker must exist before connection so observers never see
+   * an unmarked library-owned subtree.
+   * @param {MorphContext} ctx
+   * @returns {HTMLDivElement}
+   */
+  function getPantry(ctx) {
+    if (ctx.pantry) return ctx.pantry;
+    const doc = ctx.target.ownerDocument;
+    const pantry = doc.createElement("div");
+    pantry.hidden = true;
+    pantry.setAttribute("mutations-ignore", "");
+    doc.body.insertAdjacentElement("afterend", pantry);
+    ctx.pantry = pantry;
+    return pantry;
+  }
+
+  /**
+   * Moves an element before another element within the same parent.
+   * Uses the proposed `moveBefore` API if available and falls back to
+   * `insertBefore` when moving disconnected nodes is unsupported.
+   * @param {Node} parentNode
+   * @param {Node} element
+   * @param {Node | null} after
+   */
+  function moveBefore(parentNode, element, after) {
+    // @ts-ignore - use proposed moveBefore feature
+    if (parentNode.moveBefore) {
+      try {
+        // @ts-ignore - use proposed moveBefore feature
+        parentNode.moveBefore(element, after);
+      } catch {
+        parentNode.insertBefore(element, after);
+      }
+    } else {
+      parentNode.insertBefore(element, after);
+    }
+  }
+
+  /**
+   * Record the first authored placement before moving a node into staging.
+   * @param {MorphContext} ctx
+   * @param {Node} node
+   */
+  function stageNode(ctx, node) {
+    if (!ctx.stagedNodes.has(node) && node.parentNode) {
+      ctx.stagedNodes.set(node, {
+        parent: node.parentNode,
+        nextSibling: node.nextSibling,
+      });
+    }
+    moveBefore(getPantry(ctx), node, null);
   }
 
   /**
@@ -763,8 +881,8 @@ var HyperMorph = (function () {
     ) {
       // normalize
       if (
-        oldParent instanceof HTMLTemplateElement &&
-        newParent instanceof HTMLTemplateElement
+        oldParent?.tagName === "TEMPLATE" &&
+        newParent?.tagName === "TEMPLATE"
       ) {
         // @ts-ignore we can pretend the DocumentFragment is an Element
         oldParent = oldParent.content;
@@ -776,7 +894,7 @@ var HyperMorph = (function () {
       // run through all the new content
       for (const newChild of newParent.childNodes) {
         // Skip elements with save-ignore - they shouldn't be synced from source
-        if (shouldIgnoreForSync(newChild)) {
+        if (ctx.shouldIgnore(newChild)) {
           continue;
         }
 
@@ -800,7 +918,7 @@ var HyperMorph = (function () {
         }
 
         // if the matching node is elsewhere in the original content
-        if (newChild instanceof Element) {
+        if (newChild?.nodeType === 1) {
           // we can pretend the id is non-null because the next `.has` line will reject it if not
           const newChildId = /** @type {String} */ (
             newChild.getAttribute("id")
@@ -854,7 +972,7 @@ var HyperMorph = (function () {
         const tempNode = insertionPoint;
         insertionPoint = insertionPoint.nextSibling;
         // Preserve elements with save-ignore - they shouldn't be removed during sync
-        if (!shouldIgnoreForSync(tempNode)) {
+        if (!ctx.shouldIgnore(tempNode)) {
           removeNode(ctx, tempNode);
         }
       }
@@ -872,10 +990,11 @@ var HyperMorph = (function () {
      */
     function createNode(oldParent, newChild, insertionPoint, ctx) {
       if (ctx.callbacks.beforeNodeAdded(newChild) === false) return null;
+      const ownerDocument = oldParent.ownerDocument || oldParent.realParentNode?.ownerDocument || ctx.target.ownerDocument;
       if (ctx.idMap.has(newChild)) {
         // node has children with ids with possible state so create a dummy elt of same type and apply full morph algorithm
         const newElt = /** @type {Element} */ (newChild);
-        const newEmptyChild = document.createElementNS(
+        const newEmptyChild = ownerDocument.createElementNS(
           newElt.namespaceURI,
           newElt.localName,
         );
@@ -885,13 +1004,24 @@ var HyperMorph = (function () {
         return newEmptyChild;
       } else {
         // optimisation: no id state to preserve so we can just insert a clone of the newChild and its descendants
-        const newClonedChild = neutralizeScripts(
-          document.importNode(newChild, true),
-        ); // importNode to not mutate newParent
+        const newClonedChild = neutralizeScripts(cloneForPolicy(newChild, ownerDocument, ctx));
+        if (!newClonedChild) return null;
         oldParent.insertBefore(newClonedChild, insertionPoint);
         ctx.callbacks.afterNodeAdded(newClonedChild);
         return newClonedChild;
       }
+    }
+
+    function cloneForPolicy(source, ownerDocument, ctx) {
+      if (ctx.shouldIgnore(source)) return null;
+      const clone = ownerDocument.importNode(source, false);
+      const sourceChildren = source.nodeType === 1 && source.tagName === 'TEMPLATE' ? source.content : source;
+      const cloneChildren = clone.nodeType === 1 && clone.tagName === 'TEMPLATE' ? clone.content : clone;
+      for (const child of Array.from(sourceChildren.childNodes || [])) {
+        const childClone = cloneForPolicy(child, ownerDocument, ctx);
+        if (childClone) cloneChildren.appendChild(childClone);
+      }
+      return clone;
     }
 
     //=============================================================================
@@ -915,7 +1045,7 @@ var HyperMorph = (function () {
         // Check if hyper-match found a result for this node (only for Elements)
         // Skip hyper-match for nodes with persistent IDs (let ID-based matching handle them)
         const hyperMatch =
-          node instanceof Element && !ctx.idMap.has(node)
+          node?.nodeType === 1 && !ctx.idMap.has(node)
             ? ctx.hyperMatches.get(node)
             : null;
 
@@ -927,7 +1057,7 @@ var HyperMorph = (function () {
         while (cursor && cursor != endPoint) {
           // Sync-ignored local nodes (chrome) are invisible to matching: never a
           // morph target, so incoming content can't be morphed into them.
-          if (shouldIgnoreForSync(cursor)) {
+          if (ctx.shouldIgnore(cursor)) {
             cursor = cursor.nextSibling;
             continue;
           }
@@ -948,7 +1078,7 @@ var HyperMorph = (function () {
             if (softMatch === null) {
               // Skip if cursor will hard match something else in the future
               const isHyperMatched =
-                cursor instanceof Element &&
+                cursor?.nodeType === 1 &&
                 ctx.hyperMatchedOldElements.has(cursor);
               if (!ctx.idMap.has(cursor) && !isHyperMatched) {
                 softMatch = cursor;
@@ -1050,12 +1180,12 @@ var HyperMorph = (function () {
       // are we going to id set match or hyper-match this later?
       // Note: hyper-match only applies to elements without persistent IDs
       const isHyperMatched =
-        node instanceof Element &&
+        node?.nodeType === 1 &&
         ctx.hyperMatchedOldElements.has(node) &&
         !ctx.idMap.has(node);
       if (ctx.idMap.has(node) || isHyperMatched) {
         // skip callbacks and move to pantry
-        moveBefore(ctx.pantry, node, null);
+        stageNode(ctx, node);
       } else {
         // remove for realsies
         if (ctx.callbacks.beforeNodeRemoved(node) === false) return;
@@ -1079,7 +1209,7 @@ var HyperMorph = (function () {
         let tempNode = /** @type {Node} */ (cursor);
         cursor = cursor.nextSibling;
         // Preserve elements with save-ignore
-        if (!shouldIgnoreForSync(tempNode)) {
+        if (!ctx.shouldIgnore(tempNode)) {
           removeNode(ctx, tempNode);
         }
       }
@@ -1096,15 +1226,18 @@ var HyperMorph = (function () {
      * @param {MorphContext} ctx
      * @returns {Element} The found element
      */
-    function moveBeforeById(parentNode, id, after, ctx) {
+  function moveBeforeById(parentNode, id, after, ctx) {
+      const escapedId = ctx.target.ownerDocument?.defaultView?.CSS?.escape
+        ? ctx.target.ownerDocument.defaultView.CSS.escape(id)
+        : String(id).replace(/["\\]/g, "\\$&");
       const target =
         /** @type {Element} - will always be found */
         (
           // ctx.target.id unsafe because of form input shadowing
           // ctx.target could be a document fragment which doesn't have `getAttribute`
           (ctx.target.getAttribute?.("id") === id && ctx.target) ||
-            ctx.target.querySelector(`[id="${CSS.escape(id)}"]`) ||
-            ctx.pantry.querySelector(`[id="${CSS.escape(id)}"]`)
+            ctx.target.querySelector(`[id="${escapedId}"]`) ||
+            ctx.pantry?.querySelector(`[id="${escapedId}"]`)
         );
       removeElementFromAncestorsIdMaps(target, ctx);
       moveBefore(parentNode, target, after);
@@ -1135,31 +1268,6 @@ var HyperMorph = (function () {
     }
 
     /**
-     * Moves an element before another element within the same parent.
-     * Uses the proposed `moveBefore` API if available (and working), otherwise falls back to `insertBefore`.
-     * This is essentialy a forward-compat wrapper.
-     *
-     * @param {Element} parentNode - The parent node containing the after element.
-     * @param {Node} element - The element to be moved.
-     * @param {Node | null} after - The reference node to insert `element` before.
-     *                              If `null`, `element` is appended as the last child.
-     */
-    function moveBefore(parentNode, element, after) {
-      // @ts-ignore - use proposed moveBefore feature
-      if (parentNode.moveBefore) {
-        try {
-          // @ts-ignore - use proposed moveBefore feature
-          parentNode.moveBefore(element, after);
-        } catch (e) {
-          // fall back to insertBefore as some browsers may fail on moveBefore when trying to move Dom disconnected nodes to pantry
-          parentNode.insertBefore(element, after);
-        }
-      } else {
-        parentNode.insertBefore(element, after);
-      }
-    }
-
-    /**
      * True when moving `element` into `oldParent` would create a cycle
      * (element is an ancestor of the destination) — both moveBefore and
      * insertBefore throw HierarchyRequestError on such moves.
@@ -1169,7 +1277,7 @@ var HyperMorph = (function () {
      */
     function containsMoveTarget(element, oldParent) {
       const parentEl =
-        oldParent instanceof Element
+        oldParent?.nodeType === 1
           ? oldParent
           : /** @type {any} */ (oldParent).realParentNode;
       return !!parentEl && element.contains(parentEl);
@@ -1198,10 +1306,10 @@ var HyperMorph = (function () {
         return oldNode;
       }
 
-      if (oldNode instanceof HTMLHeadElement && ctx.head.ignore) {
+      if (oldNode?.tagName === "HEAD" && ctx.head.ignore) {
         // ignore the head element
       } else if (
-        oldNode instanceof HTMLHeadElement &&
+        oldNode?.tagName === "HEAD" &&
         ctx.head.style !== "morph"
       ) {
         // ok to cast: if newContent wasn't also a <head>, it would've got caught in the `!isSoftMatch` branch above
@@ -1291,8 +1399,8 @@ var HyperMorph = (function () {
      */
     function syncInputValue(oldElement, newElement, ctx) {
       if (
-        oldElement instanceof HTMLInputElement &&
-        newElement instanceof HTMLInputElement &&
+        oldElement.tagName === "INPUT" &&
+        newElement.tagName === "INPUT" &&
         newElement.type !== "file"
       ) {
         let newValue = newElement.value;
@@ -1334,13 +1442,13 @@ var HyperMorph = (function () {
         // TODO: QUESTION(1cg): this used to only check `newElement` unlike the other branches -- why?
         // did I break something?
       } else if (
-        oldElement instanceof HTMLOptionElement &&
-        newElement instanceof HTMLOptionElement
+        oldElement.tagName === "OPTION" &&
+        newElement.tagName === "OPTION"
       ) {
         syncBooleanAttribute(oldElement, newElement, "selected", ctx);
       } else if (
-        oldElement instanceof HTMLTextAreaElement &&
-        newElement instanceof HTMLTextAreaElement
+        oldElement.tagName === "TEXTAREA" &&
+        newElement.tagName === "TEXTAREA"
       ) {
         let newValue = newElement.value;
         let oldValue = oldElement.value;
@@ -1528,7 +1636,7 @@ var HyperMorph = (function () {
     // Skip elements with save-ignore - they shouldn't be synced from source
     let srcToNewHeadNodes = new Map();
     for (const newHeadChild of newHead.children) {
-      if (shouldIgnoreForSync(newHeadChild)) {
+      if (ctx.shouldIgnore(newHeadChild)) {
         continue;
       }
       const sig = getSignature(newHeadChild);
@@ -1578,7 +1686,7 @@ var HyperMorph = (function () {
           // Preserve elements with save-ignore - they shouldn't be removed during sync
           if (
             ctx.head.shouldRemove(currentHeadElt) !== false &&
-            !shouldIgnoreForSync(currentHeadElt)
+            !ctx.shouldIgnore(currentHeadElt)
           ) {
             removed.push(currentHeadElt);
           }
@@ -1667,7 +1775,7 @@ var HyperMorph = (function () {
 
     for (const script of currentScripts) {
       if (script.closest("head")) continue;
-      if (shouldIgnoreForSyncDeep(script)) continue;
+      if (ctx.shouldIgnore(script)) continue;
       const signature = getScriptSignature(script, matchMode, ctx.merge);
       const existedBefore = oldScriptSignatures.has(signature);
       const isPreserved = ctx.scripts.shouldPreserve(script);
@@ -1739,10 +1847,23 @@ var HyperMorph = (function () {
      * @returns {MorphContext}
      */
     function createMorphContext(oldNode, newContent, config) {
-      const { persistentIds, idMap } = createIdMaps(oldNode, newContent);
+      const ignoredSelector = config.policy === 'history' ? HISTORY_IGNORE_SELECTOR : SYNC_IGNORE_SELECTOR;
+      const shouldIgnore = config.policy === 'raw'
+        ? () => false
+        : node => {
+            if (node?.nodeType !== 1) return false;
+            if (config.policy !== 'history' && shouldIgnoreForSyncDeep(node)) return true;
+            const boundary = node.closest(ignoredSelector);
+            if (!boundary) return false;
+            if (config.policy === 'history' && boundary === oldNode &&
+                boundary.matches('[no-undo],[clay~="no-undo"]') &&
+                !boundary.matches('[editor-ui],[clay~="editor-ui"]')) return false;
+            return true;
+          };
+      const { persistentIds, idMap } = createIdMaps(oldNode, newContent, shouldIgnore);
 
       // Compute hyper-match results for content-based matching
-      const hyperMatches = HyperMatch.computeMatches(oldNode, newContent);
+      const hyperMatches = HyperMatch.computeMatches(oldNode, newContent, shouldIgnore);
 
       // Optional: override hyperMatches with caller-supplied identity via config.key.
       // The function is invoked on every Element in both trees; equal non-null
@@ -1855,11 +1976,13 @@ var HyperMorph = (function () {
         hyperMatches: hyperMatches,
         hyperMatchedOldElements: hyperMatchedOldElements,
         merge: mergeCtx,
-        pantry: createPantry(),
+        pantry: null,
+        stagedNodes: new Map(),
         activeElementAndParents: createActiveElementAndParents(oldNode),
         callbacks: mergedConfig.callbacks,
         head: mergedConfig.head,
         scripts: mergedConfig.scripts,
+        shouldIgnore,
       };
     }
 
@@ -1892,23 +2015,13 @@ var HyperMorph = (function () {
     }
 
     /**
-     * @returns {HTMLDivElement}
-     */
-    function createPantry() {
-      const pantry = document.createElement("div");
-      pantry.hidden = true;
-      document.body.insertAdjacentElement("afterend", pantry);
-      return pantry;
-    }
-
-    /**
      * @param {Element} oldNode
      * @returns {Element[]}
      */
     function createActiveElementAndParents(oldNode) {
       /** @type {Element[]} */
       let activeElementAndParents = [];
-      let elt = document.activeElement;
+      let elt = oldNode.ownerDocument?.activeElement;
       if (elt?.tagName !== "BODY" && oldNode.contains(elt)) {
         while (elt) {
           activeElementAndParents.push(elt);
@@ -1980,9 +2093,9 @@ var HyperMorph = (function () {
      * @param {Element} newContent  the new content to morph to
      * @returns {IdSets}
      */
-    function createIdMaps(oldContent, newContent) {
-      const oldIdElements = findIdElements(oldContent);
-      const newIdElements = findIdElements(newContent);
+    function createIdMaps(oldContent, newContent, shouldIgnore) {
+      const oldIdElements = findIdElements(oldContent).filter(element => !shouldIgnore(element));
+      const newIdElements = findIdElements(newContent).filter(element => !shouldIgnore(element));
 
       const persistentIds = createPersistentIds(oldIdElements, newIdElements);
 
@@ -2051,7 +2164,7 @@ var HyperMorph = (function () {
      * @returns {Element}
      */
     function normalizeElement(content) {
-      if (content instanceof Document) {
+      if (content?.nodeType === 9) {
         return content.documentElement;
       } else {
         return content;
@@ -2073,7 +2186,7 @@ var HyperMorph = (function () {
       ) {
         // the template tag created by HyperMorph parsing can serve as a dummy parent
         return /** @type {Element} */ (newContent);
-      } else if (newContent instanceof Node) {
+      } else if (newContent && typeof newContent === "object" && "nodeType" in newContent) {
         if (newContent.parentNode) {
           // we can't use the parent directly because newContent may have siblings
           // that we don't want in the morph, and reparenting might be expensive (TODO is it?),
@@ -2082,14 +2195,15 @@ var HyperMorph = (function () {
           return /** @type {any} */ (new SlicedParentNode(newContent));
         } else {
           // a single node is added as a child to a dummy parent
-          const dummyParent = document.createElement("div");
+          const dummyParent = newContent.ownerDocument.createElement("div");
           dummyParent.append(newContent);
           return dummyParent;
         }
       } else {
         // all nodes in the array or HTMLElement collection are consolidated under
         // a single dummy parent element
-        const dummyParent = document.createElement("div");
+        const first = [...newContent][0];
+        const dummyParent = first?.ownerDocument?.createElement("div") || document.createElement("div");
         for (const elt of [...newContent]) {
           dummyParent.append(elt);
         }

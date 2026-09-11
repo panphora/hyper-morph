@@ -14,48 +14,21 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import { buildVendor } from './vendor-format.js';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.join(__dirname, '..');
 const workspace = path.join(rootDir, '..');
 
 const distFile = path.join(rootDir, 'dist', 'hyper-morph.min.js');
 
-// Both clients import their copy as ESM and both honor
-// window.__hyperclayNoAutoExport, so the two files are the same bytes. One
-// builder rather than two so a change to the wrapper cannot reach one client
-// and silently miss the other.
-const WRAPPER_CODE = `
-// Convenience morph wrapper with data-id support
-var morph = function(oldEl, newEl, options = {}) {
-    return HyperMorph.morph(oldEl, newEl, {
-        key: (el) => (el.getAttribute && el.getAttribute('data-id')) || el.id || null,
-        ...options
-    });
-};
-
-// Auto-export to window unless suppressed by loader
-if (!window.__hyperclayNoAutoExport) {
-  window.hyperclay = window.hyperclay || {};
-  window.hyperclay.HyperMorph = HyperMorph;
-  window.hyperclay.morph = morph;
-  window.HyperMorph = HyperMorph;
-  window.morph = morph;
-  window.h = window.hyperclay;
-}
-
-export { HyperMorph, morph };
-export const findChangedRoots = HyperMorph.findChangedRoots;
-export const spliceProtected = HyperMorph.spliceProtected;
-export default HyperMorph;
-`;
-
-function buildVendor() {
-  return fs.readFileSync(distFile, 'utf8').trim() + '\n' + WRAPPER_CODE;
+function buildCurrentVendor() {
+  return buildVendor(fs.readFileSync(distFile, 'utf8'));
 }
 
 const DESTINATIONS = [
-  { client: 'hyperclayjs', path: 'hyperclayjs/src/vendor/hyper-morph.vendor.js', build: buildVendor },
-  { client: 'clayjs', path: 'clayjs/src/vendor/hyper-morph.vendor.js', build: buildVendor }
+  { client: 'hyperclayjs', path: 'hyperclayjs/src/vendor/hyper-morph.vendor.js', build: buildCurrentVendor },
+  { client: 'clayjs', path: 'clayjs/src/vendor/hyper-morph.vendor.js', build: buildCurrentVendor }
 ];
 
 const args = process.argv.slice(2);

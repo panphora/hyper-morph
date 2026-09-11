@@ -372,6 +372,15 @@ HyperMorph.defaults.morphStyle = 'innerHTML';
 HyperMorph.defaults.restoreFocus = false;
 ```
 
+## Content policies
+
+The default `sync` policy retains local `no-save`, `freeze`, and `editor-ui`
+regions. Use `policy: 'history'` for undo replay. It restores authored
+`no-save` and `freeze` content while retaining only `editor-ui`. Use
+`policy: 'raw'` when reconciling an editor interface tree itself and no
+semantic region should be excluded. Each policy controls matching, traversal,
+and removal for the whole operation.
+
 ---
 
 ## Development
