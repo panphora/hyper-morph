@@ -7,7 +7,7 @@
     "morph",
     "diff"
   ],
-  "version": "0.5.2",
+  "version": "0.5.3",
   "homepage": "https://github.com/panphora/hyper-morph",
   "bugs": {
     "url": "https://github.com/panphora/hyper-morph/issues"
@@ -17,7 +17,7 @@
     "LICENSE",
     "README.md",
     "THIRD-PARTY-NOTICES.md",
-    "src/*.js",
+    "src",
     "dist/*.js"
   ],
   "main": "src/hyper-morph.js",
