@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.3] - 2026-09-13
+
+### Added
+- Packed contract load manifest
+
+### Changed
+- Published package now includes the packed contract
+- Updated hyper-morph
+
+
+
 ## [0.5.2] - 2026-09-11
 
 ### Changed
