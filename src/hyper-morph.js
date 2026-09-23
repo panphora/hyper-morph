@@ -1848,12 +1848,20 @@ var HyperMorph = (function () {
      */
     function createMorphContext(oldNode, newContent, config) {
       const ignoredSelector = config.policy === 'history' ? HISTORY_IGNORE_SELECTOR : SYNC_IGNORE_SELECTOR;
+      // A marker above the morph root does not exempt what the caller asked to morph. Content
+      // rendered inside a `save-remove` modal would otherwise count as ignored, stay in place, and
+      // get a fresh clone inserted beside it on every morph.
+      const scopedClosest = (node, selector) => {
+        const boundary = node.closest(selector);
+        return boundary && (oldNode.contains(boundary) || newContent.contains(boundary)) ? boundary : null;
+      };
       const shouldIgnore = config.policy === 'raw'
         ? () => false
         : node => {
             if (node?.nodeType !== 1) return false;
-            if (config.policy !== 'history' && shouldIgnoreForSyncDeep(node)) return true;
-            const boundary = node.closest(ignoredSelector);
+            if (config.policy !== 'history' &&
+                (shouldIgnoreForSync(node) || scopedClosest(node, SYNC_IGNORE_SELECTOR))) return true;
+            const boundary = scopedClosest(node, ignoredSelector);
             if (!boundary) return false;
             if (config.policy === 'history' && boundary === oldNode &&
                 boundary.matches('[no-undo],[clay~="no-undo"]') &&

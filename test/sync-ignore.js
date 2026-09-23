@@ -220,4 +220,11 @@ describe("Sync-ignored chrome preservation", function () {
     Idiomorph.morph(parent, '<p>new</p>', { morphStyle: 'innerHTML', policy: 'raw' });
     parent.innerHTML.should.equal('<p>new</p>');
   });
+
+  it("a sync-ignore marker above the morph root does not ignore what is morphed", function () {
+    const wrapper = make('<div save-remove snapshot-remove><div id="dialog"><p data-id="1">one</p><p data-id="2">old</p></div></div>');
+    const dialog = wrapper.querySelector('#dialog');
+    Idiomorph.morph(dialog, '<div id="dialog"><p data-id="1">one</p><p data-id="2">new</p></div>');
+    dialog.innerHTML.should.equal('<p data-id="1">one</p><p data-id="2">new</p>');
+  });
 });
