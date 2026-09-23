@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.4] - 2026-09-23
+
+### Changed
+- Sync-ignore markers now apply only within the morph root
+
+
+
 ## [0.5.3] - 2026-09-13
 
 ### Added
