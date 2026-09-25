@@ -552,13 +552,17 @@ other side moved out is not re-emitted at its base position.
 ### Text
 
 Inside a block, the text nodes, the formatting elements (`a`, `b`, `i`,
-`em`, `strong`, `span`, `code`, `mark` and the other phrasing tags) and the
-`<br>`, `<wbr>` and `<img>` between two block-level children form one
-inline segment. A segment merges as one character sequence: an atom
-(`<br>`, `<wbr>`, `<img>`) is one character, a formatting element is a
-range over the sequence, and the output is rebuilt from the merged
-sequence, so a `<b>` remote wrapped around a word local was typing in
-lands around the merged word.
+`em`, `strong`, `span`, `code`, `mark` and the other phrasing tags) and
+every other non-block element (`<br>`, `<img>`, `<button>`, `<input>`, a
+custom element) between two block-level children form one inline segment.
+A segment merges as one character sequence: a non-formatting element is
+one character (an atom), a formatting element is a range over the
+sequence, and the output is rebuilt from the merged sequence, so a `<b>`
+remote wrapped around a word local was typing in lands around the merged
+word. An ignored element inside a segment keeps its offset in the text and
+is never touched. Segments pair across sides through the nearest preceding
+paired unit, so a block deleted, inserted or edited before a segment does
+not break the pairing.
 
 Text merges at word granularity: a word-level Myers diff of each side
 against base, hunks applied where they do not overlap. Two edits to the

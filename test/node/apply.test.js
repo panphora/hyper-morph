@@ -111,3 +111,40 @@ test("H10 compat morph with a DocumentFragment and innerHTML style", async () =>
   assert.equal(form.innerHTML, `<input id="n" value="v"><p>hello</p>`);
   form.remove();
 });
+
+test("H7 an ignored element keeps its place when the text around it changes", async () => {
+  const ig = { ignore: (el) => el.hasAttribute("data-ignore") };
+  const cases = [
+    [
+      `<p>one <span data-ignore="">X</span> two</p>`,
+      `<p>one <span data-ignore="">X</span> two</p>`,
+      `<p>one <span data-ignore="">X</span> three</p>`,
+      `<p>one <span data-ignore="">X</span> three</p>`,
+    ],
+    [
+      `<p><b>one <span data-ignore="">X</span> two</b> end</p>`,
+      `<p><b>one <span data-ignore="">X</span> two</b> end</p>`,
+      `<p><b>one <span data-ignore="">X</span> two</b> fin</p>`,
+      `<p><b>one <span data-ignore="">X</span> two</b> fin</p>`,
+    ],
+    [
+      `<p>one two three</p>`,
+      `<p>one <span data-ignore="">UI</span>two three</p>`,
+      `<p>one two four</p>`,
+      `<p>one <span data-ignore="">UI</span>two four</p>`,
+    ],
+    [
+      `<div>one two<p>x</p></div>`,
+      `<div>one <span data-ignore="">UI</span>two<p>x</p></div>`,
+      `<div>one two<p>y</p></div>`,
+      `<div>one <span data-ignore="">UI</span>two<p>y</p></div>`,
+    ],
+  ];
+  for (const [base, local, remote, expected] of cases) {
+    const live = parse(doc(local));
+    const ui = live.querySelector("[data-ignore]");
+    await mergeDocument({ live, base: doc(base), remote: doc(remote), ...ig });
+    assert.equal(live.body.innerHTML, expected);
+    assert.equal(live.querySelector("[data-ignore]"), ui);
+  }
+});

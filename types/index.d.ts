@@ -194,6 +194,8 @@ export interface Provenance {
   caret?: Array<{ node: Text; from: number; to: number; flatStart: number }>;
   /** Inline merge: a local text node claimed here also has characters in another output node. */
   partial?: boolean;
+  /** Inline merge: a placeholder for an ignored live element, positioned and never synced. */
+  pinned?: true;
 }
 
 export interface TextMapper {

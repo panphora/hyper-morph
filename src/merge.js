@@ -23,12 +23,7 @@
 import { createAnalyzer } from "./similarity.js";
 import { align } from "./align.js";
 import { merge3Text } from "./text-merge.js";
-import {
-  mergeInline,
-  isInlineUnit,
-  ATOM_TAGS,
-  MARK_TAGS,
-} from "./inline-merge.js";
+import { mergeInline, isInlineUnit } from "./inline-merge.js";
 import { indexByIdentity, defaultIdentity } from "./identity.js";
 import { headSignature } from "./head-merge.js";
 import { isHtmlScript, mergeIdentityOf } from "./scripts.js";
@@ -890,6 +885,15 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
 
     // Step 2: walk the order side.
     for (const su of O.V.units) {
+      if (segUnits.has(su)) {
+        // The order side's place for its segment: the merged fragment.
+        const frag = outputOfUnit.get(su);
+        if (!inResult.has(frag)) {
+          result.push(frag);
+          inResult.add(frag);
+        }
+        continue;
+      }
       if (
         emitted.has(su) &&
         !(outputOfUnit.get(su) && inResult.has(outputOfUnit.get(su)))
@@ -998,42 +1002,66 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         return;
       const inlineOpts = { ignored, remoteWins: o.remoteWins, inlineCache };
       const isInline = (u) =>
-        isEl(u)
-          ? ATOM_TAGS.has(u.tagName) ||
-            (MARK_TAGS.has(u.tagName) && isInlineUnit(u, inlineOpts))
-          : u.kind === "text";
+        isEl(u) ? isInlineUnit(u, inlineOpts) : u.kind === "text";
       const segmentsOf = (units) => {
         const segs = [];
-        let cur = null,
-          anchor = null;
-        for (const u of units) {
+        let cur = null;
+        for (let i = 0; i < units.length; i++) {
+          const u = units[i];
           if (isInline(u)) {
-            if (!cur) segs.push((cur = { units: [], anchor }));
+            if (!cur) segs.push((cur = { units: [], start: i }));
             cur.units.push(u);
-          } else {
-            cur = null;
-            anchor = u;
-          }
+          } else cur = null;
         }
         return segs;
       };
       const bSegs = segmentsOf(bUnits);
       if (!bSegs.length) return;
-      const byAnchor = (V) => {
-        const m = new Map();
-        for (const s of segmentsOf(V.units)) m.set(s.anchor, s.units);
+      // Segments pair through the nearest preceding unit that is paired with
+      // the other side, named as a base unit (or null at the start), so a
+      // deleted, inserted or edited block between two segments does not
+      // break the pairing. A key two segments of one side share is dropped.
+      const keyBefore = (units, start, pairedBase) => {
+        for (let j = start - 1; j >= 0; j--) {
+          const bk = pairedBase(units[j]);
+          if (bk) return bk;
+        }
+        return null;
+      };
+      const keyed = (segs, units, pairedBase) => {
+        const m = new Map(),
+          dup = new Set();
+        for (const s of segs) {
+          const k = keyBefore(units, s.start, pairedBase);
+          if (m.has(k)) dup.add(k);
+          else m.set(k, s);
+        }
+        for (const k of dup) m.delete(k);
         return m;
       };
-      const lSegs = Lv.asBase ? null : byAnchor(Lv);
-      const rSegs = Rv.asBase ? null : byAnchor(Rv);
-      // The side segment paired with a base segment follows the twin of the
-      // base segment's anchor. No twin here, or a side read as base: null.
-      const sideOf = (seg, V, segs) => {
-        if (!segs) return null;
-        const twin = seg.anchor === null ? null : V.twin(seg.anchor);
-        if (seg.anchor !== null && (!twin || !V.here(twin))) return null;
-        return segs.get(twin) || [];
+      const pairs = (V) => {
+        if (V.asBase) return null;
+        const bKeyed = keyed(bSegs, bUnits, (bk) => {
+          const t = V.twin(bk);
+          return t && V.here(t) ? bk : null;
+        });
+        const sKeyed = keyed(segmentsOf(V.units), V.units, (su) => {
+          const bk = V.baseOf(su);
+          return bk && bSet.has(bk) ? bk : null;
+        });
+        const m = new Map();
+        for (const [k, seg] of bKeyed) {
+          const s = sKeyed.get(k);
+          m.set(seg, s ? s.units : []);
+        }
+        return m;
       };
+      const lPairs = pairs(Lv),
+        rPairs = pairs(Rv);
+      // The side segment paired with a base segment; null for a side read
+      // as base, or when the pairing is ambiguous on that side.
+      const sideOf = (seg, pairs) =>
+        pairs && pairs.has(seg) ? pairs.get(seg) : null;
       const sameUnits = (a, s) =>
         a.length === s.length &&
         a.every((u, i) => analyzer.unitHash(u) === analyzer.unitHash(s[i]));
@@ -1053,21 +1081,43 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         }
         return false;
       };
-      const nodesOf = (units) =>
-        units.flatMap((u) => (isEl(u) ? [u] : u.nodes));
+      // The segment's nodes as they sit in the DOM: the units' nodes plus the
+      // ignored elements among and beside them, which the inline merge pins.
+      const nodesOf = (units) => {
+        if (!units.length) return [];
+        const nodeOf = (u, last) =>
+          isEl(u) ? u : u.nodes[last ? u.nodes.length - 1 : 0];
+        let first = nodeOf(units[0]),
+          last = nodeOf(units[units.length - 1], true);
+        const pin = (n) => n && isEl(n) && ignored(n);
+        while (pin(first.previousSibling)) first = first.previousSibling;
+        while (pin(last.nextSibling)) last = last.nextSibling;
+        const out = [];
+        for (let n = first; n; n = n.nextSibling) {
+          out.push(n);
+          if (n === last) break;
+        }
+        return out;
+      };
+      const hasPins = (nodes) => nodes.some((n) => isEl(n) && ignored(n));
       for (const seg of bSegs) {
-        const lu = sideOf(seg, Lv, lSegs),
-          ru = sideOf(seg, Rv, rSegs);
+        if ((lPairs && !lPairs.has(seg)) || (rPairs && !rPairs.has(seg)))
+          continue;
+        const lu = sideOf(seg, lPairs),
+          ru = sideOf(seg, rPairs);
+        const lNodes = nodesOf(lu || seg.units),
+          rNodes = nodesOf(ru || seg.units);
         if (
           (!lu || sameUnits(seg.units, lu)) &&
-          (!ru || sameUnits(seg.units, ru))
+          (!ru || sameUnits(seg.units, ru)) &&
+          !(lu && hasPins(lNodes))
         )
           continue;
         if (crosses(seg, lu, Lv) || crosses(seg, ru, Rv)) continue;
         const res = mergeInline({
           base: nodesOf(seg.units),
-          local: nodesOf(lu || seg.units),
-          remote: nodesOf(ru || seg.units),
+          local: lNodes,
+          remote: rNodes,
           out,
           policy,
           L: lu ? L : identityAlignment(),

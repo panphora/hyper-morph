@@ -631,15 +631,20 @@ test("I-I a remoteWins block takes remote's inline content and ignores local for
   assert.equal(res.localDiverged, false);
 });
 
-test("I-J an ignored element inside a segment stays out of the output", () => {
+test("I-J an ignored element inside a segment is a pin, not content", () => {
   const ignore = (el) => el.hasAttribute("no-save");
-  const { html } = mergeBodies(
+  const { html, res, l } = mergeBodies(
     P("a b"),
     P("a <span no-save>x</span>b"),
     P("a <b>b</b>"),
     { ignore },
   );
-  assert.equal(html, P("a <b>b</b>"));
+  assert.equal(html, P("a <span></span><b>b</b>"));
+  const pin = res.doc.querySelector("span");
+  assert.equal(res.provenance.get(pin).pinned, true);
+  assert.equal(res.provenance.get(pin).local, l.querySelector("span"));
+  assert.equal(res.localDiverged, false);
+  assert.equal(res.decisions.filter((d) => d.source !== "remote").length, 0);
 });
 
 test("I-K an unchanged segment beside a changed block never runs the inline merge", () => {
@@ -748,12 +753,30 @@ test("H6 a literal U+FFFC in text is text, not an atom", () => {
 });
 
 test("H17 a run that merges to nothing still records its conflict", () => {
-  const { html, res } = mergeBodies(
+  // Inline path: the segment pairs (H3), the conflict names the block.
+  const seg = mergeBodies(
     `<div>hello world<p>X</p></div>`,
     `<div><p>new</p>hello big world<p>X</p></div>`,
     `<div><p>X</p></div>`,
   );
-  assert.equal(html, `<div><p>new</p><p>X</p></div>`);
+  assert.equal(seg.html, `<div><p>new</p><p>X</p></div>`);
+  const segText = seg.res.conflicts.filter((c) => c.kind === "text");
+  assert.equal(segText.length, 1);
+  assert.equal(segText[0].local, "hello big world");
+  assert.equal(segText[0].remote, "");
+  assert.equal(segText[0].node, seg.res.doc.querySelector("div"));
+  assert.equal(seg.res.localDiverged, true);
+  // Per-unit path (a mark moved out of the segment): mergeRun's empty
+  // result still records the conflict, with no node.
+  const run = (policy) =>
+    mergeBodies(
+      `<div>hello <b id="k">w</b> world<p>X</p></div>`,
+      `<div>hello big world<p><b id="k">w</b>X</p></div>`,
+      `<div><p>X</p></div>`,
+      { conflicts: policy },
+    );
+  const { html, res } = run("remote");
+  assert.equal(html, `<div><p><b id="k">w</b>X</p></div>`);
   const text = res.conflicts.filter((c) => c.kind === "text");
   assert.equal(text.length, 1);
   assert.equal(text[0].local, "hello big world");
@@ -763,11 +786,100 @@ test("H17 a run that merges to nothing still records its conflict", () => {
     res.decisions.some((d) => d.kind === "text" && d.source === "both"),
   );
   assert.equal(res.localDiverged, true);
-  const local = mergeBodies(
+  assert.equal(
+    run("local").html,
+    `<div>hello big world<p><b id="k">w</b>X</p></div>`,
+  );
+});
+
+test("H3 a segment whose anchor a side deleted still merges that side's edits", () => {
+  const byLocal = mergeBodies(
+    `<div><p>A</p>hello world</div>`,
+    `<div>hello big world</div>`,
+    `<div><p>A</p>hello world!</div>`,
+  );
+  assert.equal(byLocal.html, `<div>hello big world!</div>`);
+  assert.equal(byLocal.res.conflicts.length, 0);
+  const byRemote = mergeBodies(
+    `<div><p>A</p>hello world</div>`,
+    `<div><p>A</p>hello big world</div>`,
+    `<div>hello world!</div>`,
+  );
+  assert.equal(byRemote.html, `<div>hello big world!</div>`);
+  assert.equal(byRemote.res.conflicts.length, 0);
+  const onlyLocal = mergeBodies(
+    `<div><p>A</p>hello world</div>`,
+    `<div>hello big world</div>`,
+    `<div><p>A</p>hello world</div>`,
+  );
+  assert.equal(onlyLocal.html, `<div>hello big world</div>`);
+});
+
+test("H4 a block inserted before a segment does not send it to the per-unit path", () => {
+  const base = `<div>The quick brown fox<p>X</p></div>`;
+  const a = mergeBodies(
+    base,
+    `<div><p>new</p>The <b>quick</b> brown fox<p>X</p></div>`,
+    `<div>The quick red fox<p>X</p></div>`,
+  );
+  assert.equal(a.html, `<div><p>new</p>The <b>quick</b> red fox<p>X</p></div>`);
+  assert.equal(a.res.conflicts.length, 0);
+  const b = mergeBodies(
+    base,
+    `<div>The <b>quick</b> brown fox<p>X</p></div>`,
+    `<div><p>new</p>The quick red fox<p>X</p></div>`,
+  );
+  assert.equal(b.html, `<div><p>new</p>The <b>quick</b> red fox<p>X</p></div>`);
+  assert.equal(b.res.conflicts.length, 0);
+  const c = mergeBodies(
+    `<div>The <b>quick</b> brown fox<p>X</p></div>`,
+    `<div>The quick brown fox<p>X</p></div>`,
+    `<div><p>new</p>The <b>quick</b> red fox<p>X</p></div>`,
+  );
+  assert.equal(c.html, `<div><p>new</p>The quick red fox<p>X</p></div>`);
+  assert.equal(c.res.conflicts.length, 0);
+  const d = mergeBodies(
     `<div>hello world<p>X</p></div>`,
     `<div><p>new</p>hello big world<p>X</p></div>`,
-    `<div><p>X</p></div>`,
-    { conflicts: "local" },
+    `<div>hello world!<p>X</p></div>`,
   );
-  assert.equal(local.html, `<div><p>new</p>hello big world<p>X</p></div>`);
+  assert.equal(d.html, `<div><p>new</p>hello big world!<p>X</p></div>`);
+  assert.equal(d.res.conflicts.length, 0);
+});
+
+test("H5 a non-mark inline element is an atom, not a segment boundary", () => {
+  const a = mergeBodies(
+    `<p>hello big world</p>`,
+    `<p>hello <button>x</button> big world</p>`,
+    `<p>hello big world!</p>`,
+  );
+  assert.equal(a.html, `<p>hello <button>x</button> big world!</p>`);
+  assert.equal(a.res.conflicts.length, 0);
+  const b = mergeBodies(
+    `<p>Name please type here</p>`,
+    `<p>Name <input> please type here</p>`,
+    `<p>Name please type there</p>`,
+  );
+  assert.equal(b.html, `<p>Name <input> please type there</p>`);
+  assert.equal(b.res.conflicts.length, 0);
+  const c = mergeBodies(
+    `<p>one two three four</p>`,
+    `<p>one two <x-chip>c</x-chip> three four</p>`,
+    `<p>zero two three four</p>`,
+  );
+  assert.equal(c.html, `<p>zero two <x-chip>c</x-chip> three four</p>`);
+  assert.equal(c.res.conflicts.length, 0);
+  const d = mergeBodies(
+    `<p>one <x-chip>c</x-chip> two</p>`,
+    `<p>one <x-chip>c!</x-chip> two</p>`,
+    `<p>one <x-chip>c</x-chip> three</p>`,
+  );
+  assert.equal(d.html, `<p>one <x-chip>c!</x-chip> three</p>`);
+  assert.equal(d.res.conflicts.length, 0);
+  const e = mergeBodies(
+    `<p>a<div>block</div>b</p>`,
+    `<p>a<div>block</div>b!</p>`,
+    `<p>a<div>BLOCK</div>b</p>`,
+  );
+  assert.equal(e.html, `<p>a</p><div>BLOCK</div>b!<p></p>`);
 });

@@ -41,6 +41,14 @@ export const MARK_TAGS = new Set(
   ),
 );
 export const ATOM_TAGS = new Set(["BR", "WBR", "IMG"]);
+// Block-level elements end an inline segment. Code-like elements (script,
+// style, template, textarea, media) stay here too: they have merge rules of
+// their own on the per-unit path. Anything else that is not a mark is an atom.
+export const BLOCK_TAGS = new Set(
+  "ADDRESS ARTICLE ASIDE AUDIO BLOCKQUOTE BODY CANVAS CAPTION CENTER COL COLGROUP DD DETAILS DIALOG DIR DIV DL DT FIELDSET FIGCAPTION FIGURE FOOTER FORM FRAME FRAMESET H1 H2 H3 H4 H5 H6 HEAD HEADER HGROUP HR HTML IFRAME LEGEND LI MAIN MATH MENU NAV NOSCRIPT OBJECT OL OPTGROUP OPTION P PRE SCRIPT SECTION SELECT STYLE SUMMARY SVG TABLE TBODY TD TEMPLATE TEXTAREA TFOOT TH THEAD TITLE TR UL VIDEO".split(
+    " ",
+  ),
+);
 
 // ---------------------------------------------------------------------
 // Segments and the flat model
@@ -58,7 +66,7 @@ export function isInlineUnit(node, o = {}) {
   if (node.nodeType !== 1) return false;
   if (o.ignored && o.ignored(node)) return true;
   if (ATOM_TAGS.has(node.tagName)) return true;
-  if (!MARK_TAGS.has(node.tagName)) return false;
+  if (!MARK_TAGS.has(node.tagName)) return !BLOCK_TAGS.has(node.tagName);
   if (o.remoteWins && o.remoteWins(node)) return false;
   const cached = o.inlineCache && o.inlineCache.get(node);
   if (cached !== undefined) return cached;
@@ -93,6 +101,7 @@ export function flatten(units, o = {}) {
     atoms: [],
     nodes: [],
     stackAt: [],
+    pins: [],
     placeholder: null,
   };
   const walk = (list, stack) => {
@@ -106,7 +115,10 @@ export function flatten(units, o = {}) {
         continue;
       }
       if (node.nodeType !== 1) continue;
-      if (o.ignored && o.ignored(node)) continue;
+      if (o.ignored && o.ignored(node)) {
+        f.pins.push({ el: node, i: f.text.length });
+        continue;
+      }
       const tag = node.tagName;
       const empty = MARK_TAGS.has(tag) && isEmptyMark(node);
       if (
@@ -608,9 +620,7 @@ export function mergeInline(o) {
   // The characters an edit must agree with: the replaced ones, or for a
   // pure insertion the two around the point.
   const neighborhood = (h) =>
-    h.be > h.bs
-      ? [h.bs, h.be - 1]
-      : [Math.max(h.bs - 1, 0), Math.min(h.bs, n - 1)];
+    h.be > h.bs ? [h.bs, h.be - 1] : [h.bs - 1, h.bs];
   // The format hunk containing h's neighborhood, "straddle" when h crosses
   // a boundary, or null.
   const formatRelation = (h, fhs) => {
@@ -1030,6 +1040,17 @@ export function mergeInline(o) {
     return res;
   };
 
+  // Caret map: local flat offset -> merged offset. The position after the
+  // last surviving local character before k; if that character was dropped,
+  // the position of the first surviving one at or after k.
+  const mapLocal = (k) => {
+    if (k <= 0) return 0;
+    if (k > fl.text.length) k = fl.text.length;
+    if (lToM[k - 1] >= 0) return lToM[k - 1] + 1;
+    for (let j = k; j < fl.text.length; j++) if (lToM[j] >= 0) return lToM[j];
+    return m;
+  };
+
   // Rebuild.
   const nodes = [];
   const textNodes = [];
@@ -1078,17 +1099,51 @@ export function mergeInline(o) {
     stack.push({ u, el });
     container = el;
   };
+  // Pins: local ignored elements, placed where their local offset maps to.
+  // Apply positions the live element there and never touches it.
+  const pinNodes = new Set();
+  const pinsAt = new Map();
+  for (const p of fl.pins) {
+    const at = mapLocal(p.i);
+    if (!pinsAt.has(at)) pinsAt.set(at, []);
+    pinsAt.get(at).push(p);
+  }
+  const emitPins = (i) => {
+    const list = pinsAt.get(i);
+    if (!list) return;
+    flush(i);
+    for (const p of list) {
+      const el =
+        p.el.namespaceURI &&
+        p.el.namespaceURI !== "http://www.w3.org/1999/xhtml"
+          ? out.createElementNS(p.el.namespaceURI, p.el.tagName)
+          : out.createElement(p.el.tagName);
+      provenance.set(el, {
+        base: null,
+        local: p.el,
+        remote: null,
+        pinned: true,
+      });
+      pinNodes.add(el);
+      append(el);
+    }
+  };
   const anyAtoms = fb.atoms.length || fl.atoms.length || fr.atoms.length;
   for (let i = 0; i < m; i++) {
     const want = marksAt(i);
     let c = 0;
     while (c < stack.length && c < want.length && stack[c].u === want[c]) c++;
-    if (c < stack.length || want.length > c) {
+    if (c < stack.length) {
       flush(i);
       while (stack.length > c) {
         stack.pop();
         container = stack.length ? stack[stack.length - 1].el : null;
       }
+    }
+    // A pin sits between the marks that close here and those that open.
+    emitPins(i);
+    if (want.length > c) {
+      flush(i);
       while (stack.length < want.length) openMark(want[stack.length]);
     }
     let ab = null,
@@ -1165,6 +1220,11 @@ export function mergeInline(o) {
     buf += text[i];
   }
   flush(m);
+  if (pinsAt.has(m)) {
+    stack.length = 0;
+    container = null;
+    emitPins(m);
+  }
   if (m === 0 && (fl.placeholder || fr.placeholder || fb.placeholder)) {
     const br = out.createElement("br");
     provenance.set(br, {
@@ -1238,17 +1298,6 @@ export function mergeInline(o) {
           source: side,
         });
     }
-
-  // Caret map: local flat offset -> merged offset. The position after the
-  // last surviving local character before k; if that character was dropped,
-  // the position of the first surviving one at or after k.
-  const mapLocal = (k) => {
-    if (k <= 0) return 0;
-    if (k > fl.text.length) k = fl.text.length;
-    if (lToM[k - 1] >= 0) return lToM[k - 1] + 1;
-    for (let j = k; j < fl.text.length; j++) if (lToM[j] >= 0) return lToM[j];
-    return m;
-  };
 
   // Provenance: each local text node goes to the output text node holding
   // its first surviving character. One with none goes to the output node
@@ -1335,7 +1384,11 @@ export function mergeInline(o) {
     textMappers.set(t.node, mapper);
   }
 
-  const localDiverged = flatSig(flatten(nodes, o)) !== flatSig(fr);
+  const outOpts = {
+    ...o,
+    ignored: (n) => pinNodes.has(n) || (o.ignored ? o.ignored(n) : false),
+  };
+  const localDiverged = flatSig(flatten(nodes, outOpts)) !== flatSig(fr);
   return {
     nodes,
     text,

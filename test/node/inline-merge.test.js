@@ -980,15 +980,18 @@ test("a 2k paragraph with twenty marks on each side merges fast", () => {
 
 test("isInlineUnit: text, atoms and inline-only marks; blocks and remoteWins are boundaries", () => {
   const p = block(
-    "<div>t<b>x</b><br><span><div>y</div></span><i>z</i><input></div>",
+    "<div>t<b>x</b><br><span><div>y</div></span><i>z</i><input><p>q</p><x-chip>c</x-chip><script></script></div>",
   );
-  const [t, b, br, span, i, input] = p.childNodes;
+  const [t, b, br, span, i, input, para, chip, script] = p.childNodes;
   assert.equal(isInlineUnit(t), true);
   assert.equal(isInlineUnit(b), true);
   assert.equal(isInlineUnit(br), true);
   assert.equal(isInlineUnit(span), false);
   assert.equal(isInlineUnit(i), true);
-  assert.equal(isInlineUnit(input), false);
+  assert.equal(isInlineUnit(input), true);
+  assert.equal(isInlineUnit(para), false);
+  assert.equal(isInlineUnit(chip), true);
+  assert.equal(isInlineUnit(script), false);
   assert.equal(
     isInlineUnit(i, { remoteWins: (el) => el.tagName === "I" }),
     false,
@@ -1060,4 +1063,50 @@ test("a local text node the merge replaced in place is claimed; one in a dropped
   assert.deepEqual(dropped.provenance.get(t).local, [
     dropped.l.querySelector("b").firstChild,
   ]);
+});
+
+test("H15 an insertion at a segment edge does not inherit the other side's mark", () => {
+  const cases = [
+    [
+      P("hello world"),
+      P("hello world again"),
+      P("hello <b>world</b>"),
+      P("hello <b>world</b> again"),
+    ],
+    [
+      P("hello world"),
+      P("Oh hello world"),
+      P("<b>hello</b> world"),
+      P("Oh <b>hello</b> world"),
+    ],
+    [
+      P("one two three"),
+      P("one X two three"),
+      P("one <b>two</b> three"),
+      P("one X <b>two</b> three"),
+    ],
+    [
+      P("one two three"),
+      P("one two X three"),
+      P("one <b>two</b> three"),
+      P("one <b>two</b> X three"),
+    ],
+    [
+      P("one two three four"),
+      P("one two X three four"),
+      P("one <b>two three</b> four"),
+      P("one <b>two X three</b> four"),
+    ],
+    [
+      P("See the docs"),
+      P("See the docs for details."),
+      P(`See the <a href="/d">docs</a>`),
+      P(`See the <a href="/d">docs</a> for details.`),
+    ],
+  ];
+  for (const [b, l, r, expected] of cases) {
+    const x = mergeBlocks(b, l, r);
+    assert.equal(x.html, expected);
+    assert.equal(x.conflicts.length, 0);
+  }
 });

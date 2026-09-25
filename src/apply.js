@@ -170,6 +170,21 @@ export function apply(liveRoot, mergedRoot, result, o) {
     for (const m of Array.from(mergedParent.childNodes)) {
       let lv = liveOf.get(m);
       if (lv && claimed.has(lv) && !seenHere.has(lv)) lv = null; // claimed by another parent already
+      const pv = provenance.get(m);
+      if (pv && pv.pinned) {
+        // An ignored live element the inline merge placed: it keeps its
+        // offset in the text and is never synced.
+        if (lv && lv.nodeType === 1) {
+          if (
+            lv.parentNode !== liveParent ||
+            nextUsable(lv.nextSibling) !== cursor
+          )
+            moveBefore(liveParent, lv, cursor);
+          claimed.add(lv);
+          seenHere.add(lv);
+        }
+        continue;
+      }
       if (lv && lv.nodeType === 1) {
         if (lv !== cursor) {
           const from = lv.parentNode;
