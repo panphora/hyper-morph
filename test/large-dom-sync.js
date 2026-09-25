@@ -10,35 +10,51 @@ describe("Large DOM Sync: Text Blocks", function () {
   // ==========================================================================
 
   describe("Long Text Blocks (200+ chars)", function () {
-    const longText200 = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip.";
-    const longText300 = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum.";
+    const longText200 =
+      "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip.";
+    const longText300 =
+      "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum.";
 
     it("1. Text appended at end (same first 64 chars) - should match and update", function () {
-      const initial = make(`<div><p class="text-block">${longText200}</p></div>`);
+      const initial = make(
+        `<div><p class="text-block">${longText200}</p></div>`,
+      );
       const appended = longText200 + " This is new text added at the end.";
       const final = make(`<div><p class="text-block">${appended}</p></div>`);
 
       Idiomorph.morph(initial, final);
-      initial.outerHTML.should.equal(`<div><p class="text-block">${appended}</p></div>`);
+      initial.outerHTML.should.equal(
+        `<div><p class="text-block">${appended}</p></div>`,
+      );
     });
 
     it("2. Text prepended at start (different first 64 chars) - should still match by signature", function () {
-      const initial = make(`<div><p class="text-block">${longText200}</p></div>`);
+      const initial = make(
+        `<div><p class="text-block">${longText200}</p></div>`,
+      );
       const prepended = "NEW PREFIX: " + longText200;
       const final = make(`<div><p class="text-block">${prepended}</p></div>`);
 
       Idiomorph.morph(initial, final);
-      initial.outerHTML.should.equal(`<div><p class="text-block">${prepended}</p></div>`);
+      initial.outerHTML.should.equal(
+        `<div><p class="text-block">${prepended}</p></div>`,
+      );
     });
 
     it("3. Two long text blocks with same first 64 chars but different endings", function () {
       const text1 = longText200 + " ENDING A";
       const text2 = longText200 + " ENDING B";
-      const initial = make(`<div><p class="block">${text1}</p><p class="block">${text2}</p></div>`);
-      const final = make(`<div><p class="block">${text2}</p><p class="block">${text1}</p></div>`);
+      const initial = make(
+        `<div><p class="block">${text1}</p><p class="block">${text2}</p></div>`,
+      );
+      const final = make(
+        `<div><p class="block">${text2}</p><p class="block">${text1}</p></div>`,
+      );
 
       Idiomorph.morph(initial, final);
-      initial.outerHTML.should.equal(`<div><p class="block">${text2}</p><p class="block">${text1}</p></div>`);
+      initial.outerHTML.should.equal(
+        `<div><p class="block">${text2}</p><p class="block">${text1}</p></div>`,
+      );
     });
 
     it("4. Long text block with minor edit in middle", function () {
@@ -55,18 +71,28 @@ describe("Large DOM Sync: Text Blocks", function () {
       const para2 = longText200;
       const para3 = "Third paragraph with other content.";
 
-      const initial = make(`<article><p>${para1}</p><p>${para2}</p><p>${para3}</p></article>`);
+      const initial = make(
+        `<article><p>${para1}</p><p>${para2}</p><p>${para3}</p></article>`,
+      );
       const newPara2 = longText200 + " UPDATED";
-      const final = make(`<article><p>${para1}</p><p>${newPara2}</p><p>${para3}</p></article>`);
+      const final = make(
+        `<article><p>${para1}</p><p>${newPara2}</p><p>${para3}</p></article>`,
+      );
 
       Idiomorph.morph(initial, final);
-      initial.outerHTML.should.equal(`<article><p>${para1}</p><p>${newPara2}</p><p>${para3}</p></article>`);
+      initial.outerHTML.should.equal(
+        `<article><p>${para1}</p><p>${newPara2}</p><p>${para3}</p></article>`,
+      );
     });
 
     it("6. Long text in nested div structure", function () {
-      const initial = make(`<div class="wrapper"><div class="inner"><div class="content"><p>${longText300}</p></div></div></div>`);
+      const initial = make(
+        `<div class="wrapper"><div class="inner"><div class="content"><p>${longText300}</p></div></div></div>`,
+      );
       const updated = longText300 + " APPENDED TEXT";
-      const final = make(`<div class="wrapper"><div class="inner"><div class="content"><p>${updated}</p></div></div></div>`);
+      const final = make(
+        `<div class="wrapper"><div class="inner"><div class="content"><p>${updated}</p></div></div></div>`,
+      );
 
       Idiomorph.morph(initial, final);
       initial.querySelector("p").textContent.should.equal(updated);
@@ -79,18 +105,26 @@ describe("Large DOM Sync: Text Blocks", function () {
 
   describe("Text Hint Boundary Cases (64 chars)", function () {
     it("7. Text exactly 64 chars - should use full text as hint", function () {
-      const exact64 = "0123456789012345678901234567890123456789012345678901234567890123";
+      const exact64 =
+        "0123456789012345678901234567890123456789012345678901234567890123";
       exact64.length.should.equal(64);
 
-      const initial = make(`<div><span class="a">${exact64}</span><span class="b">Other</span></div>`);
-      const final = make(`<div><span class="b">Other</span><span class="a">${exact64}</span></div>`);
+      const initial = make(
+        `<div><span class="a">${exact64}</span><span class="b">Other</span></div>`,
+      );
+      const final = make(
+        `<div><span class="b">Other</span><span class="a">${exact64}</span></div>`,
+      );
 
       Idiomorph.morph(initial, final);
-      initial.outerHTML.should.equal(`<div><span class="b">Other</span><span class="a">${exact64}</span></div>`);
+      initial.outerHTML.should.equal(
+        `<div><span class="b">Other</span><span class="a">${exact64}</span></div>`,
+      );
     });
 
     it("8. Text 66 chars - should truncate to 64", function () {
-      const text66 = "012345678901234567890123456789012345678901234567890123456789012345";
+      const text66 =
+        "012345678901234567890123456789012345678901234567890123456789012345";
       text66.length.should.equal(66);
 
       const initial = make(`<div><p>${text66}</p></div>`);
@@ -102,30 +136,39 @@ describe("Large DOM Sync: Text Blocks", function () {
     });
 
     it("9. Two elements with identical first 64 chars, different after", function () {
-      const prefix = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"; // 64 A's
+      const prefix =
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"; // 64 A's
       const text1 = prefix + " SUFFIX ONE";
       const text2 = prefix + " SUFFIX TWO";
 
-      const initial = make(`<div><p class="x">${text1}</p><p class="y">${text2}</p></div>`);
-      const final = make(`<div><p class="y">${text2}</p><p class="x">${text1}</p></div>`);
+      const initial = make(
+        `<div><p class="x">${text1}</p><p class="y">${text2}</p></div>`,
+      );
+      const final = make(
+        `<div><p class="y">${text2}</p><p class="x">${text1}</p></div>`,
+      );
 
       Idiomorph.morph(initial, final);
-      initial.outerHTML.should.equal(`<div><p class="y">${text2}</p><p class="x">${text1}</p></div>`);
+      initial.outerHTML.should.equal(
+        `<div><p class="y">${text2}</p><p class="x">${text1}</p></div>`,
+      );
     });
 
     it("10. Short text vs long text (asymmetric lengths)", function () {
       const short = "Short";
-      const long = "This is a much longer piece of text that exceeds sixty-four characters for sure.";
+      const long =
+        "This is a much longer piece of text that exceeds sixty-four characters for sure.";
 
       const initial = make(`<div><p>${short}</p><p>${long}</p></div>`);
       const final = make(`<div><p>${long}</p><p>${short}</p></div>`);
 
       Idiomorph.morph(initial, final);
-      initial.outerHTML.should.equal(`<div><p>${long}</p><p>${short}</p></div>`);
+      initial.outerHTML.should.equal(
+        `<div><p>${long}</p><p>${short}</p></div>`,
+      );
     });
   });
 });
-
 
 describe("Large DOM Sync: Testimonial Cards", function () {
   setup();
@@ -154,8 +197,12 @@ describe("Large DOM Sync: Testimonial Cards", function () {
     </div>`;
 
     it("11. Move 3rd testimonial to 1st position", function () {
-      const initial = make(`<section class="testimonials">${testimonial1}${testimonial2}${testimonial3}</section>`);
-      const final = make(`<section class="testimonials">${testimonial3}${testimonial1}${testimonial2}</section>`);
+      const initial = make(
+        `<section class="testimonials">${testimonial1}${testimonial2}${testimonial3}</section>`,
+      );
+      const final = make(
+        `<section class="testimonials">${testimonial3}${testimonial1}${testimonial2}</section>`,
+      );
 
       Idiomorph.morph(initial, final);
 
@@ -166,8 +213,12 @@ describe("Large DOM Sync: Testimonial Cards", function () {
     });
 
     it("12. Swap first and last testimonials", function () {
-      const initial = make(`<section class="testimonials">${testimonial1}${testimonial2}${testimonial3}</section>`);
-      const final = make(`<section class="testimonials">${testimonial3}${testimonial2}${testimonial1}</section>`);
+      const initial = make(
+        `<section class="testimonials">${testimonial1}${testimonial2}${testimonial3}</section>`,
+      );
+      const final = make(
+        `<section class="testimonials">${testimonial3}${testimonial2}${testimonial1}</section>`,
+      );
 
       Idiomorph.morph(initial, final);
 
@@ -177,8 +228,12 @@ describe("Large DOM Sync: Testimonial Cards", function () {
     });
 
     it("13. Reverse all testimonials", function () {
-      const initial = make(`<section class="testimonials">${testimonial1}${testimonial2}${testimonial3}</section>`);
-      const final = make(`<section class="testimonials">${testimonial3}${testimonial2}${testimonial1}</section>`);
+      const initial = make(
+        `<section class="testimonials">${testimonial1}${testimonial2}${testimonial3}</section>`,
+      );
+      const final = make(
+        `<section class="testimonials">${testimonial3}${testimonial2}${testimonial1}</section>`,
+      );
 
       Idiomorph.morph(initial, final);
 
@@ -192,8 +247,12 @@ describe("Large DOM Sync: Testimonial Cards", function () {
         <cite>Dave Brown, Engineer</cite>
       </div>`;
 
-      const initial = make(`<section class="testimonials">${testimonial1}${testimonial2}${testimonial3}</section>`);
-      const final = make(`<section class="testimonials">${testimonial4}${testimonial1}${testimonial2}${testimonial3}</section>`);
+      const initial = make(
+        `<section class="testimonials">${testimonial1}${testimonial2}${testimonial3}</section>`,
+      );
+      const final = make(
+        `<section class="testimonials">${testimonial4}${testimonial1}${testimonial2}${testimonial3}</section>`,
+      );
 
       Idiomorph.morph(initial, final);
 
@@ -203,8 +262,12 @@ describe("Large DOM Sync: Testimonial Cards", function () {
     });
 
     it("15. Remove middle testimonial", function () {
-      const initial = make(`<section class="testimonials">${testimonial1}${testimonial2}${testimonial3}</section>`);
-      const final = make(`<section class="testimonials">${testimonial1}${testimonial3}</section>`);
+      const initial = make(
+        `<section class="testimonials">${testimonial1}${testimonial2}${testimonial3}</section>`,
+      );
+      const final = make(
+        `<section class="testimonials">${testimonial1}${testimonial3}</section>`,
+      );
 
       Idiomorph.morph(initial, final);
 
@@ -215,13 +278,23 @@ describe("Large DOM Sync: Testimonial Cards", function () {
     });
 
     it("16. Update testimonial text without changing position", function () {
-      const initial = make(`<section class="testimonials">${testimonial1}${testimonial2}${testimonial3}</section>`);
-      const updated2 = testimonial2.replace("Amazing service", "UPDATED: Amazing service");
-      const final = make(`<section class="testimonials">${testimonial1}${updated2}${testimonial3}</section>`);
+      const initial = make(
+        `<section class="testimonials">${testimonial1}${testimonial2}${testimonial3}</section>`,
+      );
+      const updated2 = testimonial2.replace(
+        "Amazing service",
+        "UPDATED: Amazing service",
+      );
+      const final = make(
+        `<section class="testimonials">${testimonial1}${updated2}${testimonial3}</section>`,
+      );
 
       Idiomorph.morph(initial, final);
 
-      initial.querySelectorAll(".testimonial-card")[1].querySelector("blockquote").textContent.should.include("UPDATED");
+      initial
+        .querySelectorAll(".testimonial-card")[1]
+        .querySelector("blockquote")
+        .textContent.should.include("UPDATED");
     });
   });
 
@@ -237,12 +310,18 @@ describe("Large DOM Sync: Testimonial Cards", function () {
         <span class="name">${name}</span>
       </div>`;
 
-      const initial = make(`<div>${card("Alice")}${card("Bob")}${card("Carol")}</div>`);
-      const final = make(`<div>${card("Carol")}${card("Alice")}${card("Bob")}</div>`);
+      const initial = make(
+        `<div>${card("Alice")}${card("Bob")}${card("Carol")}</div>`,
+      );
+      const final = make(
+        `<div>${card("Carol")}${card("Alice")}${card("Bob")}</div>`,
+      );
 
       Idiomorph.morph(initial, final);
 
-      const names = Array.from(initial.querySelectorAll(".name")).map(n => n.textContent);
+      const names = Array.from(initial.querySelectorAll(".name")).map(
+        (n) => n.textContent,
+      );
       names.should.eql(["Carol", "Alice", "Bob"]);
     });
 
@@ -252,17 +331,22 @@ describe("Large DOM Sync: Testimonial Cards", function () {
         <footer>${author}</footer>
       </div>`;
 
-      const initial = make(`<div>${card("Author A")}${card("Author B")}${card("Author C")}</div>`);
-      const final = make(`<div>${card("Author B")}${card("Author C")}${card("Author A")}</div>`);
+      const initial = make(
+        `<div>${card("Author A")}${card("Author B")}${card("Author C")}</div>`,
+      );
+      const final = make(
+        `<div>${card("Author B")}${card("Author C")}${card("Author A")}</div>`,
+      );
 
       Idiomorph.morph(initial, final);
 
-      const authors = Array.from(initial.querySelectorAll("footer")).map(f => f.textContent);
+      const authors = Array.from(initial.querySelectorAll("footer")).map(
+        (f) => f.textContent,
+      );
       authors.should.eql(["Author B", "Author C", "Author A"]);
     });
   });
 });
-
 
 describe("Large DOM Sync: Parent-Child Text Matching", function () {
   setup();
@@ -288,7 +372,9 @@ describe("Large DOM Sync: Parent-Child Text Matching", function () {
       </div>`);
 
       Idiomorph.morph(initial, final);
-      initial.querySelector("p").textContent.should.equal("Updated description text");
+      initial
+        .querySelector("p")
+        .textContent.should.equal("Updated description text");
     });
 
     it("20. Children reordered within parent - affects parent textHint", function () {
@@ -351,23 +437,30 @@ describe("Large DOM Sync: Parent-Child Text Matching", function () {
     });
 
     it("23. Parent with mixed content (text + elements)", function () {
-      const initial = make(`<p class="mixed">Prefix <strong>bold</strong> suffix</p>`);
-      const final = make(`<p class="mixed">Prefix <strong>UPDATED</strong> suffix</p>`);
+      const initial = make(
+        `<p class="mixed">Prefix <strong>bold</strong> suffix</p>`,
+      );
+      const final = make(
+        `<p class="mixed">Prefix <strong>UPDATED</strong> suffix</p>`,
+      );
 
       Idiomorph.morph(initial, final);
       initial.querySelector("strong").textContent.should.equal("UPDATED");
     });
 
     it("24. Adding child to parent changes parent textContent", function () {
-      const initial = make(`<div class="container"><span>Original</span></div>`);
-      const final = make(`<div class="container"><span>Original</span><span>New</span></div>`);
+      const initial = make(
+        `<div class="container"><span>Original</span></div>`,
+      );
+      const final = make(
+        `<div class="container"><span>Original</span><span>New</span></div>`,
+      );
 
       Idiomorph.morph(initial, final);
       initial.querySelectorAll("span").length.should.equal(2);
     });
   });
 });
-
 
 describe("Large DOM Sync: Full Landing Page", function () {
   setup();
@@ -384,14 +477,14 @@ describe("Large DOM Sync: Full Landing Page", function () {
       features = [
         { title: "Fast", desc: "Lightning quick performance" },
         { title: "Secure", desc: "Enterprise-grade security" },
-        { title: "Scalable", desc: "Grows with your business" }
+        { title: "Scalable", desc: "Grows with your business" },
       ],
       testimonials = [
         { name: "Alice", quote: "Amazing product!" },
         { name: "Bob", quote: "Changed my workflow!" },
-        { name: "Carol", quote: "Highly recommended!" }
+        { name: "Carol", quote: "Highly recommended!" },
       ],
-      ctaText = "Get Started"
+      ctaText = "Get Started",
     } = options;
 
     return `<div class="landing-page">
@@ -399,7 +492,7 @@ describe("Large DOM Sync: Full Landing Page", function () {
         <nav class="nav">
           <a href="/" class="logo">Brand</a>
           <ul class="nav-links">
-            ${navLinks.map(link => `<li><a href="#${link.toLowerCase()}">${link}</a></li>`).join("")}
+            ${navLinks.map((link) => `<li><a href="#${link.toLowerCase()}">${link}</a></li>`).join("")}
           </ul>
           <button class="cta-btn">${ctaText}</button>
         </nav>
@@ -415,20 +508,28 @@ describe("Large DOM Sync: Full Landing Page", function () {
         <section class="features">
           <h2>Features</h2>
           <div class="feature-grid">
-            ${features.map(f => `<div class="feature-card">
+            ${features
+              .map(
+                (f) => `<div class="feature-card">
               <h3>${f.title}</h3>
               <p>${f.desc}</p>
-            </div>`).join("")}
+            </div>`,
+              )
+              .join("")}
           </div>
         </section>
 
         <section class="testimonials">
           <h2>What Our Customers Say</h2>
           <div class="testimonial-grid">
-            ${testimonials.map(t => `<div class="testimonial">
+            ${testimonials
+              .map(
+                (t) => `<div class="testimonial">
               <blockquote>"${t.quote}"</blockquote>
               <cite>— ${t.name}</cite>
-            </div>`).join("")}
+            </div>`,
+              )
+              .join("")}
           </div>
         </section>
       </main>
@@ -445,37 +546,51 @@ describe("Large DOM Sync: Full Landing Page", function () {
       const final = make(createLandingPage({ heroTitle: "New Amazing Title" }));
 
       Idiomorph.morph(initial, final);
-      initial.querySelector(".hero h1").textContent.should.equal("New Amazing Title");
+      initial
+        .querySelector(".hero h1")
+        .textContent.should.equal("New Amazing Title");
     });
 
     it("26. Update hero title and subtitle", function () {
       const initial = make(createLandingPage());
-      const final = make(createLandingPage({
-        heroTitle: "Updated Title",
-        heroSubtitle: "Updated subtitle text here"
-      }));
+      const final = make(
+        createLandingPage({
+          heroTitle: "Updated Title",
+          heroSubtitle: "Updated subtitle text here",
+        }),
+      );
 
       Idiomorph.morph(initial, final);
-      initial.querySelector(".hero h1").textContent.should.equal("Updated Title");
-      initial.querySelector(".subtitle").textContent.should.equal("Updated subtitle text here");
+      initial
+        .querySelector(".hero h1")
+        .textContent.should.equal("Updated Title");
+      initial
+        .querySelector(".subtitle")
+        .textContent.should.equal("Updated subtitle text here");
     });
 
     it("27. Reorder nav links", function () {
       const initial = make(createLandingPage());
-      const final = make(createLandingPage({
-        navLinks: ["Pricing", "Features", "Contact", "Home"]
-      }));
+      const final = make(
+        createLandingPage({
+          navLinks: ["Pricing", "Features", "Contact", "Home"],
+        }),
+      );
 
       Idiomorph.morph(initial, final);
-      const links = Array.from(initial.querySelectorAll(".nav-links a")).map(a => a.textContent);
+      const links = Array.from(initial.querySelectorAll(".nav-links a")).map(
+        (a) => a.textContent,
+      );
       links.should.eql(["Pricing", "Features", "Contact", "Home"]);
     });
 
     it("28. Add new nav link", function () {
       const initial = make(createLandingPage());
-      const final = make(createLandingPage({
-        navLinks: ["Home", "Features", "Pricing", "Blog", "Contact"]
-      }));
+      const final = make(
+        createLandingPage({
+          navLinks: ["Home", "Features", "Pricing", "Blog", "Contact"],
+        }),
+      );
 
       Idiomorph.morph(initial, final);
       initial.querySelectorAll(".nav-links li").length.should.equal(5);
@@ -483,45 +598,57 @@ describe("Large DOM Sync: Full Landing Page", function () {
 
     it("29. Reorder feature cards", function () {
       const initial = make(createLandingPage());
-      const final = make(createLandingPage({
-        features: [
-          { title: "Scalable", desc: "Grows with your business" },
-          { title: "Fast", desc: "Lightning quick performance" },
-          { title: "Secure", desc: "Enterprise-grade security" }
-        ]
-      }));
+      const final = make(
+        createLandingPage({
+          features: [
+            { title: "Scalable", desc: "Grows with your business" },
+            { title: "Fast", desc: "Lightning quick performance" },
+            { title: "Secure", desc: "Enterprise-grade security" },
+          ],
+        }),
+      );
 
       Idiomorph.morph(initial, final);
-      const titles = Array.from(initial.querySelectorAll(".feature-card h3")).map(h => h.textContent);
+      const titles = Array.from(
+        initial.querySelectorAll(".feature-card h3"),
+      ).map((h) => h.textContent);
       titles.should.eql(["Scalable", "Fast", "Secure"]);
     });
 
     it("30. Update feature descriptions", function () {
       const initial = make(createLandingPage());
-      const final = make(createLandingPage({
-        features: [
-          { title: "Fast", desc: "UPDATED: Even faster now!" },
-          { title: "Secure", desc: "UPDATED: More secure!" },
-          { title: "Scalable", desc: "UPDATED: Infinitely scalable!" }
-        ]
-      }));
+      const final = make(
+        createLandingPage({
+          features: [
+            { title: "Fast", desc: "UPDATED: Even faster now!" },
+            { title: "Secure", desc: "UPDATED: More secure!" },
+            { title: "Scalable", desc: "UPDATED: Infinitely scalable!" },
+          ],
+        }),
+      );
 
       Idiomorph.morph(initial, final);
-      initial.querySelectorAll(".feature-card p")[0].textContent.should.include("UPDATED");
+      initial
+        .querySelectorAll(".feature-card p")[0]
+        .textContent.should.include("UPDATED");
     });
 
     it("31. Reorder testimonials (3rd to 1st)", function () {
       const initial = make(createLandingPage());
-      const final = make(createLandingPage({
-        testimonials: [
-          { name: "Carol", quote: "Highly recommended!" },
-          { name: "Alice", quote: "Amazing product!" },
-          { name: "Bob", quote: "Changed my workflow!" }
-        ]
-      }));
+      const final = make(
+        createLandingPage({
+          testimonials: [
+            { name: "Carol", quote: "Highly recommended!" },
+            { name: "Alice", quote: "Amazing product!" },
+            { name: "Bob", quote: "Changed my workflow!" },
+          ],
+        }),
+      );
 
       Idiomorph.morph(initial, final);
-      const names = Array.from(initial.querySelectorAll(".testimonial cite")).map(c => c.textContent);
+      const names = Array.from(
+        initial.querySelectorAll(".testimonial cite"),
+      ).map((c) => c.textContent);
       names[0].should.include("Carol");
     });
 
@@ -530,20 +657,24 @@ describe("Large DOM Sync: Full Landing Page", function () {
       const final = make(createLandingPage({ ctaText: "Start Free Trial" }));
 
       Idiomorph.morph(initial, final);
-      initial.querySelector(".cta-btn").textContent.should.equal("Start Free Trial");
+      initial
+        .querySelector(".cta-btn")
+        .textContent.should.equal("Start Free Trial");
     });
 
     it("33. Multiple sections updated simultaneously", function () {
       const initial = make(createLandingPage());
-      const final = make(createLandingPage({
-        heroTitle: "New Title",
-        ctaText: "Sign Up Now",
-        features: [
-          { title: "New Feature 1", desc: "Description 1" },
-          { title: "New Feature 2", desc: "Description 2" },
-          { title: "New Feature 3", desc: "Description 3" }
-        ]
-      }));
+      const final = make(
+        createLandingPage({
+          heroTitle: "New Title",
+          ctaText: "Sign Up Now",
+          features: [
+            { title: "New Feature 1", desc: "Description 1" },
+            { title: "New Feature 2", desc: "Description 2" },
+            { title: "New Feature 3", desc: "Description 3" },
+          ],
+        }),
+      );
 
       Idiomorph.morph(initial, final);
       initial.querySelector(".hero h1").textContent.should.equal("New Title");
@@ -552,14 +683,16 @@ describe("Large DOM Sync: Full Landing Page", function () {
 
     it("34. Add new feature card", function () {
       const initial = make(createLandingPage());
-      const final = make(createLandingPage({
-        features: [
-          { title: "Fast", desc: "Lightning quick performance" },
-          { title: "Secure", desc: "Enterprise-grade security" },
-          { title: "Scalable", desc: "Grows with your business" },
-          { title: "Reliable", desc: "99.9% uptime guaranteed" }
-        ]
-      }));
+      const final = make(
+        createLandingPage({
+          features: [
+            { title: "Fast", desc: "Lightning quick performance" },
+            { title: "Secure", desc: "Enterprise-grade security" },
+            { title: "Scalable", desc: "Grows with your business" },
+            { title: "Reliable", desc: "99.9% uptime guaranteed" },
+          ],
+        }),
+      );
 
       Idiomorph.morph(initial, final);
       initial.querySelectorAll(".feature-card").length.should.equal(4);
@@ -567,19 +700,20 @@ describe("Large DOM Sync: Full Landing Page", function () {
 
     it("35. Remove a testimonial", function () {
       const initial = make(createLandingPage());
-      const final = make(createLandingPage({
-        testimonials: [
-          { name: "Alice", quote: "Amazing product!" },
-          { name: "Carol", quote: "Highly recommended!" }
-        ]
-      }));
+      const final = make(
+        createLandingPage({
+          testimonials: [
+            { name: "Alice", quote: "Amazing product!" },
+            { name: "Carol", quote: "Highly recommended!" },
+          ],
+        }),
+      );
 
       Idiomorph.morph(initial, final);
       initial.querySelectorAll(".testimonial").length.should.equal(2);
     });
   });
 });
-
 
 describe("Large DOM Sync: Stress Tests", function () {
   setup();
@@ -590,8 +724,14 @@ describe("Large DOM Sync: Stress Tests", function () {
 
   describe("Many Similar Elements", function () {
     it("36. 10 identical divs with only text difference", function () {
-      const items = Array.from({ length: 10 }, (_, i) => `<div class="item">Item ${i + 1}</div>`).join("");
-      const reordered = Array.from({ length: 10 }, (_, i) => `<div class="item">Item ${10 - i}</div>`).join("");
+      const items = Array.from(
+        { length: 10 },
+        (_, i) => `<div class="item">Item ${i + 1}</div>`,
+      ).join("");
+      const reordered = Array.from(
+        { length: 10 },
+        (_, i) => `<div class="item">Item ${10 - i}</div>`,
+      ).join("");
 
       const initial = make(`<div class="list">${items}</div>`);
       const final = make(`<div class="list">${reordered}</div>`);
@@ -601,8 +741,14 @@ describe("Large DOM Sync: Stress Tests", function () {
     });
 
     it("37. 20 list items shuffled", function () {
-      const items = Array.from({ length: 20 }, (_, i) => `<li>Item ${i + 1}</li>`).join("");
-      const shuffled = Array.from({ length: 20 }, (_, i) => `<li>Item ${((i * 7) % 20) + 1}</li>`).join("");
+      const items = Array.from(
+        { length: 20 },
+        (_, i) => `<li>Item ${i + 1}</li>`,
+      ).join("");
+      const shuffled = Array.from(
+        { length: 20 },
+        (_, i) => `<li>Item ${((i * 7) % 20) + 1}</li>`,
+      ).join("");
 
       const initial = make(`<ul>${items}</ul>`);
       const final = make(`<ul>${shuffled}</ul>`);
@@ -612,12 +758,16 @@ describe("Large DOM Sync: Stress Tests", function () {
     });
 
     it("38. 50 similar cards with unique titles", function () {
-      const cards = Array.from({ length: 50 }, (_, i) =>
-        `<div class="card"><h3>Card ${i + 1}</h3><p>Same description for all</p></div>`
+      const cards = Array.from(
+        { length: 50 },
+        (_, i) =>
+          `<div class="card"><h3>Card ${i + 1}</h3><p>Same description for all</p></div>`,
       ).join("");
 
-      const reordered = Array.from({ length: 50 }, (_, i) =>
-        `<div class="card"><h3>Card ${50 - i}</h3><p>Same description for all</p></div>`
+      const reordered = Array.from(
+        { length: 50 },
+        (_, i) =>
+          `<div class="card"><h3>Card ${50 - i}</h3><p>Same description for all</p></div>`,
       ).join("");
 
       const initial = make(`<div class="grid">${cards}</div>`);
@@ -628,15 +778,19 @@ describe("Large DOM Sync: Stress Tests", function () {
     });
 
     it("39. Grid of 100 cells (10x10)", function () {
-      const rows = Array.from({ length: 10 }, (_, r) =>
-        `<tr>${Array.from({ length: 10 }, (_, c) => `<td>R${r}C${c}</td>`).join("")}</tr>`
+      const rows = Array.from(
+        { length: 10 },
+        (_, r) =>
+          `<tr>${Array.from({ length: 10 }, (_, c) => `<td>R${r}C${c}</td>`).join("")}</tr>`,
       ).join("");
 
       const initial = make(`<table><tbody>${rows}</tbody></table>`);
 
       // Reverse the rows
-      const reversedRows = Array.from({ length: 10 }, (_, r) =>
-        `<tr>${Array.from({ length: 10 }, (_, c) => `<td>R${9-r}C${c}</td>`).join("")}</tr>`
+      const reversedRows = Array.from(
+        { length: 10 },
+        (_, r) =>
+          `<tr>${Array.from({ length: 10 }, (_, c) => `<td>R${9 - r}C${c}</td>`).join("")}</tr>`,
       ).join("");
 
       const final = make(`<table><tbody>${reversedRows}</tbody></table>`);
@@ -648,8 +802,10 @@ describe("Large DOM Sync: Stress Tests", function () {
     it("40. Deeply nested structure (5 levels, 3 children each)", function () {
       const createNested = (depth, prefix = "") => {
         if (depth === 0) return `<span>${prefix || "leaf"}</span>`;
-        return Array.from({ length: 3 }, (_, i) =>
-          `<div class="level-${depth}">${createNested(depth - 1, `${prefix}${i}`)}</div>`
+        return Array.from(
+          { length: 3 },
+          (_, i) =>
+            `<div class="level-${depth}">${createNested(depth - 1, `${prefix}${i}`)}</div>`,
         ).join("");
       };
 
@@ -680,7 +836,9 @@ describe("Large DOM Sync: Stress Tests", function () {
       </div>`);
 
       Idiomorph.morph(initial, final);
-      const msgs = Array.from(initial.querySelectorAll(".msg")).map(p => p.textContent);
+      const msgs = Array.from(initial.querySelectorAll(".msg")).map(
+        (p) => p.textContent,
+      );
       msgs.should.eql(["Message 3", "Message 1", "Message 2"]);
     });
 
@@ -772,7 +930,8 @@ describe("Large DOM Sync: Stress Tests", function () {
       const final = make(reordered);
 
       Idiomorph.morph(initial, final);
-      initial.querySelector(".widget").classList.contains("table").should.be.true;
+      initial.querySelector(".widget").classList.contains("table").should.be
+        .true;
     });
 
     it("47. E-commerce product grid with filters", function () {
@@ -862,7 +1021,8 @@ describe("Large DOM Sync: Stress Tests", function () {
 
     it("50. News feed with articles of varying lengths", function () {
       const shortArticle = "Short article text.";
-      const longArticle = "This is a much longer article that contains more than sixty-four characters to test the text hint boundary properly and see how matching works with longer content that might have similar prefixes.";
+      const longArticle =
+        "This is a much longer article that contains more than sixty-four characters to test the text hint boundary properly and see how matching works with longer content that might have similar prefixes.";
 
       const initial = make(`<div class="feed">
         <article><h2>Short</h2><p>${shortArticle}</p></article>
@@ -883,7 +1043,6 @@ describe("Large DOM Sync: Stress Tests", function () {
   });
 });
 
-
 describe("Large DOM Sync: DOM Node Preservation", function () {
   setup();
 
@@ -893,11 +1052,15 @@ describe("Large DOM Sync: DOM Node Preservation", function () {
 
   describe("Node Identity Preservation", function () {
     it("51. Verify same DOM node is reused on reorder", function () {
-      const initial = make(`<div><span class="a">Alpha</span><span class="b">Beta</span></div>`);
+      const initial = make(
+        `<div><span class="a">Alpha</span><span class="b">Beta</span></div>`,
+      );
       const nodeA = initial.querySelector(".a");
       const nodeB = initial.querySelector(".b");
 
-      const final = make(`<div><span class="b">Beta</span><span class="a">Alpha</span></div>`);
+      const final = make(
+        `<div><span class="b">Beta</span><span class="a">Alpha</span></div>`,
+      );
 
       Idiomorph.morph(initial, final);
 
@@ -931,11 +1094,14 @@ describe("Large DOM Sync: DOM Node Preservation", function () {
     });
 
     it("53. Node preserved when text updated (appended)", function () {
-      const longText = "This is some long text content that will have more added to it.";
+      const longText =
+        "This is some long text content that will have more added to it.";
       const initial = make(`<div><p class="text">${longText}</p></div>`);
       const pNode = initial.querySelector("p");
 
-      const final = make(`<div><p class="text">${longText} More text here!</p></div>`);
+      const final = make(
+        `<div><p class="text">${longText} More text here!</p></div>`,
+      );
 
       Idiomorph.morph(initial, final);
 
@@ -988,7 +1154,6 @@ describe("Large DOM Sync: DOM Node Preservation", function () {
     });
   });
 });
-
 
 describe("Large DOM Sync: Oversized same-signature buckets", function () {
   setup();

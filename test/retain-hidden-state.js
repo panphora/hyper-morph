@@ -240,8 +240,6 @@ describe("Hidden state preservation tests", function () {
     // position instead, so the focused node survives the morph
   });
 
-
-
   it("preserves all non-attribute element state and innerHTML morphStyle when morphing to two top level nodes with nesting", function () {
     getWorkArea().innerHTML = `
       <div>

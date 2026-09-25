@@ -12,6 +12,7 @@ import { makeInertScript, isHtmlScript } from "./scripts.js";
 import { merge3Text } from "./text-merge.js";
 
 const XHTML = "http://www.w3.org/1999/xhtml";
+const FORM_TAGS = new Set(["INPUT", "OPTION", "TEXTAREA"]);
 
 /**
  * @typedef {object} ApplyOptions
@@ -34,18 +35,25 @@ export function apply(liveRoot, mergedRoot, result, o) {
   const { provenance, textMappers } = result;
   const hooks = o.hooks;
   const applied = [];
-  const moved = [], replaced = [];
+  const moved = [],
+    replaced = [];
   const claimed = new Set();
   const leftovers = [];
   const identities = [];
   const mergedScriptsLive = new Set();
 
-  const inRoot = (n) => !!n && (n === liveRoot || liveRoot.contains(n) || (liveRoot.nodeType === 1 && liveRoot.tagName === "TEMPLATE" && liveRoot.content.contains(n)));
+  const inRoot = (n) =>
+    !!n &&
+    (n === liveRoot ||
+      liveRoot.contains(n) ||
+      (liveRoot.nodeType === 1 &&
+        liveRoot.tagName === "TEMPLATE" &&
+        liveRoot.content.contains(n)));
 
   // Pre-pass: resolve every merged node's live twin(s) once.
-  const liveOf = new Map();        // merged node -> live node (element, or first text node of a run)
-  const runOf = new Map();         // merged text node -> live text nodes of its run
-  const liveTextInfo = new Map();  // live text node -> { merged, shift }
+  const liveOf = new Map(); // merged node -> live node (element, or first text node of a run)
+  const runOf = new Map(); // merged text node -> live text nodes of its run
+  const liveTextInfo = new Map(); // live text node -> { merged, shift }
   (function resolve(m) {
     const p = provenance.get(m);
     if (p) {
@@ -53,16 +61,24 @@ export function apply(liveRoot, mergedRoot, result, o) {
         const lv = p.local ? o.toLive(p.local) : null;
         if (lv && inRoot(lv) && lv.nodeType === 1) liveOf.set(m, lv);
       } else if (Array.isArray(p.local)) {
-        const nodes = p.local.map((n) => o.toLive(n)).filter((n) => n && inRoot(n) && n.nodeType === m.nodeType);
+        const nodes = p.local
+          .map((n) => o.toLive(n))
+          .filter((n) => n && inRoot(n) && n.nodeType === m.nodeType);
         if (nodes.length) {
           liveOf.set(m, nodes[0]);
           runOf.set(m, nodes);
           let shift = 0;
-          for (const n of nodes) { liveTextInfo.set(n, { merged: m, shift }); shift += n.nodeValue.length; }
+          for (const n of nodes) {
+            liveTextInfo.set(n, { merged: m, shift });
+            shift += n.nodeValue.length;
+          }
         }
       }
     }
-    const kids = m.nodeType === 1 && m.tagName === "TEMPLATE" && m.content ? m.content.childNodes : m.childNodes;
+    const kids =
+      m.nodeType === 1 && m.tagName === "TEMPLATE" && m.content
+        ? m.content.childNodes
+        : m.childNodes;
     for (const c of kids) resolve(c);
   })(mergedRoot);
 
@@ -94,12 +110,26 @@ export function apply(liveRoot, mergedRoot, result, o) {
       const id = result.remoteIdOf(p.remote);
       if (id) identities.push([liveEl, id]);
     }
+    if (p && p.unchanged) {
+      // Identical markup on every side. Two things can still differ below
+      // it: identities (owed only when the caller supplied an identity of
+      // its own) and form state, which lives in properties the comparison
+      // never sees (a value set by script on a built node, property mode).
+      if (result.customIdentity && p.remote) adoptLockstep(liveEl, p.remote);
+      if (p.remote) syncFormStateDeep(liveEl, p.remote);
+      return;
+    }
     if (hooks.beforeNodeMorphed(liveEl, mergedEl) === false) return;
     syncAttributes(liveEl, mergedEl);
     const tag = liveEl.tagName;
     if (isHtmlScript(liveEl)) {
       if (liveEl.textContent !== mergedEl.textContent) {
-        applied.push({ kind: "text", node: liveEl, before: liveEl.textContent, after: mergedEl.textContent });
+        applied.push({
+          kind: "text",
+          node: liveEl,
+          before: liveEl.textContent,
+          after: mergedEl.textContent,
+        });
         liveEl.textContent = mergedEl.textContent;
       }
       if (result.mergedScripts.has(mergedEl)) mergedScriptsLive.add(liveEl);
@@ -108,7 +138,8 @@ export function apply(liveRoot, mergedRoot, result, o) {
     } else {
       syncFormState(liveEl, mergedEl, p);
       const lt = tag === "TEMPLATE" && liveEl.content ? liveEl.content : liveEl;
-      const mt = tag === "TEMPLATE" && mergedEl.content ? mergedEl.content : mergedEl;
+      const mt =
+        tag === "TEMPLATE" && mergedEl.content ? mergedEl.content : mergedEl;
       applyChildren(lt, mt);
     }
     hooks.afterNodeMorphed(liveEl, mergedEl);
@@ -124,7 +155,10 @@ export function apply(liveRoot, mergedRoot, result, o) {
         if (lv !== cursor) {
           const from = lv.parentNode;
           moveBefore(liveParent, lv, cursor);
-          if (from !== liveParent) { moved.push(lv); applied.push({ kind: "move", el: lv, from, to: liveParent }); }
+          if (from !== liveParent) {
+            moved.push(lv);
+            applied.push({ kind: "move", el: lv, from, to: liveParent });
+          }
         }
         seenHere.add(lv);
         applyElement(lv, m);
@@ -145,7 +179,15 @@ export function apply(liveRoot, mergedRoot, result, o) {
           }
         }
         if (hooks.beforeNodeMorphed(lv, m) !== false) {
-          if (lv.nodeValue !== text) { applied.push({ kind: "text", node: lv, before: lv.nodeValue, after: text }); lv.nodeValue = text; }
+          if (lv.nodeValue !== text) {
+            applied.push({
+              kind: "text",
+              node: lv,
+              before: lv.nodeValue,
+              after: text,
+            });
+            lv.nodeValue = text;
+          }
           hooks.afterNodeMorphed(lv, m);
         }
         claimed.add(lv);
@@ -154,8 +196,22 @@ export function apply(liveRoot, mergedRoot, result, o) {
         continue;
       }
       // No live twin: a text node may reuse an unclaimed live text node at the cursor.
-      if (m.nodeType === 3 && cursor && cursor.nodeType === 3 && !claimed.has(cursor) && !liveTextInfo.has(cursor)) {
-        if (cursor.nodeValue !== m.nodeValue) { applied.push({ kind: "text", node: cursor, before: cursor.nodeValue, after: m.nodeValue }); cursor.nodeValue = m.nodeValue; }
+      if (
+        m.nodeType === 3 &&
+        cursor &&
+        cursor.nodeType === 3 &&
+        !claimed.has(cursor) &&
+        !liveTextInfo.has(cursor)
+      ) {
+        if (cursor.nodeValue !== m.nodeValue) {
+          applied.push({
+            kind: "text",
+            node: cursor,
+            before: cursor.nodeValue,
+            after: m.nodeValue,
+          });
+          cursor.nodeValue = m.nodeValue;
+        }
         claimed.add(cursor);
         cursor = nextUsable(cursor.nextSibling);
         continue;
@@ -164,7 +220,10 @@ export function apply(liveRoot, mergedRoot, result, o) {
       // may still have live twins (an element moved into a new wrapper, a
       // wrapper whose tag changed), and those replace their cloned stand-ins
       // once the copy is connected, so moveBefore can keep their state.
-      const clone = deepInert(m);
+      // An unchanged subtree carries no children in the merged tree; when
+      // its live twin is unavailable, clone the remote original instead.
+      const pm = provenance.get(m);
+      const clone = deepInert(pm && pm.unchanged && pm.remote ? pm.remote : m);
       if (hooks.beforeNodeAdded(clone) === false) continue;
       liveParent.insertBefore(clone, cursor);
       claimed.add(clone);
@@ -181,7 +240,8 @@ export function apply(liveRoot, mergedRoot, result, o) {
       if (child.nodeType === 1 && o.ignored(child)) continue;
       // A leftover with a merged twin elsewhere is moved out when that parent
       // is applied; anything else can go now, so hooks see settled state.
-      if (liveTwins.has(child)) leftovers.push({ node: child, parent: liveParent });
+      if (liveTwins.has(child))
+        leftovers.push({ node: child, parent: liveParent });
       else removeNode(child, liveParent);
     }
   }
@@ -191,14 +251,53 @@ export function apply(liveRoot, mergedRoot, result, o) {
     if (!p || !Array.isArray(p.local)) return null;
     return p.local.map((n) => n.nodeValue).join("");
   }
-  function provenanceValue(m) { return provenance.get(m); }
+  function provenanceValue(m) {
+    return provenance.get(m);
+  }
+
+  /**
+   * Walk a live subtree and its identical remote twin, syncing the form
+   * state of every form control. Only subtrees that hold one pay for it.
+   */
+  function syncFormStateDeep(liveEl, remoteEl) {
+    if (
+      !FORM_TAGS.has(liveEl.tagName) &&
+      !liveEl.querySelector("input,option,textarea")
+    )
+      return;
+    const walk = (l, r) => {
+      if (l.nodeType !== 1 || r.nodeType !== 1 || l.tagName !== r.tagName)
+        return;
+      if (l.tagName === "TEXTAREA") syncTextarea(l, r, { remote: r });
+      else if (FORM_TAGS.has(l.tagName)) syncFormState(l, r, { remote: r });
+      const lk = l.childNodes,
+        rk = r.childNodes;
+      for (let i = 0; i < lk.length && i < rk.length; i++) walk(lk[i], rk[i]);
+    };
+    walk(liveEl, remoteEl);
+  }
+
+  /** Walk a live subtree and its identical remote twin, adopting remote ids. */
+  function adoptLockstep(liveEl, remoteEl) {
+    const lk = liveEl.children,
+      rk = remoteEl.children;
+    for (let i = 0; i < lk.length && i < rk.length; i++) {
+      const id = result.remoteIdOf(rk[i]);
+      if (id) identities.push([lk[i], id]);
+      adoptLockstep(lk[i], rk[i]);
+    }
+  }
 
   function recordIdentities(liveEl, mergedEl) {
     if (!result.remoteIdOf) return;
     const walk = (l, m) => {
       const p = provenance.get(m);
-      if (p && p.remote && m.nodeType === 1) { const id = result.remoteIdOf(p.remote); if (id) identities.push([l, id]); }
-      const lk = l.childNodes, mk = m.childNodes;
+      if (p && p.remote && m.nodeType === 1) {
+        const id = result.remoteIdOf(p.remote);
+        if (id) identities.push([l, id]);
+      }
+      const lk = l.childNodes,
+        mk = m.childNodes;
       for (let i = 0; i < lk.length && i < mk.length; i++) walk(lk[i], mk[i]);
     };
     walk(liveEl, mergedEl);
@@ -210,8 +309,14 @@ export function apply(liveRoot, mergedRoot, result, o) {
   }
 
   function moveBefore(parent, node, before) {
-    if (typeof parent.moveBefore === "function" && node.ownerDocument === parent.ownerDocument) {
-      try { parent.moveBefore(node, before); return; } catch {}
+    if (
+      typeof parent.moveBefore === "function" &&
+      node.ownerDocument === parent.ownerDocument
+    ) {
+      try {
+        parent.moveBefore(node, before);
+        return;
+      } catch {}
     }
     parent.insertBefore(node, before);
   }
@@ -226,7 +331,9 @@ export function apply(liveRoot, mergedRoot, result, o) {
   function deepInert(m) {
     if (isHtmlScript(m)) return makeInertScript(m, doc);
     const clone = doc.importNode(m, true);
-    if (clone.nodeType === 1) for (const s of Array.from(clone.querySelectorAll("script"))) if (isHtmlScript(s)) s.replaceWith(makeInertScript(s, doc));
+    if (clone.nodeType === 1)
+      for (const s of Array.from(clone.querySelectorAll("script")))
+        if (isHtmlScript(s)) s.replaceWith(makeInertScript(s, doc));
     return clone;
   }
 
@@ -236,11 +343,16 @@ export function apply(liveRoot, mergedRoot, result, o) {
    * the cloned stand-in and is applied in place.
    */
   function graft(cloneEl, m) {
-    const cKids = cloneEl.tagName === "TEMPLATE" && cloneEl.content ? cloneEl.content : cloneEl;
+    const cKids =
+      cloneEl.tagName === "TEMPLATE" && cloneEl.content
+        ? cloneEl.content
+        : cloneEl;
     const mKids = m.tagName === "TEMPLATE" && m.content ? m.content : m;
-    const cs = Array.from(cKids.childNodes), ms = Array.from(mKids.childNodes);
+    const cs = Array.from(cKids.childNodes),
+      ms = Array.from(mKids.childNodes);
     for (let i = 0; i < ms.length && i < cs.length; i++) {
-      const mc = ms[i], cc = cs[i];
+      const mc = ms[i],
+        cc = cs[i];
       let lv = liveOf.get(mc);
       if (lv && claimed.has(lv)) lv = null;
       if (lv) {
@@ -248,11 +360,22 @@ export function apply(liveRoot, mergedRoot, result, o) {
         moveBefore(cKids, lv, cc);
         cc.remove();
         if (lv.nodeType === 1) {
-          if (from !== cKids) { moved.push(lv); applied.push({ kind: "move", el: lv, from, to: cKids }); }
+          if (from !== cKids) {
+            moved.push(lv);
+            applied.push({ kind: "move", el: lv, from, to: cKids });
+          }
           applyElement(lv, mc);
         } else {
           claimed.add(lv);
-          if (lv.nodeValue !== mc.nodeValue) { applied.push({ kind: "text", node: lv, before: lv.nodeValue, after: mc.nodeValue }); lv.nodeValue = mc.nodeValue; }
+          if (lv.nodeValue !== mc.nodeValue) {
+            applied.push({
+              kind: "text",
+              node: lv,
+              before: lv.nodeValue,
+              after: mc.nodeValue,
+            });
+            lv.nodeValue = mc.nodeValue;
+          }
         }
         continue;
       }
@@ -263,32 +386,65 @@ export function apply(liveRoot, mergedRoot, result, o) {
 
   function syncAttributes(liveEl, mergedEl) {
     for (const attr of Array.from(mergedEl.attributes)) {
-      if (isFormStateAttr(liveEl, attr.name)) continue;
-      const cur = attr.namespaceURI ? liveEl.getAttributeNS(attr.namespaceURI, attr.localName) : liveEl.getAttribute(attr.name);
+      if (
+        isFormStateAttr(liveEl, attr.name) ||
+        o.ignoreAttribute(liveEl, attr.name)
+      )
+        continue;
+      const cur = attr.namespaceURI
+        ? liveEl.getAttributeNS(attr.namespaceURI, attr.localName)
+        : liveEl.getAttribute(attr.name);
       if (cur === attr.value) continue;
-      if (hooks.beforeAttributeUpdated(attr.name, liveEl, "update") === false) continue;
-      if (attr.namespaceURI) liveEl.setAttributeNS(attr.namespaceURI, attr.name, attr.value); else liveEl.setAttribute(attr.name, attr.value);
-      applied.push({ kind: "attr", el: liveEl, name: attr.name, before: cur, after: attr.value });
+      if (hooks.beforeAttributeUpdated(attr.name, liveEl, "update") === false)
+        continue;
+      if (attr.namespaceURI)
+        liveEl.setAttributeNS(attr.namespaceURI, attr.name, attr.value);
+      else liveEl.setAttribute(attr.name, attr.value);
+      applied.push({
+        kind: "attr",
+        el: liveEl,
+        name: attr.name,
+        before: cur,
+        after: attr.value,
+      });
     }
     for (const attr of Array.from(liveEl.attributes)) {
-      if (isFormStateAttr(liveEl, attr.name)) continue;
-      const has = attr.namespaceURI ? mergedEl.hasAttributeNS(attr.namespaceURI, attr.localName) : mergedEl.hasAttribute(attr.name);
+      if (
+        isFormStateAttr(liveEl, attr.name) ||
+        o.ignoreAttribute(liveEl, attr.name)
+      )
+        continue;
+      const has = attr.namespaceURI
+        ? mergedEl.hasAttributeNS(attr.namespaceURI, attr.localName)
+        : mergedEl.hasAttribute(attr.name);
       if (has) continue;
-      if (hooks.beforeAttributeUpdated(attr.name, liveEl, "remove") === false) continue;
+      if (hooks.beforeAttributeUpdated(attr.name, liveEl, "remove") === false)
+        continue;
       const before = attr.value;
-      if (attr.namespaceURI) liveEl.removeAttributeNS(attr.namespaceURI, attr.localName); else liveEl.removeAttribute(attr.name);
-      applied.push({ kind: "attr", el: liveEl, name: attr.name, before, after: null });
+      if (attr.namespaceURI)
+        liveEl.removeAttributeNS(attr.namespaceURI, attr.localName);
+      else liveEl.removeAttribute(attr.name);
+      applied.push({
+        kind: "attr",
+        el: liveEl,
+        name: attr.name,
+        before,
+        after: null,
+      });
     }
   }
 
   function isFormStateAttr(el, name) {
     const tag = el.tagName;
-    if (tag === "INPUT") return name === "value" || name === "checked" || name === "disabled";
+    if (tag === "INPUT")
+      return name === "value" || name === "checked" || name === "disabled";
     if (tag === "OPTION") return name === "selected";
     return false;
   }
 
-  function isFocused(el) { return el === doc.activeElement; }
+  function isFocused(el) {
+    return el === doc.activeElement;
+  }
 
   /**
    * The original remote node, when the caller built it in memory and set a
@@ -307,28 +463,58 @@ export function apply(liveRoot, mergedRoot, result, o) {
     if (tag === "INPUT") {
       const protect = o.protectFocusedValue && isFocused(liveEl);
       const type = (liveEl.getAttribute("type") || "").toLowerCase();
-      const textLike = type !== "file" && type !== "checkbox" && type !== "radio";
+      const textLike =
+        type !== "file" && type !== "checkbox" && type !== "radio";
       // A built node whose value property differs from its value attribute
       // was set by script; honor the property. Without the attribute the
       // attribute rule still wins: an absent attribute clears the value.
-      const propertyValue = built && built.hasAttribute("value") && built.value !== built.getAttribute("value") ? built.value : null;
+      const propertyValue =
+        built &&
+        built.hasAttribute("value") &&
+        built.value !== built.getAttribute("value")
+          ? built.value
+          : null;
       if (textLike && !protect) {
         if (o.formState === "property") {
-          if (liveEl.value !== src.value && hooks.beforeAttributeUpdated("value", liveEl, "update") !== false) liveEl.value = src.value;
+          if (
+            liveEl.value !== src.value &&
+            hooks.beforeAttributeUpdated("value", liveEl, "update") !== false
+          )
+            liveEl.value = src.value;
         } else if (mergedEl.hasAttribute("value") || propertyValue != null) {
-          const v = propertyValue != null ? propertyValue : mergedEl.getAttribute("value");
-          if (liveEl.getAttribute("value") !== v && hooks.beforeAttributeUpdated("value", liveEl, "update") !== false) {
+          const v =
+            propertyValue != null
+              ? propertyValue
+              : mergedEl.getAttribute("value");
+          if (
+            liveEl.getAttribute("value") !== v &&
+            hooks.beforeAttributeUpdated("value", liveEl, "update") !== false
+          ) {
             liveEl.setAttribute("value", v);
             if (liveEl.value !== v) liveEl.value = v;
-            applied.push({ kind: "attr", el: liveEl, name: "value", before: null, after: v });
+            applied.push({
+              kind: "attr",
+              el: liveEl,
+              name: "value",
+              before: null,
+              after: v,
+            });
           } else if (liveEl.value !== v && liveEl.getAttribute("value") === v) {
             liveEl.value = v;
           }
         } else if (liveEl.hasAttribute("value") || liveEl.value !== "") {
-          if (hooks.beforeAttributeUpdated("value", liveEl, "remove") !== false) {
+          if (
+            hooks.beforeAttributeUpdated("value", liveEl, "remove") !== false
+          ) {
             liveEl.removeAttribute("value");
             liveEl.value = "";
-            applied.push({ kind: "attr", el: liveEl, name: "value", before: "", after: null });
+            applied.push({
+              kind: "attr",
+              el: liveEl,
+              name: "value",
+              before: "",
+              after: null,
+            });
           }
         }
       }
@@ -336,25 +522,53 @@ export function apply(liveRoot, mergedRoot, result, o) {
         // Checkbox and radio: the value attribute is plain data, never a
         // live property to reconcile.
         const mv = mergedEl.getAttribute("value");
-        if (mv == null) { if (liveEl.hasAttribute("value") && hooks.beforeAttributeUpdated("value", liveEl, "remove") !== false) liveEl.removeAttribute("value"); }
-        else if (liveEl.getAttribute("value") !== mv && hooks.beforeAttributeUpdated("value", liveEl, "update") !== false) liveEl.setAttribute("value", mv);
+        if (mv == null) {
+          if (
+            liveEl.hasAttribute("value") &&
+            hooks.beforeAttributeUpdated("value", liveEl, "remove") !== false
+          )
+            liveEl.removeAttribute("value");
+        } else if (
+          liveEl.getAttribute("value") !== mv &&
+          hooks.beforeAttributeUpdated("value", liveEl, "update") !== false
+        )
+          liveEl.setAttribute("value", mv);
       }
       syncBoolean(liveEl, src, "checked");
       syncBoolean(liveEl, src, "disabled");
-      if (o.formState === "property" && liveEl.indeterminate !== src.indeterminate) liveEl.indeterminate = src.indeterminate;
+      if (
+        o.formState === "property" &&
+        liveEl.indeterminate !== src.indeterminate
+      )
+        liveEl.indeterminate = src.indeterminate;
     } else if (tag === "OPTION") {
       syncBoolean(liveEl, src, "selected");
     }
   }
 
   function syncBoolean(liveEl, src, name) {
-    const want = o.formState === "property" ? !!src[name] : src.hasAttribute(name);
+    const want =
+      o.formState === "property" ? !!src[name] : src.hasAttribute(name);
     if (o.formState !== "property") {
       const has = liveEl.hasAttribute(name);
       if (has !== want) {
-        if (hooks.beforeAttributeUpdated(name, liveEl, want ? "update" : "remove") === false) return;
-        if (want) liveEl.setAttribute(name, ""); else liveEl.removeAttribute(name);
-        applied.push({ kind: "attr", el: liveEl, name, before: has ? "" : null, after: want ? "" : null });
+        if (
+          hooks.beforeAttributeUpdated(
+            name,
+            liveEl,
+            want ? "update" : "remove",
+          ) === false
+        )
+          return;
+        if (want) liveEl.setAttribute(name, "");
+        else liveEl.removeAttribute(name);
+        applied.push({
+          kind: "attr",
+          el: liveEl,
+          name,
+          before: has ? "" : null,
+          after: want ? "" : null,
+        });
       }
     }
     if (liveEl[name] !== want) liveEl[name] = want;
@@ -365,11 +579,21 @@ export function apply(liveRoot, mergedRoot, result, o) {
     // its default value, and rewriting it under the caret is the edit the
     // protection exists to prevent.
     if (o.protectFocusedValue && isFocused(liveEl)) return;
-    if (hooks.beforeAttributeUpdated("value", liveEl, "update") === false) return;
+    if (hooks.beforeAttributeUpdated("value", liveEl, "update") === false)
+      return;
     const built = builtRemote(p);
     const text = mergedEl.textContent;
-    const value = built && built.value !== built.defaultValue ? built.value : text;
-    if (o.formState !== "property" && liveEl.textContent !== text) { applied.push({ kind: "text", node: liveEl, before: liveEl.textContent, after: text }); liveEl.textContent = text; }
+    const value =
+      built && built.value !== built.defaultValue ? built.value : text;
+    if (o.formState !== "property" && liveEl.textContent !== text) {
+      applied.push({
+        kind: "text",
+        node: liveEl,
+        before: liveEl.textContent,
+        after: text,
+      });
+      liveEl.textContent = text;
+    }
     if (liveEl.value !== value) liveEl.value = value;
   }
 }
@@ -380,15 +604,31 @@ export function apply(liveRoot, mergedRoot, result, o) {
 function captureFocus(doc, liveTextInfo) {
   const el = doc.activeElement;
   if (!el || el === doc.body || el === doc.documentElement) return null;
-  const state = { el, id: el.getAttribute && el.getAttribute("id"), scrollTop: el.scrollTop, scrollLeft: el.scrollLeft };
+  const state = {
+    el,
+    id: el.getAttribute && el.getAttribute("id"),
+    scrollTop: el.scrollTop,
+    scrollLeft: el.scrollLeft,
+  };
   if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") {
-    try { state.selection = [el.selectionStart, el.selectionEnd, el.selectionDirection]; } catch {}
+    try {
+      state.selection = [
+        el.selectionStart,
+        el.selectionEnd,
+        el.selectionDirection,
+      ];
+    } catch {}
     return state;
   }
   const sel = doc.getSelection && doc.getSelection();
   if (sel && sel.rangeCount) {
     const r = sel.getRangeAt(0);
-    state.range = { sc: r.startContainer, so: r.startOffset, ec: r.endContainer, eo: r.endOffset };
+    state.range = {
+      sc: r.startContainer,
+      so: r.startOffset,
+      ec: r.endContainer,
+      eo: r.endOffset,
+    };
   }
   return state;
 }
@@ -398,12 +638,30 @@ function restoreFocus(doc, state, liveTextInfo, textMappers, runOf) {
   let el = state.el;
   if (!el.isConnected && state.id) el = doc.getElementById(state.id);
   if (!el || !el.isConnected) return;
-  if (doc.activeElement !== el) { try { el.focus({ preventScroll: true }); } catch {} }
-  try { el.scrollTop = state.scrollTop; el.scrollLeft = state.scrollLeft; } catch {}
+  if (doc.activeElement !== el) {
+    try {
+      el.focus({ preventScroll: true });
+    } catch {}
+  }
+  try {
+    el.scrollTop = state.scrollTop;
+    el.scrollLeft = state.scrollLeft;
+  } catch {}
   if (state.selection) {
     // Only a selection that was lost is put back; one that a hook or the
     // page set during the apply stands.
-    try { if (el.setSelectionRange && !el.selectionEnd && state.selection[1] != null) el.setSelectionRange(state.selection[0], state.selection[1], state.selection[2] || "none"); } catch {}
+    try {
+      if (
+        el.setSelectionRange &&
+        !el.selectionEnd &&
+        state.selection[1] != null
+      )
+        el.setSelectionRange(
+          state.selection[0],
+          state.selection[1],
+          state.selection[2] || "none",
+        );
+    } catch {}
     return;
   }
   if (!state.range) return;
@@ -417,17 +675,30 @@ function restoreFocus(doc, state, liveTextInfo, textMappers, runOf) {
       const mapper = textMappers.get(info.merged);
       const runOffset = info.shift + offset;
       const mapped = mapper ? mapper(runOffset) : runOffset;
-      return [survivor, Math.max(0, Math.min(mapped, survivor.nodeValue.length))];
+      return [
+        survivor,
+        Math.max(0, Math.min(mapped, survivor.nodeValue.length)),
+      ];
     }
-    if (node.isConnected) return [node, Math.min(offset, node.nodeType === 3 ? node.nodeValue.length : node.childNodes.length)];
+    if (node.isConnected)
+      return [
+        node,
+        Math.min(
+          offset,
+          node.nodeType === 3 ? node.nodeValue.length : node.childNodes.length,
+        ),
+      ];
     return null;
   };
-  const s = mapPoint(state.range.sc, state.range.so), e = mapPoint(state.range.ec, state.range.eo);
+  const s = mapPoint(state.range.sc, state.range.so),
+    e = mapPoint(state.range.ec, state.range.eo);
   if (!s || !e) return;
   try {
     const r = doc.createRange();
-    r.setStart(s[0], s[1]); r.setEnd(e[0], e[1]);
+    r.setStart(s[0], s[1]);
+    r.setEnd(e[0], e[1]);
     const sel = doc.getSelection();
-    sel.removeAllRanges(); sel.addRange(r);
+    sel.removeAllRanges();
+    sel.addRange(r);
   } catch {}
 }

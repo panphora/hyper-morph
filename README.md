@@ -7,12 +7,22 @@ Content-based DOM morphing. An enhanced [Idiomorph](https://github.com/bigskysof
 Positional matching fails on reorders and prepends:
 
 ```html
-<!-- Before -->                    <!-- After -->
-<ul>                               <ul>
-  <li>Apple</li>   ← position 0      <li>NEW</li>     ← position 0
-  <li>Banana</li>  ← position 1      <li>Apple</li>   ← position 1
-</ul>                                <li>Banana</li>  ← position 2
-                                   </ul>
+<!-- Before -->
+<!-- After -->
+<ul>
+  <ul>
+    <li>Apple</li>
+    ← position 0
+    <li>NEW</li>
+    ← position 0
+    <li>Banana</li>
+    ← position 1
+    <li>Apple</li>
+    ← position 1
+  </ul>
+  <li>Banana</li>
+  ← position 2
+</ul>
 ```
 
 Positional morph: "Apple" DOM node gets text changed to "NEW". Focus lost, animations break, state resets.
@@ -62,17 +72,17 @@ npm install hyper-morph
 ## Usage
 
 ```javascript
-import HyperMorph from 'hyper-morph';
+import HyperMorph from "hyper-morph";
 
 // Basic morph
 HyperMorph.morph(oldElement, newContent);
 
 // With options
 HyperMorph.morph(oldElement, newContent, {
-  morphStyle: 'innerHTML',
+  morphStyle: "innerHTML",
   callbacks: {
-    beforeNodeMorphed: (oldNode, newNode) => console.log('morphing', oldNode)
-  }
+    beforeNodeMorphed: (oldNode, newNode) => console.log("morphing", oldNode),
+  },
 });
 ```
 
@@ -82,19 +92,19 @@ HyperMorph.morph(oldElement, newContent, {
 
 ### Top-Level Options
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `morphStyle` | `'outerHTML' \| 'innerHTML'` | `'outerHTML'` | Replace element itself or just its children |
-| `ignoreActive` | `boolean` | `false` | Skip morphing the focused element entirely |
-| `ignoreActiveValue` | `boolean` | `false` | Preserve value of focused input/textarea |
-| `restoreFocus` | `boolean` | `true` | Restore focus and selection after morph |
+| Option              | Type                         | Default       | Description                                 |
+| ------------------- | ---------------------------- | ------------- | ------------------------------------------- |
+| `morphStyle`        | `'outerHTML' \| 'innerHTML'` | `'outerHTML'` | Replace element itself or just its children |
+| `ignoreActive`      | `boolean`                    | `false`       | Skip morphing the focused element entirely  |
+| `ignoreActiveValue` | `boolean`                    | `false`       | Preserve value of focused input/textarea    |
+| `restoreFocus`      | `boolean`                    | `true`        | Restore focus and selection after morph     |
 
 ```javascript
 HyperMorph.morph(el, html, {
-  morphStyle: 'innerHTML',
+  morphStyle: "innerHTML",
   ignoreActive: false,
   ignoreActiveValue: true,
-  restoreFocus: true
+  restoreFocus: true,
 });
 ```
 
@@ -104,29 +114,29 @@ HyperMorph.morph(el, html, {
 
 Hook into the morph lifecycle. Return `false` from "before" callbacks to prevent the action.
 
-| Callback | Signature | Description |
-|----------|-----------|-------------|
-| `beforeNodeAdded` | `(node) => boolean` | Before inserting new node. Return `false` to skip. |
-| `afterNodeAdded` | `(node) => void` | After node inserted |
-| `beforeNodeMorphed` | `(oldNode, newNode) => boolean` | Before morphing. Return `false` to skip. |
-| `afterNodeMorphed` | `(oldNode, newNode) => void` | After node morphed |
-| `beforeNodeRemoved` | `(node) => boolean` | Before removing. Return `false` to keep. |
-| `afterNodeRemoved` | `(node) => void` | After node removed |
-| `beforeAttributeUpdated` | `(attr, el, type) => boolean` | Before attribute change. `type` is `'update'` or `'remove'`. |
+| Callback                 | Signature                       | Description                                                  |
+| ------------------------ | ------------------------------- | ------------------------------------------------------------ |
+| `beforeNodeAdded`        | `(node) => boolean`             | Before inserting new node. Return `false` to skip.           |
+| `afterNodeAdded`         | `(node) => void`                | After node inserted                                          |
+| `beforeNodeMorphed`      | `(oldNode, newNode) => boolean` | Before morphing. Return `false` to skip.                     |
+| `afterNodeMorphed`       | `(oldNode, newNode) => void`    | After node morphed                                           |
+| `beforeNodeRemoved`      | `(node) => boolean`             | Before removing. Return `false` to keep.                     |
+| `afterNodeRemoved`       | `(node) => void`                | After node removed                                           |
+| `beforeAttributeUpdated` | `(attr, el, type) => boolean`   | Before attribute change. `type` is `'update'` or `'remove'`. |
 
 ```javascript
 HyperMorph.morph(el, html, {
   callbacks: {
     beforeNodeAdded: (node) => {
-      if (node.classList?.contains('skip')) return false;
+      if (node.classList?.contains("skip")) return false;
     },
     afterNodeMorphed: (oldNode, newNode) => {
-      console.log('Morphed:', oldNode);
+      console.log("Morphed:", oldNode);
     },
     beforeAttributeUpdated: (attr, el, type) => {
-      if (attr === 'data-persist') return false; // prevent update
-    }
-  }
+      if (attr === "data-persist") return false; // prevent update
+    },
+  },
 });
 ```
 
@@ -136,17 +146,18 @@ HyperMorph.morph(el, html, {
 
 Control how `<head>` elements are handled during full-document morphs.
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `style` | `'merge' \| 'append' \| 'morph' \| 'none'` | `'merge'` | Merge strategy for head elements |
-| `block` | `boolean` | `false` | Wait for new stylesheets/scripts to load before morphing body |
-| `ignore` | `boolean` | `false` | Skip head morphing entirely |
-| `shouldPreserve` | `(el) => boolean` | Check `im-preserve` | Keep element even if not in new content |
-| `shouldReAppend` | `(el) => boolean` | Check `im-re-append` | Remove and re-add (re-executes scripts) |
-| `shouldRemove` | `(el) => boolean` | `() => {}` | Return `false` to prevent removal |
-| `afterHeadMorphed` | `(head, {added, kept, removed}) => void` | noop | Called after head processing |
+| Option             | Type                                       | Default              | Description                                                   |
+| ------------------ | ------------------------------------------ | -------------------- | ------------------------------------------------------------- |
+| `style`            | `'merge' \| 'append' \| 'morph' \| 'none'` | `'merge'`            | Merge strategy for head elements                              |
+| `block`            | `boolean`                                  | `false`              | Wait for new stylesheets/scripts to load before morphing body |
+| `ignore`           | `boolean`                                  | `false`              | Skip head morphing entirely                                   |
+| `shouldPreserve`   | `(el) => boolean`                          | Check `im-preserve`  | Keep element even if not in new content                       |
+| `shouldReAppend`   | `(el) => boolean`                          | Check `im-re-append` | Remove and re-add (re-executes scripts)                       |
+| `shouldRemove`     | `(el) => boolean`                          | `() => {}`           | Return `false` to prevent removal                             |
+| `afterHeadMorphed` | `(head, {added, kept, removed}) => void`   | noop                 | Called after head processing                                  |
 
 **Head styles:**
+
 - `'merge'` — Add new elements, remove old ones not in new content
 - `'append'` — Only add new elements, never remove existing
 - `'morph'` — Treat head like body (standard element morphing)
@@ -155,13 +166,15 @@ Control how `<head>` elements are handled during full-document morphs.
 ```javascript
 HyperMorph.morph(document, newHtml, {
   head: {
-    style: 'merge',
+    style: "merge",
     block: true, // wait for CSS to load
-    shouldPreserve: (el) => el.id === 'critical-styles',
+    shouldPreserve: (el) => el.id === "critical-styles",
     afterHeadMorphed: (head, { added, kept, removed }) => {
-      console.log(`Added ${added.length}, kept ${kept.length}, removed ${removed.length}`);
-    }
-  }
+      console.log(
+        `Added ${added.length}, kept ${kept.length}, removed ${removed.length}`,
+      );
+    },
+  },
 });
 ```
 
@@ -171,19 +184,20 @@ HyperMorph.morph(document, newHtml, {
 
 Control how `<script>` elements in body are handled. **Enabled by default**: new scripts execute exactly once after the morph settles, so synced components from another author stay functional. Insertion itself is inert — script execution happens in exactly one place, gated by this config.
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `handle` | `boolean` | `true` | Execute new scripts exactly once. Set `false` to keep new scripts inert (markup preserved, never executed) |
-| `matchMode` | `'outerHTML' \| 'smart'` | `'outerHTML'` | How scripts are matched: exact `outerHTML`, or normalized src URL / inline content hash |
-| `merge` | `boolean` | `true` | Set `false` to disable script-tag JSON merging for this morph (deliberate rewinds/restores must overwrite, not merge) |
-| `mergeBase` | `string \| Element \| Document \| null` | `null` | Last-synced HTML: the base version for three-way merging of mergeable script tags (see below) |
-| `mergeTags` | `MergeTagRecognizer[]` | `[]` | Extra recognizers for mergeable JSON script tags, checked after the built-in `merge` attribute recognizer |
-| `shouldPreserve` | `(el) => boolean` | Check `im-preserve` | Keep script even if not in new content |
-| `shouldReAppend` | `(el) => boolean` | Check `im-re-append` | Force re-execution of existing script |
-| `shouldRemove` | `(el) => boolean` | `() => {}` | Return `false` to prevent removal |
-| `afterScriptsHandled` | `(container, {added, kept, removed}) => void` | noop | Called after script processing |
+| Option                | Type                                          | Default              | Description                                                                                                           |
+| --------------------- | --------------------------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `handle`              | `boolean`                                     | `true`               | Execute new scripts exactly once. Set `false` to keep new scripts inert (markup preserved, never executed)            |
+| `matchMode`           | `'outerHTML' \| 'smart'`                      | `'outerHTML'`        | How scripts are matched: exact `outerHTML`, or normalized src URL / inline content hash                               |
+| `merge`               | `boolean`                                     | `true`               | Set `false` to disable script-tag JSON merging for this morph (deliberate rewinds/restores must overwrite, not merge) |
+| `mergeBase`           | `string \| Element \| Document \| null`       | `null`               | Last-synced HTML: the base version for three-way merging of mergeable script tags (see below)                         |
+| `mergeTags`           | `MergeTagRecognizer[]`                        | `[]`                 | Extra recognizers for mergeable JSON script tags, checked after the built-in `merge` attribute recognizer             |
+| `shouldPreserve`      | `(el) => boolean`                             | Check `im-preserve`  | Keep script even if not in new content                                                                                |
+| `shouldReAppend`      | `(el) => boolean`                             | Check `im-re-append` | Force re-execution of existing script                                                                                 |
+| `shouldRemove`        | `(el) => boolean`                             | `() => {}`           | Return `false` to prevent removal                                                                                     |
+| `afterScriptsHandled` | `(container, {added, kept, removed}) => void` | noop                 | Called after script processing                                                                                        |
 
 **Script behavior when `handle: true` (default):**
+
 - **Same script exists** (matching signature) → Preserved, not re-executed
 - **New script** → Executed exactly once, after the morph completes
 - **External script** (`src`) → Waits for load (or error) before the returned promise resolves
@@ -194,15 +208,16 @@ Control how `<script>` elements in body are handled. **Enabled by default**: new
 HyperMorph.morph(el, html, {
   scripts: {
     handle: true,
-    shouldReAppend: (el) => el.dataset.reload === 'true',
+    shouldReAppend: (el) => el.dataset.reload === "true",
     afterScriptsHandled: (container, { added }) => {
-      console.log('Executed scripts:', added.length);
-    }
-  }
+      console.log("Executed scripts:", added.length);
+    },
+  },
 });
 ```
 
 **Returns a Promise** when scripts need to load:
+
 ```javascript
 await HyperMorph.morph(el, html, { scripts: { handle: true } });
 ```
@@ -215,7 +230,10 @@ A morph normally replaces a matched inline script's text wholesale: last write w
 
 ```html
 <script type="application/json" merge="store">
-  { "todos": [{ "id": "a1", "title": "Ship it", "done": false }], "theme": "dark" }
+  {
+    "todos": [{ "id": "a1", "title": "Ship it", "done": false }],
+    "theme": "dark"
+  }
 </script>
 ```
 
@@ -232,11 +250,13 @@ A morph normally replaces a matched inline script's text wholesale: last write w
 HyperMorph.morph(document.documentElement, incomingHtml, {
   scripts: {
     mergeBase: lastSyncedHtml,
-    mergeTags: [{
-      match: (el) => el.hasAttribute('data-rules-name'),
-      identity: (el) => 'rules:' + el.getAttribute('data-rules-name'),
-      parse: HyperMorph.parseRulesRelaxed, // optional custom dialect, must throw on invalid input; default is relaxed JSON
-    }],
+    mergeTags: [
+      {
+        match: (el) => el.hasAttribute("data-rules-name"),
+        identity: (el) => "rules:" + el.getAttribute("data-rules-name"),
+        parse: HyperMorph.parseRulesRelaxed, // optional custom dialect, must throw on invalid input; default is relaxed JSON
+      },
+    ],
   },
 });
 ```
@@ -249,21 +269,21 @@ The merge engine is exported standalone as `HyperMorph.mergeJson(base, local, re
 
 Control element behavior via HTML attributes:
 
-| Attribute | Effect |
-|-----------|--------|
-| `im-preserve="true"` | Keep element even if removed from new content |
-| `im-re-append="true"` | Force re-insertion (re-executes scripts) |
-| `merge="<name>"` | Three-way merge this JSON script tag's content instead of replacing it (see Mergeable Script Tags) |
-| `merge-key="<field> …"` | Ordered identity-field candidates for keyed-array merging inside this tag's JSON |
+| Attribute               | Effect                                                                                             |
+| ----------------------- | -------------------------------------------------------------------------------------------------- |
+| `im-preserve="true"`    | Keep element even if removed from new content                                                      |
+| `im-re-append="true"`   | Force re-insertion (re-executes scripts)                                                           |
+| `merge="<name>"`        | Three-way merge this JSON script tag's content instead of replacing it (see Mergeable Script Tags) |
+| `merge-key="<field> …"` | Ordered identity-field candidates for keyed-array merging inside this tag's JSON                   |
 
 ```html
 <!-- This script will re-execute on every morph -->
 <script im-re-append="true">
-  console.log('Re-executed!');
+  console.log("Re-executed!");
 </script>
 
 <!-- This stylesheet persists even if not in new HTML -->
-<link rel="stylesheet" href="critical.css" im-preserve="true">
+<link rel="stylesheet" href="critical.css" im-preserve="true" />
 ```
 
 ---
@@ -280,14 +300,14 @@ Elements with `id` attributes are excluded from HyperMorph and handled by ID-bas
 
 ## Scoring Model
 
-| Factor | Score | Description |
-|--------|-------|-------------|
-| Signature match | +100 | Required. Same tag + classes + key attributes |
-| Path segment | +10 each | Matching ancestors (max 4 segments) |
-| Text match | +20 | Element's text content matches |
-| Text mismatch | -25 | Text differs or one has text, other doesn't |
-| Unique candidate | +50 | Only one element with this signature (when text matches) |
-| Position drift | -1 per | Index difference between old and new position, capped at 19 so drift alone never vetoes a text-confirmed match |
+| Factor           | Score    | Description                                                                                                    |
+| ---------------- | -------- | -------------------------------------------------------------------------------------------------------------- |
+| Signature match  | +100     | Required. Same tag + classes + key attributes                                                                  |
+| Path segment     | +10 each | Matching ancestors (max 4 segments)                                                                            |
+| Text match       | +20      | Element's text content matches                                                                                 |
+| Text mismatch    | -25      | Text differs or one has text, other doesn't                                                                    |
+| Unique candidate | +50      | Only one element with this signature (when text matches)                                                       |
+| Position drift   | -1 per   | Index difference between old and new position, capped at 19 so drift alone never vetoes a text-confirmed match |
 
 **Acceptance threshold:** ≥ 101
 Signature match alone (100) isn't sufficient. Requires at least one additional signal.
@@ -299,7 +319,7 @@ Signature match alone (100) isn't sufficient. Requires at least one additional s
 Use the matching algorithm independently:
 
 ```javascript
-import { createMatcher } from 'hyper-morph/matcher';
+import { createMatcher } from "hyper-morph/matcher";
 
 const matcher = createMatcher();
 const { computeMatches, findMatch, explain } = matcher.session();
@@ -311,16 +331,16 @@ const matches = computeMatches(oldRoot, newRoot);
 // Find match for a single element
 const match = findMatch(newElement, oldRoot);
 if (match) {
-  console.log(match.element);     // The matching old element
-  console.log(match.confidence);  // Score (101+)
-  console.log(match.breakdown);   // Scoring details
+  console.log(match.element); // The matching old element
+  console.log(match.confidence); // Score (101+)
+  console.log(match.breakdown); // Scoring details
 }
 
 // Debug why elements do/don't match
 const result = explain(newEl, oldEl);
-console.log(result.matches);    // boolean
-console.log(result.score);      // number
-console.log(result.breakdown);  // { signature, path, text, ... }
+console.log(result.matches); // boolean
+console.log(result.score); // number
+console.log(result.breakdown); // { signature, path, text, ... }
 ```
 
 ### Matcher Configuration
@@ -328,12 +348,21 @@ console.log(result.breakdown);  // { signature, path, text, ... }
 ```javascript
 const matcher = createMatcher({
   includeClasses: true,
-  includeAttributes: ['href', 'src', 'name', 'type', 'role', 'aria-label', 'alt', 'title'],
-  excludeAttributePrefixes: ['data-morph-', 'data-hyper-', 'data-im-'],
+  includeAttributes: [
+    "href",
+    "src",
+    "name",
+    "type",
+    "role",
+    "aria-label",
+    "alt",
+    "title",
+  ],
+  excludeAttributePrefixes: ["data-morph-", "data-hyper-", "data-im-"],
   textHintLength: 64,
   excludeIds: true,
   maxPathDepth: 4,
-  landmarks: ['HEADER', 'NAV', 'MAIN', 'ASIDE', 'FOOTER', 'SECTION', 'ARTICLE'],
+  landmarks: ["HEADER", "NAV", "MAIN", "ASIDE", "FOOTER", "SECTION", "ARTICLE"],
   weights: {
     signature: 100,
     pathSegment: 10,
@@ -362,13 +391,13 @@ const matcher = createMatcher({
 Access and modify global defaults:
 
 ```javascript
-import HyperMorph from 'hyper-morph';
+import HyperMorph from "hyper-morph";
 
 // Read defaults
 console.log(HyperMorph.defaults);
 
 // Modify globally
-HyperMorph.defaults.morphStyle = 'innerHTML';
+HyperMorph.defaults.morphStyle = "innerHTML";
 HyperMorph.defaults.restoreFocus = false;
 ```
 

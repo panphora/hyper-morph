@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>hyper-morph perf</title></head>
+<body>
+<script type="module">
+  import { morphDocument, mergeDocument } from "/src/index.js";
+  const parse = (h) => new DOMParser().parseFromString(h, "text/html");
+  let items = "";
+  for (let i = 0; i < 1000; i++) items += `<li class="row"><span class="t">Item ${i}</span><a href="/i/${i}">open</a></li>`;
+  const page = (b) => `<!DOCTYPE html><html><head></head><body><main><ul>${b}</ul></main></body></html>`;
+  const base = page(items);
+  const remote = base.replace("Item 500<", "Item 500 edited<");
+  window.bench = {
+    clean() { const live = parse(base); const t0 = performance.now(); morphDocument(live, remote); return performance.now() - t0; },
+    dirty() {
+      const live = parse(base);
+      live.querySelectorAll("li")[10].querySelector("span").textContent = "Item 10 local";
+      const t0 = performance.now(); mergeDocument({ live, base, remote }); return performance.now() - t0;
+    },
+  };
+  window.benchReady = true;
+</script>
+</body></html>

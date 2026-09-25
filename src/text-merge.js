@@ -43,7 +43,8 @@ function units(s) {
  * edit distance exceeds maxD.
  */
 function myers(a, b, maxD) {
-  const n = a.length, m = b.length;
+  const n = a.length,
+    m = b.length;
   const max = Math.min(n + m, maxD);
   const offset = max + 1;
   const v = new Int32Array(2 * max + 3);
@@ -53,30 +54,54 @@ function myers(a, b, maxD) {
     trace.push(Int32Array.from(v));
     for (let k = -d; k <= d; k += 2) {
       let x;
-      if (k === -d || (k !== d && v[offset + k - 1] < v[offset + k + 1])) x = v[offset + k + 1];
+      if (k === -d || (k !== d && v[offset + k - 1] < v[offset + k + 1]))
+        x = v[offset + k + 1];
       else x = v[offset + k - 1] + 1;
       let y = x - k;
-      while (x < n && y < m && a[x] === b[y]) { x++; y++; }
+      while (x < n && y < m && a[x] === b[y]) {
+        x++;
+        y++;
+      }
       v[offset + k] = x;
-      if (x >= n && y >= m) { found = true; break; }
+      if (x >= n && y >= m) {
+        found = true;
+        break;
+      }
     }
   }
   if (!found) return null;
   const ops = [];
-  let x = n, y = m;
+  let x = n,
+    y = m;
   for (let d = trace.length - 1; d > 0; d--) {
     const vd = trace[d];
     const k = x - y;
-    const prevK = (k === -d || (k !== d && vd[offset + k - 1] < vd[offset + k + 1])) ? k + 1 : k - 1;
+    const prevK =
+      k === -d || (k !== d && vd[offset + k - 1] < vd[offset + k + 1])
+        ? k + 1
+        : k - 1;
     const prevX = vd[offset + prevK];
     const prevY = prevX - prevK;
-    while (x > prevX && y > prevY) { ops.push([0, x - 1, y - 1]); x--; y--; }
+    while (x > prevX && y > prevY) {
+      ops.push([0, x - 1, y - 1]);
+      x--;
+      y--;
+    }
     if (d > 0) {
-      if (x === prevX) { ops.push([1, x, y - 1]); y--; }
-      else { ops.push([-1, x - 1, y]); x--; }
+      if (x === prevX) {
+        ops.push([1, x, y - 1]);
+        y--;
+      } else {
+        ops.push([-1, x - 1, y]);
+        x--;
+      }
     }
   }
-  while (x > 0 && y > 0) { ops.push([0, x - 1, y - 1]); x--; y--; }
+  while (x > 0 && y > 0) {
+    ops.push([0, x - 1, y - 1]);
+    x--;
+    y--;
+  }
   ops.reverse();
   return ops;
 }
@@ -89,13 +114,18 @@ function opsToHunks(ops, a, b) {
   let ai = 0;
   for (const [op, ia, ib] of ops) {
     if (op === 0) {
-      if (cur) { hunks.push(cur); cur = null; }
+      if (cur) {
+        hunks.push(cur);
+        cur = null;
+      }
       ai = ia + 1;
       continue;
     }
     if (!cur) cur = { bs: aOff[ai], be: aOff[ai], text: "" };
-    if (op === -1) { cur.be = aOff[ia + 1]; ai = ia + 1; }
-    else cur.text += b[ib];
+    if (op === -1) {
+      cur.be = aOff[ia + 1];
+      ai = ia + 1;
+    } else cur.text += b[ib];
   }
   if (cur) hunks.push(cur);
   return hunks;
@@ -111,17 +141,27 @@ function opsToHunks(ops, a, b) {
  */
 export function diff(base, side, maxD = MAX_EDITS) {
   if (base === side) return [];
-  const a = units(base), b = units(side);
+  const a = units(base),
+    b = units(side);
   let p = 0;
   while (p < a.length && p < b.length && a[p] === b[p]) p++;
   let s = 0;
-  while (s < a.length - p && s < b.length - p && a[a.length - 1 - s] === b[b.length - 1 - s]) s++;
-  const am = a.slice(p, a.length - s), bm = b.slice(p, b.length - s);
+  while (
+    s < a.length - p &&
+    s < b.length - p &&
+    a[a.length - 1 - s] === b[b.length - 1 - s]
+  )
+    s++;
+  const am = a.slice(p, a.length - s),
+    bm = b.slice(p, b.length - s);
   const ops = myers(am, bm, maxD);
   if (!ops) return null;
   const prefixLen = a.slice(0, p).join("").length;
   const hunks = opsToHunks(ops, am, bm);
-  for (const h of hunks) { h.bs += prefixLen; h.be += prefixLen; }
+  for (const h of hunks) {
+    h.bs += prefixLen;
+    h.be += prefixLen;
+  }
   return coalesce(hunks, base);
 }
 
@@ -136,7 +176,8 @@ function coalesce(hunks, base) {
   if (hunks.length < 2) return hunks;
   const out = [hunks[0]];
   for (let i = 1; i < hunks.length; i++) {
-    const cur = out[out.length - 1], next = hunks[i];
+    const cur = out[out.length - 1],
+      next = hunks[i];
     if (next.bs - cur.be <= COALESCE_GAP) {
       cur.text += base.slice(cur.be, next.bs) + next.text;
       cur.be = next.be;
@@ -146,7 +187,8 @@ function coalesce(hunks, base) {
 }
 
 function diffLines(base, side) {
-  const a = base.split("\n"), b = side.split("\n");
+  const a = base.split("\n"),
+    b = side.split("\n");
   const aTok = a.map((l, i) => (i < a.length - 1 ? l + "\n" : l));
   const bTok = b.map((l, i) => (i < b.length - 1 ? l + "\n" : l));
   const ops = myers(aTok, bTok, MAX_EDITS);
@@ -161,13 +203,20 @@ function hunksFor(base, side) {
   }
   const l = diffLines(base, side);
   if (l) return { hunks: l, granularity: "line" };
-  return { hunks: [{ bs: 0, be: base.length, text: side }], granularity: "whole" };
+  return {
+    hunks: [{ bs: 0, be: base.length, text: side }],
+    granularity: "whole",
+  };
 }
 
 /** Apply hunks (all within [bs, be)) to that slice of base. */
 function applyHunks(base, hunks, bs, be) {
-  let out = "", pos = bs;
-  for (const h of hunks) { out += base.slice(pos, h.bs) + h.text; pos = h.be; }
+  let out = "",
+    pos = bs;
+  for (const h of hunks) {
+    out += base.slice(pos, h.bs) + h.text;
+    pos = h.be;
+  }
   return out + base.slice(pos, be);
 }
 
@@ -198,53 +247,122 @@ function applyHunks(base, hunks, bs, be) {
  */
 export function merge3Text(base, local, remote, policy = "remote") {
   if (local === remote || remote === base) {
-    return { text: local, conflicts: [], mapLocalOffset: (n) => Math.min(n, local.length), granularity: "char" };
+    return {
+      text: local,
+      conflicts: [],
+      mapLocalOffset: (n) => Math.min(n, local.length),
+      granularity: "char",
+    };
   }
-  const L = local === base ? { hunks: [], granularity: "char" } : hunksFor(base, local);
+  const L =
+    local === base ? { hunks: [], granularity: "char" } : hunksFor(base, local);
   const R = hunksFor(base, remote);
-  const granularity = [L.granularity, R.granularity].includes("whole") ? "whole"
-    : [L.granularity, R.granularity].includes("line") ? "line" : "char";
-  const lh = L.hunks, rh = R.hunks;
+  const granularity = [L.granularity, R.granularity].includes("whole")
+    ? "whole"
+    : [L.granularity, R.granularity].includes("line")
+      ? "line"
+      : "char";
+  const lh = L.hunks,
+    rh = R.hunks;
 
   /** @type {Segment[]} */
   const segments = [];
   const conflicts = [];
-  let pos = 0, li = 0, ri = 0;
-  const pushBase = (to) => { if (to > pos) { segments.push({ bs: pos, be: to, text: base.slice(pos, to), source: "base" }); pos = to; } };
+  let pos = 0,
+    li = 0,
+    ri = 0;
+  const pushBase = (to) => {
+    if (to > pos) {
+      segments.push({
+        bs: pos,
+        be: to,
+        text: base.slice(pos, to),
+        source: "base",
+      });
+      pos = to;
+    }
+  };
 
   while (li < lh.length || ri < rh.length) {
-    const l = lh[li], r = rh[ri];
+    const l = lh[li],
+      r = rh[ri];
     const takeL = !!l && (!r || l.bs < r.bs || (l.bs === r.bs && l.be <= r.be));
     const h = takeL ? l : r;
     const other = takeL ? r : l;
     const overlaps = other && other.bs < h.be && h.bs < other.be;
     if (overlaps) {
-      let bs = Math.min(h.bs, other.bs), be = Math.max(h.be, other.be);
-      let lEnd = li, rEnd = ri, grew = true;
+      let bs = Math.min(h.bs, other.bs),
+        be = Math.max(h.be, other.be);
+      let lEnd = li,
+        rEnd = ri,
+        grew = true;
       while (grew) {
         grew = false;
-        while (lEnd < lh.length && lh[lEnd].bs < be && lh[lEnd].be > bs) { be = Math.max(be, lh[lEnd].be); bs = Math.min(bs, lh[lEnd].bs); lEnd++; grew = true; }
-        while (rEnd < rh.length && rh[rEnd].bs < be && rh[rEnd].be > bs) { be = Math.max(be, rh[rEnd].be); bs = Math.min(bs, rh[rEnd].bs); rEnd++; grew = true; }
+        while (lEnd < lh.length && lh[lEnd].bs < be && lh[lEnd].be > bs) {
+          be = Math.max(be, lh[lEnd].be);
+          bs = Math.min(bs, lh[lEnd].bs);
+          lEnd++;
+          grew = true;
+        }
+        while (rEnd < rh.length && rh[rEnd].bs < be && rh[rEnd].be > bs) {
+          be = Math.max(be, rh[rEnd].be);
+          bs = Math.min(bs, rh[rEnd].bs);
+          rEnd++;
+          grew = true;
+        }
       }
       const localHunks = lh.slice(li, lEnd);
       const localText = applyHunks(base, localHunks, bs, be);
       const remoteText = applyHunks(base, rh.slice(ri, rEnd), bs, be);
-      const resolved = policy === "local" ? localText : policy === "both" ? localText + remoteText : remoteText;
-      conflicts.push({ bs, be, local: localText, remote: remoteText, resolved });
+      const resolved =
+        policy === "local"
+          ? localText
+          : policy === "both"
+            ? localText + remoteText
+            : remoteText;
+      conflicts.push({
+        bs,
+        be,
+        local: localText,
+        remote: remoteText,
+        resolved,
+      });
       pushBase(bs);
-      segments.push({ bs, be, text: resolved, source: "conflict", localHunks, localText, keepsLocal: policy !== "remote" });
-      pos = be; li = lEnd; ri = rEnd;
+      segments.push({
+        bs,
+        be,
+        text: resolved,
+        source: "conflict",
+        localHunks,
+        localText,
+        keepsLocal: policy !== "remote",
+      });
+      pos = be;
+      li = lEnd;
+      ri = rEnd;
       continue;
     }
     pushBase(h.bs);
-    segments.push({ bs: h.bs, be: h.be, text: h.text, source: takeL ? "local" : "remote", localHunks: takeL ? [h] : [] });
+    segments.push({
+      bs: h.bs,
+      be: h.be,
+      text: h.text,
+      source: takeL ? "local" : "remote",
+      localHunks: takeL ? [h] : [],
+    });
     pos = h.be;
-    if (takeL) li++; else ri++;
+    if (takeL) li++;
+    else ri++;
   }
   pushBase(base.length);
 
   const text = segments.map((s) => s.text).join("");
-  return { text, conflicts, mapLocalOffset: makeMapper(base, lh, segments), granularity };
+  return {
+    text,
+    conflicts,
+    mapLocalOffset: makeMapper(base, lh, segments),
+    granularity,
+  };
 }
 
 /**
@@ -261,14 +379,27 @@ export function merge3Text(base, local, remote, policy = "remote") {
 function makeMapper(base, localHunks, segments) {
   return (localOffset) => {
     // Step 1: local -> base
-    let baseOff = null, inHunk = null, inner = 0;
-    let lPos = 0, bPos = 0;
+    let baseOff = null,
+      inHunk = null,
+      inner = 0;
+    let lPos = 0,
+      bPos = 0;
     for (const h of localHunks) {
       const eq = h.bs - bPos;
-      if (localOffset <= lPos + eq) { baseOff = bPos + (localOffset - lPos); break; }
-      lPos += eq; bPos = h.bs;
-      if (localOffset <= lPos + h.text.length) { inHunk = h; inner = localOffset - lPos; baseOff = h.bs; break; }
-      lPos += h.text.length; bPos = h.be;
+      if (localOffset <= lPos + eq) {
+        baseOff = bPos + (localOffset - lPos);
+        break;
+      }
+      lPos += eq;
+      bPos = h.bs;
+      if (localOffset <= lPos + h.text.length) {
+        inHunk = h;
+        inner = localOffset - lPos;
+        baseOff = h.bs;
+        break;
+      }
+      lPos += h.text.length;
+      bPos = h.be;
     }
     if (baseOff === null) baseOff = bPos + (localOffset - lPos);
 
@@ -278,17 +409,25 @@ function makeMapper(base, localHunks, segments) {
       // A caret exactly at a segment's start stays before that segment,
       // including before text another side inserted at the caret.
       if (!inHunk && baseOff <= seg.bs) return mergedPos;
-      const covers = inHunk ? seg.localHunks && seg.localHunks.includes(inHunk) : baseOff < seg.be;
+      const covers = inHunk
+        ? seg.localHunks && seg.localHunks.includes(inHunk)
+        : baseOff < seg.be;
       if (!covers) {
         mergedPos += seg.text.length;
         continue;
       }
       if (seg.source === "base") return mergedPos + (baseOff - seg.bs);
       if (seg.source === "remote") return mergedPos + seg.text.length; // clamp after remote's replacement
-      if (seg.source === "local") return mergedPos + Math.min(inner, seg.text.length);
+      if (seg.source === "local")
+        return mergedPos + Math.min(inner, seg.text.length);
       // conflict
       if (!seg.keepsLocal || !inHunk) return mergedPos + seg.text.length;
-      const before = applyHunks(base, seg.localHunks.slice(0, seg.localHunks.indexOf(inHunk)), seg.bs, inHunk.bs);
+      const before = applyHunks(
+        base,
+        seg.localHunks.slice(0, seg.localHunks.indexOf(inHunk)),
+        seg.bs,
+        inHunk.bs,
+      );
       return mergedPos + Math.min(before.length + inner, seg.localText.length);
     }
     return mergedPos;

@@ -81,13 +81,15 @@ describe("Sync-ignored chrome preservation", function () {
     parent.querySelector("p").textContent.should.equal("new");
   });
 
-  it("preserves a local clay=\"no-save\" region when morphing saved HTML that lacks it", function () {
+  it('preserves a local clay="no-save" region when morphing saved HTML that lacks it', function () {
     let parent = morphInner(
       `<div><aside clay="no-save">RUNTIME</aside><p>old</p></div>`,
       `<p>new</p>`,
     );
     has(parent, '[clay~="no-save"]').should.equal(true);
-    parent.querySelector('[clay~="no-save"]').textContent.should.equal("RUNTIME");
+    parent
+      .querySelector('[clay~="no-save"]')
+      .textContent.should.equal("RUNTIME");
     parent.querySelector("p").textContent.should.equal("new");
   });
 
@@ -126,7 +128,9 @@ describe("Sync-ignored chrome preservation", function () {
       `<section save-freeze>AUTHORED</section><p>new</p>`,
     );
     parent.querySelectorAll("[save-freeze]").length.should.equal(1);
-    parent.querySelector("[save-freeze]").textContent.should.equal("RUNTIME STATE");
+    parent
+      .querySelector("[save-freeze]")
+      .textContent.should.equal("RUNTIME STATE");
     parent.querySelector("p").textContent.should.equal("new");
   });
 
@@ -173,58 +177,90 @@ describe("Sync-ignored chrome preservation", function () {
   });
 
   it("history policy preserves editor-ui but replays no-save and freeze content", function () {
-    const parent = make('<div><p no-save>old saved</p><p freeze>old frozen</p><button editor-ui>Tools</button></div>');
-    const button = parent.querySelector('[editor-ui]');
-    Idiomorph.morph(parent, '<p no-save>new saved</p><p freeze>new frozen</p>', {
-      morphStyle: 'innerHTML',
-      policy: 'history',
-      scripts: { handle: false, merge: false },
-    });
-    parent.querySelector('[no-save]').textContent.should.equal('new saved');
-    parent.querySelector('[freeze]').textContent.should.equal('new frozen');
-    (parent.querySelector('[editor-ui]') === button).should.equal(true);
+    const parent = make(
+      "<div><p no-save>old saved</p><p freeze>old frozen</p><button editor-ui>Tools</button></div>",
+    );
+    const button = parent.querySelector("[editor-ui]");
+    Idiomorph.morph(
+      parent,
+      "<p no-save>new saved</p><p freeze>new frozen</p>",
+      {
+        morphStyle: "innerHTML",
+        policy: "history",
+        scripts: { handle: false, merge: false },
+      },
+    );
+    parent.querySelector("[no-save]").textContent.should.equal("new saved");
+    parent.querySelector("[freeze]").textContent.should.equal("new frozen");
+    (parent.querySelector("[editor-ui]") === button).should.equal(true);
   });
 
   it("history matching never steals an id node from retained editor UI", function () {
-    const parent = make('<div><aside editor-ui><span id="reused">Runtime</span></aside><p>Content</p></div>');
-    const runtime = parent.querySelector('#reused');
-    Idiomorph.morph(parent, '<p>Content</p><span id="reused">Authored content</span>', {
-      morphStyle: 'innerHTML',
-      policy: 'history',
-      scripts: { handle: false, merge: false },
-    });
-    (parent.querySelector('aside #reused') === runtime).should.equal(true);
-    parent.querySelector('aside #reused').textContent.should.equal('Runtime');
-    parent.querySelector(':scope > #reused').textContent.should.equal('Authored content');
+    const parent = make(
+      '<div><aside editor-ui><span id="reused">Runtime</span></aside><p>Content</p></div>',
+    );
+    const runtime = parent.querySelector("#reused");
+    Idiomorph.morph(
+      parent,
+      '<p>Content</p><span id="reused">Authored content</span>',
+      {
+        morphStyle: "innerHTML",
+        policy: "history",
+        scripts: { handle: false, merge: false },
+      },
+    );
+    (parent.querySelector("aside #reused") === runtime).should.equal(true);
+    parent.querySelector("aside #reused").textContent.should.equal("Runtime");
+    parent
+      .querySelector(":scope > #reused")
+      .textContent.should.equal("Authored content");
   });
 
   it("history does not deep-import editor UI inside a newly created owner", function () {
-    const parent = make('<main></main>');
-    Idiomorph.morph(parent, '<section><p>Restored</p><button editor-ui>Add</button></section>', {
-      morphStyle: 'innerHTML', policy: 'history', scripts: { handle: false, merge: false },
-    });
-    parent.querySelector('p').textContent.should.equal('Restored');
-    parent.querySelectorAll('[editor-ui]').length.should.equal(0);
+    const parent = make("<main></main>");
+    Idiomorph.morph(
+      parent,
+      "<section><p>Restored</p><button editor-ui>Add</button></section>",
+      {
+        morphStyle: "innerHTML",
+        policy: "history",
+        scripts: { handle: false, merge: false },
+      },
+    );
+    parent.querySelector("p").textContent.should.equal("Restored");
+    parent.querySelectorAll("[editor-ui]").length.should.equal(0);
   });
 
   it("default sync still preserves extension URL nodes", function () {
-    const parent = make('<main><script src="chrome-extension://fixture/tool.js"></script><p>Before</p></main>');
-    const script = parent.querySelector('script');
-    Idiomorph.morph(parent, '<p>After</p>', { morphStyle: 'innerHTML' });
-    (parent.querySelector('script') === script).should.equal(true);
-    parent.querySelector('p').textContent.should.equal('After');
+    const parent = make(
+      '<main><script src="chrome-extension://fixture/tool.js"></script><p>Before</p></main>',
+    );
+    const script = parent.querySelector("script");
+    Idiomorph.morph(parent, "<p>After</p>", { morphStyle: "innerHTML" });
+    (parent.querySelector("script") === script).should.equal(true);
+    parent.querySelector("p").textContent.should.equal("After");
   });
 
   it("raw policy reconciles an editor-ui tree's own children", function () {
-    const parent = make('<div editor-ui><p>old</p></div>');
-    Idiomorph.morph(parent, '<p>new</p>', { morphStyle: 'innerHTML', policy: 'raw' });
-    parent.innerHTML.should.equal('<p>new</p>');
+    const parent = make("<div editor-ui><p>old</p></div>");
+    Idiomorph.morph(parent, "<p>new</p>", {
+      morphStyle: "innerHTML",
+      policy: "raw",
+    });
+    parent.innerHTML.should.equal("<p>new</p>");
   });
 
   it("a sync-ignore marker above the morph root does not ignore what is morphed", function () {
-    const wrapper = make('<div save-remove snapshot-remove><div id="dialog"><p data-id="1">one</p><p data-id="2">old</p></div></div>');
-    const dialog = wrapper.querySelector('#dialog');
-    Idiomorph.morph(dialog, '<div id="dialog"><p data-id="1">one</p><p data-id="2">new</p></div>');
-    dialog.innerHTML.should.equal('<p data-id="1">one</p><p data-id="2">new</p>');
+    const wrapper = make(
+      '<div save-remove snapshot-remove><div id="dialog"><p data-id="1">one</p><p data-id="2">old</p></div></div>',
+    );
+    const dialog = wrapper.querySelector("#dialog");
+    Idiomorph.morph(
+      dialog,
+      '<div id="dialog"><p data-id="1">one</p><p data-id="2">new</p></div>',
+    );
+    dialog.innerHTML.should.equal(
+      '<p data-id="1">one</p><p data-id="2">new</p>',
+    );
   });
 });

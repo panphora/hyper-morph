@@ -54,8 +54,18 @@ export function syncDoctype(live, remote) {
   const next = remote.doctype;
   if (!next) return false;
   const cur = live.doctype;
-  if (cur && cur.name === next.name && cur.publicId === next.publicId && cur.systemId === next.systemId) return false;
-  const created = live.implementation.createDocumentType(next.name, next.publicId, next.systemId);
+  if (
+    cur &&
+    cur.name === next.name &&
+    cur.publicId === next.publicId &&
+    cur.systemId === next.systemId
+  )
+    return false;
+  const created = live.implementation.createDocumentType(
+    next.name,
+    next.publicId,
+    next.systemId,
+  );
   if (cur) live.replaceChild(created, cur);
   else live.insertBefore(created, live.documentElement);
   return true;

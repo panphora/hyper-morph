@@ -1,7 +1,7 @@
 // 30 DOM Manipulation Scenarios for Demo
 // Extracted from src/test/comparison.js
 
-import HyperMorph from '/src/hyper-morph.js';
+import * as HyperMorph from '/src/index.js';
 window.HyperMorph = HyperMorph;
 
 const scenarios = [
@@ -382,9 +382,14 @@ function runMorph(scenario, library) {
     }
   });
 
-  // Run the morph
+  // Run the morph. Idiomorph mutates children in place; HyperMorph merges
+  // the container's children against the incoming markup.
   try {
-    library.morph(container, scenario.after, { morphStyle: 'innerHTML' });
+    if (library.morphElement) {
+      library.morphElement(container, scenario.after, { children: true });
+    } else {
+      library.morph(container, scenario.after, { morphStyle: 'innerHTML' });
+    }
   } catch (e) {
     console.error('Morph error:', e);
   }
@@ -430,7 +435,7 @@ function init() {
     console.error('OriginalIdiomorph not loaded');
     return;
   }
-  if (!window.HyperMorph || !window.HyperMorph.morph) {
+  if (!window.HyperMorph || !window.HyperMorph.morphElement) {
     console.error('HyperMorph not loaded');
     return;
   }

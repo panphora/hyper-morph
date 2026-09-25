@@ -20,16 +20,16 @@ describe("Document-level morphing tests", function () {
     const newHtml = `<!DOCTYPE html><html><head></head><body><p>New content</p></body></html>`;
 
     const parser = new DOMParser();
-    const oldDoc = parser.parseFromString(oldHtml, 'text/html');
-    const newDoc = parser.parseFromString(newHtml, 'text/html');
+    const oldDoc = parser.parseFromString(oldHtml, "text/html");
+    const newDoc = parser.parseFromString(newHtml, "text/html");
 
     // Morph body with innerHTML style
     Idiomorph.morph(oldDoc.body, newDoc.body, {
-      morphStyle: 'innerHTML'
+      morphStyle: "innerHTML",
     });
 
     // Verify the content was morphed
-    oldDoc.body.querySelector('p').textContent.should.equal('New content');
+    oldDoc.body.querySelector("p").textContent.should.equal("New content");
   });
 
   it("morphs parsed documentElement with outerHTML style", function () {
@@ -38,18 +38,18 @@ describe("Document-level morphing tests", function () {
     const newHtml = `<!DOCTYPE html><html lang="fr"><head><title>New</title></head><body><p>New content</p></body></html>`;
 
     const parser = new DOMParser();
-    const oldDoc = parser.parseFromString(oldHtml, 'text/html');
-    const newDoc = parser.parseFromString(newHtml, 'text/html');
+    const oldDoc = parser.parseFromString(oldHtml, "text/html");
+    const newDoc = parser.parseFromString(newHtml, "text/html");
 
     // Morph documentElement with outerHTML style
     Idiomorph.morph(oldDoc.documentElement, newDoc.documentElement, {
-      morphStyle: 'outerHTML'
+      morphStyle: "outerHTML",
     });
 
     // Verify attributes and content were morphed
-    oldDoc.documentElement.getAttribute('lang').should.equal('fr');
-    oldDoc.body.querySelector('p').textContent.should.equal('New content');
-    oldDoc.title.should.equal('New');
+    oldDoc.documentElement.getAttribute("lang").should.equal("fr");
+    oldDoc.body.querySelector("p").textContent.should.equal("New content");
+    oldDoc.title.should.equal("New");
   });
 
   it("innerHTML on documentElement with parsed doc causes mismatch (regression test)", function () {
@@ -59,8 +59,8 @@ describe("Document-level morphing tests", function () {
     const newHtml = `<!DOCTYPE html><html><head></head><body><p>New</p></body></html>`;
 
     const parser = new DOMParser();
-    const oldDoc = parser.parseFromString(oldHtml, 'text/html');
-    const newDoc = parser.parseFromString(newHtml, 'text/html');
+    const oldDoc = parser.parseFromString(oldHtml, "text/html");
+    const newDoc = parser.parseFromString(newHtml, "text/html");
 
     // Store references to head and body before morph
     const oldHead = oldDoc.head;
@@ -72,7 +72,7 @@ describe("Document-level morphing tests", function () {
     //
     // The fix is to use outerHTML instead, or morph head/body separately
     Idiomorph.morph(oldDoc.documentElement, newDoc.documentElement, {
-      morphStyle: 'outerHTML'  // outerHTML works correctly
+      morphStyle: "outerHTML", // outerHTML works correctly
     });
 
     // After morph, head and body should still exist
@@ -80,7 +80,7 @@ describe("Document-level morphing tests", function () {
     should.exist(oldDoc.body);
 
     // Content should be updated
-    oldDoc.body.querySelector('p').textContent.should.equal('New');
+    oldDoc.body.querySelector("p").textContent.should.equal("New");
   });
 
   it("preserves element identity when morphing with outerHTML", function () {
@@ -89,18 +89,18 @@ describe("Document-level morphing tests", function () {
     const newHtml = `<!DOCTYPE html><html><head></head><body id="main"><p>New</p></body></html>`;
 
     const parser = new DOMParser();
-    const oldDoc = parser.parseFromString(oldHtml, 'text/html');
-    const newDoc = parser.parseFromString(newHtml, 'text/html');
+    const oldDoc = parser.parseFromString(oldHtml, "text/html");
+    const newDoc = parser.parseFromString(newHtml, "text/html");
 
     const bodyBefore = oldDoc.body;
 
     Idiomorph.morph(oldDoc.documentElement, newDoc.documentElement, {
-      morphStyle: 'outerHTML'
+      morphStyle: "outerHTML",
     });
 
     // The body element should be the same object (morphed in place, not replaced)
     oldDoc.body.should.equal(bodyBefore);
-    oldDoc.body.querySelector('p').textContent.should.equal('New');
+    oldDoc.body.querySelector("p").textContent.should.equal("New");
   });
 
   it("correctly syncs html attributes with outerHTML", function () {
@@ -108,15 +108,15 @@ describe("Document-level morphing tests", function () {
     const newHtml = `<!DOCTYPE html><html data-theme="dark" class="new" lang="en"><head></head><body></body></html>`;
 
     const parser = new DOMParser();
-    const oldDoc = parser.parseFromString(oldHtml, 'text/html');
-    const newDoc = parser.parseFromString(newHtml, 'text/html');
+    const oldDoc = parser.parseFromString(oldHtml, "text/html");
+    const newDoc = parser.parseFromString(newHtml, "text/html");
 
     Idiomorph.morph(oldDoc.documentElement, newDoc.documentElement, {
-      morphStyle: 'outerHTML'
+      morphStyle: "outerHTML",
     });
 
-    oldDoc.documentElement.getAttribute('data-theme').should.equal('dark');
-    oldDoc.documentElement.getAttribute('class').should.equal('new');
-    oldDoc.documentElement.getAttribute('lang').should.equal('en');
+    oldDoc.documentElement.getAttribute("data-theme").should.equal("dark");
+    oldDoc.documentElement.getAttribute("class").should.equal("new");
+    oldDoc.documentElement.getAttribute("lang").should.equal("en");
   });
 });

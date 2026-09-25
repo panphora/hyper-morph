@@ -25,9 +25,15 @@ export function makeIgnore(pred, boundaries = []) {
     let result = false;
     while (el && el.nodeType === 1) {
       const known = cache.get(el);
-      if (known !== undefined) { result = known; break; }
+      if (known !== undefined) {
+        result = known;
+        break;
+      }
       chain.push(el);
-      if (pred(el)) { result = true; break; }
+      if (pred(el)) {
+        result = true;
+        break;
+      }
       if (stops.has(el)) break;
       el = el.parentElement;
     }

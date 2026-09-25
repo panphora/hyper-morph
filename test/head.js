@@ -90,11 +90,6 @@ describe("Tests to ensure that the head tag merging works correctly", function (
     originalHead.childNodes[1].outerHTML.should.equal("<title>Foo</title>");
   });
 
-
-
-
-
-
   it("can handle scripts with block mode with innerHTML morph", async function () {
     Idiomorph.morph(
       window.document,

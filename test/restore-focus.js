@@ -316,7 +316,6 @@ describe("Option to forcibly restore focus after morph", function () {
     });
   });
 
-
   describe("with option on but moveBefore disabled", function () {
     it("preserves focus state and outerHTML morphStyle", function () {
       assertFocusPreservationWithoutMoveBefore(
@@ -421,7 +420,6 @@ describe("Option to forcibly restore focus after morph", function () {
       assertFocus("focused");
     });
   });
-
 
   describe("edge cases", function () {
     it("restores focus when the focused element's id contains a double quote", function () {

@@ -16,34 +16,81 @@ import { makeIgnore } from "./ignore.js";
 import { importMap, tieredIdentity, defaultIdentity } from "./identity.js";
 import { merge3 as mergeCore } from "./merge.js";
 import { apply } from "./apply.js";
-import { collectBodyScriptSignatures, executeNewScripts, makeInertScript, isHtmlScript } from "./scripts.js";
+import {
+  collectBodyScriptSignatures,
+  executeNewScripts,
+  makeInertScript,
+  isHtmlScript,
+} from "./scripts.js";
 
 export { merge3Text, diff } from "./text-merge.js";
 export { createIdentityStore, importMap, tieredIdentity } from "./identity.js";
 export { mergeJson, mergeScriptText } from "./hyper-morph-json-merge.js";
-export { parseJsonRelaxed, parseRulesRelaxed } from "./hyper-morph-json-parse.js";
+export {
+  parseJsonRelaxed,
+  parseRulesRelaxed,
+} from "./hyper-morph-json-parse.js";
 export { createParseCache } from "./parse.js";
 export { findChangedRoots, spliceProtected } from "./legacy-splice.js";
 
-const KNOWN = new Set(["live", "base", "remote", "local", "identity", "ignore", "remoteWins", "ignoreAttribute", "conflicts", "protectFocusedValue", "head", "scripts", "formState", "children", "hooks", "beforeApply"]);
+const KNOWN = new Set([
+  "live",
+  "base",
+  "remote",
+  "local",
+  "identity",
+  "ignore",
+  "remoteWins",
+  "ignoreAttribute",
+  "conflicts",
+  "protectFocusedValue",
+  "head",
+  "scripts",
+  "formState",
+  "children",
+  "hooks",
+  "beforeApply",
+]);
 const noop = () => {};
 
 function normalize(o, roots = []) {
-  if (!o || typeof o !== "object") throw new TypeError("options object required");
-  for (const k of Object.keys(o)) if (!KNOWN.has(k)) throw new TypeError(`unknown option "${k}"`);
-  const hooks = Object.assign({ beforeNodeAdded: noop, afterNodeAdded: noop, beforeNodeRemoved: noop, afterNodeRemoved: noop, beforeNodeMorphed: noop, afterNodeMorphed: noop, beforeAttributeUpdated: noop }, o.hooks || {});
+  if (!o || typeof o !== "object")
+    throw new TypeError("options object required");
+  for (const k of Object.keys(o))
+    if (!KNOWN.has(k)) throw new TypeError(`unknown option "${k}"`);
+  const hooks = Object.assign(
+    {
+      beforeNodeAdded: noop,
+      afterNodeAdded: noop,
+      beforeNodeRemoved: noop,
+      afterNodeRemoved: noop,
+      beforeNodeMorphed: noop,
+      afterNodeMorphed: noop,
+      beforeAttributeUpdated: noop,
+    },
+    o.hooks || {},
+  );
   const conflicts = o.conflicts || "remote";
-  if (!["remote", "local", "both"].includes(conflicts)) throw new TypeError(`conflicts must be remote, local or both`);
+  if (!["remote", "local", "both"].includes(conflicts))
+    throw new TypeError(`conflicts must be remote, local or both`);
   const formState = o.formState || "attribute";
-  if (!["attribute", "property"].includes(formState)) throw new TypeError(`formState must be attribute or property`);
+  if (!["attribute", "property"].includes(formState))
+    throw new TypeError(`formState must be attribute or property`);
   return {
     ignored: makeIgnore(o.ignore, roots),
     remoteWins: makeIgnore(o.remoteWins, roots),
-    ignoreAttribute: typeof o.ignoreAttribute === "function" ? o.ignoreAttribute : () => false,
+    ignoreAttribute:
+      typeof o.ignoreAttribute === "function" ? o.ignoreAttribute : () => false,
     conflicts,
     protectFocusedValue: o.protectFocusedValue !== false,
-    head: Object.assign({ awaitLoads: false, preserve: () => false }, o.head || {}),
-    scripts: Object.assign({ execute: true, merge: true, mergeTags: [] }, o.scripts || {}),
+    head: Object.assign(
+      { awaitLoads: false, preserve: () => false },
+      o.head || {},
+    ),
+    scripts: Object.assign(
+      { execute: true, merge: true, mergeTags: [] },
+      o.scripts || {},
+    ),
     formState,
     hooks,
     children: !!o.children,
@@ -67,18 +114,30 @@ function resolveIdentity(spec, root) {
  */
 export function merge3(base, local, remote, options = {}) {
   const rootOf = (x) => (x && x.nodeType === 9 ? x.documentElement : x);
-  const bRoot = rootOf(base), lRoot = rootOf(local), rRoot = rootOf(remote);
-  const clean = Object.assign({}, options); delete clean.live; delete clean.base; delete clean.remote;
+  const lRoot = rootOf(local),
+    rRoot = rootOf(remote),
+    bRoot = rootOf(base) || lRoot;
+  const clean = Object.assign({}, options);
+  delete clean.live;
+  delete clean.base;
+  delete clean.remote;
   const o = normalize(clean, [bRoot, lRoot, rRoot].filter(Boolean));
   const id = options.identity || {};
   return mergeCore(bRoot, lRoot, rRoot, {
-    identity: { base: resolveIdentity(id.base, bRoot), local: resolveIdentity(id.local, lRoot), remote: resolveIdentity(id.remote, rRoot) },
+    identity: {
+      base: resolveIdentity(id.base, bRoot),
+      local: resolveIdentity(id.local, lRoot),
+      remote: resolveIdentity(id.remote, rRoot),
+    },
+    skipUnchanged:
+      o.hooks.beforeNodeMorphed === noop && o.hooks.afterNodeMorphed === noop,
     ignored: o.ignored,
     remoteWins: o.remoteWins,
     ignoreAttribute: o.ignoreAttribute,
     conflicts: o.conflicts,
     mergeTags: o.scripts.merge === false ? null : o.scripts.mergeTags,
-    baseURI: (lRoot.ownerDocument && lRoot.ownerDocument.baseURI) || "about:blank",
+    baseURI:
+      (lRoot.ownerDocument && lRoot.ownerDocument.baseURI) || "about:blank",
     localIsBase: !base || base === local,
     childrenOnly: o.children,
   });
@@ -88,10 +147,25 @@ export function merge3(base, local, remote, options = {}) {
  * Run merge and apply synchronously on one root pair. Shared by the public
  * entry points.
  */
-function run({ liveRoot, baseRoot, localRoot, remoteRoot, toLive, options, identity, childrenOnly, isDocument }) {
-  const o = normalize(options, [liveRoot, baseRoot, localRoot, remoteRoot].filter(Boolean));
+function run({
+  liveRoot,
+  baseRoot,
+  localRoot,
+  remoteRoot,
+  toLive,
+  options,
+  identity,
+  childrenOnly,
+  isDocument,
+}) {
+  const o = normalize(
+    options,
+    [liveRoot, baseRoot, localRoot, remoteRoot].filter(Boolean),
+  );
   const doc = liveRoot.ownerDocument;
-  const before = o.scripts.execute ? collectBodyScriptSignatures(liveRoot, o.ignored, doc.baseURI) : null;
+  const before = o.scripts.execute
+    ? collectBodyScriptSignatures(liveRoot, o.ignored, doc.baseURI)
+    : null;
 
   const result = mergeCore(baseRoot || localRoot, localRoot, remoteRoot, {
     identity: {
@@ -107,37 +181,71 @@ function run({ liveRoot, baseRoot, localRoot, remoteRoot, toLive, options, ident
     baseURI: doc.baseURI,
     localIsBase: !baseRoot,
     childrenOnly,
+    // With no per-node morph hooks, subtrees identical on both sides need
+    // neither output nor a visit; the hook contract fires per matched node.
+    skipUnchanged:
+      o.hooks.beforeNodeMorphed === noop && o.hooks.afterNodeMorphed === noop,
   });
   if (o.beforeApply) o.beforeApply(result.doc);
+  const prof = globalThis.__hyperMorphProfile;
+  const tA = prof ? performance.now() : 0;
 
   const ap = apply(liveRoot, result.root, result, {
     toLive,
     ignored: o.ignored,
+    ignoreAttribute: o.ignoreAttribute,
     formState: o.formState,
     protectFocusedValue: o.protectFocusedValue,
     hooks: o.hooks,
     childrenOnly,
   });
 
+  if (prof) prof.apply = (prof.apply || 0) + (performance.now() - tA);
   const loads = [];
   if (o.head.awaitLoads) {
     for (const a of ap.applied) {
       if (a.kind !== "insert" || a.node.nodeType !== 1) continue;
       const el = a.node;
-      const waits = el.tagName === "LINK" && /\bstylesheet\b/i.test(el.getAttribute("rel") || "") && el.getAttribute("href");
-      if (waits && el.closest("head")) loads.push(new Promise((r) => { el.addEventListener("load", () => r()); el.addEventListener("error", () => r()); }));
+      const waits =
+        el.tagName === "LINK" &&
+        /\bstylesheet\b/i.test(el.getAttribute("rel") || "") &&
+        el.getAttribute("href");
+      if (waits && el.closest("head"))
+        loads.push(
+          new Promise((r) => {
+            el.addEventListener("load", () => r());
+            el.addEventListener("error", () => r());
+          }),
+        );
     }
   }
   if (before) {
-    const ex = executeNewScripts(liveRoot, before, { ignored: o.ignored, skip: ap.mergedScriptsLive, baseURI: doc.baseURI, beforeNodeAdded: o.hooks.beforeNodeAdded, afterNodeAdded: o.hooks.afterNodeAdded });
+    const ex = executeNewScripts(liveRoot, before, {
+      ignored: o.ignored,
+      skip: ap.mergedScriptsLive,
+      baseURI: doc.baseURI,
+      beforeNodeAdded: o.hooks.beforeNodeAdded,
+      afterNodeAdded: o.hooks.afterNodeAdded,
+    });
     loads.push(...ex.loads);
   }
 
   const live = (n) => (n && ap.liveOf && ap.liveOf.get(n)) || null;
   const report = {
     applied: ap.applied,
-    decisions: result.decisions.map((d) => Object.assign({}, d, { node: d.node ? live(d.node) : null, el: d.el ? live(d.el) : null, applied: !!(d.node ? live(d.node) : d.el ? live(d.el) : false) })),
-    conflicts: result.conflicts.map((c) => Object.assign({}, c, { node: c.node ? live(c.node) : c.node, el: c.el ? live(c.el) : c.el })),
+    decisions: result.decisions.map((d) =>
+      Object.assign({}, d, {
+        node: d.node ? live(d.node) : null,
+        el: d.el ? live(d.el) : null,
+        applied: !!(d.node ? live(d.node) : d.el ? live(d.el) : false),
+      }),
+    ),
+    conflicts: result.conflicts.map((c) =>
+      Object.assign({}, c, {
+        node: c.node ? live(c.node) : c.node,
+        el: c.el ? live(c.el) : c.el,
+      }),
+    ),
     localDiverged: result.localDiverged,
     identities: ap.identities,
     moved: ap.moved,
@@ -153,8 +261,10 @@ function run({ liveRoot, baseRoot, localRoot, remoteRoot, toLive, options, ident
 export function mergeDocument(options) {
   const o = options || {};
   const live = o.live;
-  if (!live || live.nodeType !== 9) throw new TypeError("live must be a Document");
-  const cache = mergeDocument._cache || (mergeDocument._cache = createParseCache(live));
+  if (!live || live.nodeType !== 9)
+    throw new TypeError("live must be a Document");
+  const cache =
+    mergeDocument._cache || (mergeDocument._cache = createParseCache(live));
   const remoteDoc = cache("remote", o.remote);
   const baseInput = typeof o.base === "string" && o.base === "" ? null : o.base;
   const baseDoc = baseInput ? cache("base", baseInput) : null;
@@ -179,7 +289,9 @@ export function mergeDocument(options) {
  * Two-way: the live document becomes the remote document.
  */
 export function morphDocument(live, remote, options = {}) {
-  return mergeDocument(Object.assign({}, options, { live, base: null, remote }));
+  return mergeDocument(
+    Object.assign({}, options, { live, base: null, remote }),
+  );
 }
 
 /**
@@ -189,9 +301,17 @@ export function morphDocument(live, remote, options = {}) {
  * are, never cloned, so property-mode callers keep the properties they set.
  */
 function contentOf(content, doc) {
-  if (content == null) { const t = doc.createElement("template"); return { root: t, first: null }; }
-  if (typeof content === "string") { const t = doc.createElement("template"); t.innerHTML = content; return { root: t, first: t.content.firstElementChild }; }
-  if (content.nodeType === 9) return { root: content.documentElement, first: content.documentElement };
+  if (content == null) {
+    const t = doc.createElement("template");
+    return { root: t, first: null };
+  }
+  if (typeof content === "string") {
+    const t = doc.createElement("template");
+    t.innerHTML = content;
+    return { root: t, first: t.content.firstElementChild };
+  }
+  if (content.nodeType === 9)
+    return { root: content.documentElement, first: content.documentElement };
   if (content.nodeType === 1) {
     // A whole-element morph reads the element itself. A children morph
     // treats the element as the one new child: a detached node moves into a
@@ -202,9 +322,11 @@ function contentOf(content, doc) {
     t.content.appendChild(inDoc ? doc.importNode(content, true) : content);
     return { root: t, first: content };
   }
-  if (content.nodeType === 11) return { root: content, first: content.firstElementChild };
+  if (content.nodeType === 11)
+    return { root: content, first: content.firstElementChild };
   const t = doc.createElement("template");
-  for (const n of Array.from(content)) t.content.appendChild(n.parentNode ? doc.importNode(n, true) : n);
+  for (const n of Array.from(content))
+    t.content.appendChild(n.parentNode ? doc.importNode(n, true) : n);
   return { root: t, first: t.content.firstElementChild };
 }
 
@@ -213,13 +335,15 @@ function contentOf(content, doc) {
  * `options.base` (string or element) the merge is three-way.
  */
 export function morphElement(oldEl, newContent, options = {}) {
-  if (!oldEl || oldEl.nodeType !== 1) throw new TypeError("oldEl must be an Element");
+  if (!oldEl || oldEl.nodeType !== 1)
+    throw new TypeError("oldEl must be an Element");
   const doc = oldEl.ownerDocument;
   const { base, ...rest } = options;
   const childrenOnly = !!rest.children;
   const remoteC = contentOf(newContent, doc);
   const baseC = base != null ? contentOf(base, doc) : null;
-  let remoteRoot, baseRoot = null;
+  let remoteRoot,
+    baseRoot = null;
   if (childrenOnly) {
     // For a children morph of an element input, the input's own children are
     // the content; for string input, the template's content.
@@ -231,26 +355,65 @@ export function morphElement(oldEl, newContent, options = {}) {
     if (!remoteRoot) {
       // Nothing to morph into: the element goes away.
       const o = normalize(rest);
-      if (o.hooks.beforeNodeRemoved(oldEl) !== false) { oldEl.remove(); o.hooks.afterNodeRemoved(oldEl); }
-      return Promise.resolve({ applied: [{ kind: "remove", node: oldEl, parent: null }], decisions: [], conflicts: [], localDiverged: false, identities: [], moved: [], replaced: [oldEl] });
+      if (o.hooks.beforeNodeRemoved(oldEl) !== false) {
+        oldEl.remove();
+        o.hooks.afterNodeRemoved(oldEl);
+      }
+      return Promise.resolve({
+        applied: [{ kind: "remove", node: oldEl, parent: null }],
+        decisions: [],
+        conflicts: [],
+        localDiverged: false,
+        identities: [],
+        moved: [],
+        replaced: [oldEl],
+      });
     }
     if (remoteRoot.tagName !== oldEl.tagName) {
       // A different element: merge the children into the old element first
       // so their live nodes survive, then move them into a fresh element of
       // the new tag and swap it in.
       const o = normalize(rest, [oldEl, remoteRoot]);
-      if (o.hooks.beforeNodeMorphed(oldEl, remoteRoot) === false) return Promise.resolve({ applied: [], decisions: [], conflicts: [], localDiverged: false, identities: [], moved: [], replaced: [] });
-      const inner = run({ liveRoot: oldEl, baseRoot: baseRoot && baseRoot.tagName === oldEl.tagName ? baseRoot : null, localRoot: oldEl, remoteRoot, toLive: (n) => n, options: rest, identity: rest.identity || {}, childrenOnly: true, isDocument: false });
-      const fresh = isHtmlScript(remoteRoot) ? makeInertScript(remoteRoot, doc) : doc.importNode(remoteRoot, false);
-      if (!isHtmlScript(fresh)) while (oldEl.firstChild) fresh.appendChild(oldEl.firstChild);
-      if (o.hooks.beforeNodeAdded(fresh) === false) return Promise.resolve(inner.report);
-      if (o.hooks.beforeNodeRemoved(oldEl) === false) return Promise.resolve(inner.report);
+      if (o.hooks.beforeNodeMorphed(oldEl, remoteRoot) === false)
+        return Promise.resolve({
+          applied: [],
+          decisions: [],
+          conflicts: [],
+          localDiverged: false,
+          identities: [],
+          moved: [],
+          replaced: [],
+        });
+      const inner = run({
+        liveRoot: oldEl,
+        baseRoot:
+          baseRoot && baseRoot.tagName === oldEl.tagName ? baseRoot : null,
+        localRoot: oldEl,
+        remoteRoot,
+        toLive: (n) => n,
+        options: rest,
+        identity: rest.identity || {},
+        childrenOnly: true,
+        isDocument: false,
+      });
+      const fresh = isHtmlScript(remoteRoot)
+        ? makeInertScript(remoteRoot, doc)
+        : doc.importNode(remoteRoot, false);
+      if (!isHtmlScript(fresh))
+        while (oldEl.firstChild) fresh.appendChild(oldEl.firstChild);
+      if (o.hooks.beforeNodeAdded(fresh) === false)
+        return Promise.resolve(inner.report);
+      if (o.hooks.beforeNodeRemoved(oldEl) === false)
+        return Promise.resolve(inner.report);
       oldEl.replaceWith(fresh);
       o.hooks.afterNodeRemoved(oldEl);
       o.hooks.afterNodeAdded(fresh);
       o.hooks.afterNodeMorphed(oldEl, remoteRoot);
       inner.report.replaced.push(fresh);
-      inner.report.applied.push({ kind: "insert", node: fresh, parent: fresh.parentNode }, { kind: "remove", node: oldEl, parent: fresh.parentNode });
+      inner.report.applied.push(
+        { kind: "insert", node: fresh, parent: fresh.parentNode },
+        { kind: "remove", node: oldEl, parent: fresh.parentNode },
+      );
       return Promise.all(inner.loads).then(() => inner.report);
     }
   }

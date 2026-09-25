@@ -18,12 +18,20 @@ function hash(str) {
 
 /** @param {Node} node */
 export function isHtmlScript(node) {
-  return !!node && node.nodeType === 1 && node.tagName === "SCRIPT" && node.namespaceURI === HTML_NS;
+  return (
+    !!node &&
+    node.nodeType === 1 &&
+    node.tagName === "SCRIPT" &&
+    node.namespaceURI === HTML_NS
+  );
 }
 
 /** @param {Element} script */
 export function isJsonScript(script) {
-  const type = (script.getAttribute("type") || "").split(";")[0].trim().toLowerCase();
+  const type = (script.getAttribute("type") || "")
+    .split(";")[0]
+    .trim()
+    .toLowerCase();
   return type === "application/json" || type.endsWith("+json");
 }
 
@@ -34,10 +42,16 @@ export function isJsonScript(script) {
  */
 export function scriptSignature(el, baseURI) {
   const src = el.getAttribute("src");
-  const type = (el.getAttribute("type") || "text/javascript").split(";")[0].trim().toLowerCase();
+  const type = (el.getAttribute("type") || "text/javascript")
+    .split(";")[0]
+    .trim()
+    .toLowerCase();
   if (src) {
     let abs = src;
-    try { const u = new URL(src, baseURI); abs = u.origin + u.pathname + u.search; } catch {}
+    try {
+      const u = new URL(src, baseURI);
+      abs = u.origin + u.pathname + u.search;
+    } catch {}
     return "script|src|" + type + "|" + abs;
   }
   return "script|inline|" + type + "|" + hash(el.textContent.trim());
@@ -69,7 +83,11 @@ export function mergeIdentityOf(el, extra = [], warn = false) {
     const r = recognizers[i];
     if (!r.match(el)) continue;
     if (!isJsonScript(el)) {
-      if (warn) console.warn("[hyper-morph] merge ignored: script type is not JSON", el);
+      if (warn)
+        console.warn(
+          "[hyper-morph] merge ignored: script type is not JSON",
+          el,
+        );
       return null;
     }
     const raw = r.identity(el);
@@ -88,7 +106,9 @@ export function mergeIdentityOf(el, extra = [], warn = false) {
  */
 export function collectBodyScriptSignatures(root, ignored, baseURI) {
   const out = new Set();
-  const visit = (el) => { if (isHtmlScript(el) && !ignored(el)) out.add(scriptSignature(el, baseURI)); };
+  const visit = (el) => {
+    if (isHtmlScript(el) && !ignored(el)) out.add(scriptSignature(el, baseURI));
+  };
   visit(root);
   for (const el of root.querySelectorAll("script")) visit(el);
   return out;
@@ -105,7 +125,8 @@ export function makeInertScript(script, doc) {
   const container = doc.createElement("div");
   container.innerHTML = "<scr" + "ipt></scr" + "ipt>";
   const inert = container.firstChild;
-  for (const attr of script.attributes) inert.setAttribute(attr.name, attr.value);
+  for (const attr of script.attributes)
+    inert.setAttribute(attr.name, attr.value);
   inert.textContent = script.textContent;
   return inert;
 }
@@ -124,7 +145,8 @@ export function makeInertScript(script, doc) {
  * @returns {{ executed: Element[], loads: Promise<void>[] }}
  */
 export function executeNewScripts(root, before, o) {
-  const executed = [], loads = [];
+  const executed = [],
+    loads = [];
   const all = Array.from(root.querySelectorAll("script"));
   if (isHtmlScript(root)) all.unshift(root);
   for (const el of all) {
@@ -135,10 +157,12 @@ export function executeNewScripts(root, before, o) {
     fresh.textContent = el.textContent;
     if (o.beforeNodeAdded(fresh) === false) continue;
     if (fresh.hasAttribute("src")) {
-      loads.push(new Promise((resolve) => {
-        fresh.addEventListener("load", () => resolve());
-        fresh.addEventListener("error", () => resolve());
-      }));
+      loads.push(
+        new Promise((resolve) => {
+          fresh.addEventListener("load", () => resolve());
+          fresh.addEventListener("error", () => resolve());
+        }),
+      );
     }
     el.replaceWith(fresh);
     o.afterNodeAdded(fresh);

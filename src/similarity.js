@@ -16,10 +16,22 @@
  */
 
 const HINT_LENGTH = 64;
-const SIG_ATTRS = ["href", "src", "name", "type", "role"];
+const SIG_ATTRS = new Set(["href", "src", "name", "type", "role"]);
 
 /** Elements whose text is code or data: never paired by text similarity. */
-export const CODE_LIKE = new Set(["SCRIPT", "STYLE", "TEXTAREA", "TEMPLATE", "IFRAME", "OBJECT", "CANVAS", "VIDEO", "AUDIO", "svg", "SVG"]);
+export const CODE_LIKE = new Set([
+  "SCRIPT",
+  "STYLE",
+  "TEXTAREA",
+  "TEMPLATE",
+  "IFRAME",
+  "OBJECT",
+  "CANVAS",
+  "VIDEO",
+  "AUDIO",
+  "svg",
+  "SVG",
+]);
 
 function djb2(str, seed = 5381) {
   let h = seed;
@@ -36,32 +48,47 @@ function collapse(s) {
  * @param {(n: Node) => boolean} [options.ignored]
  * @param {(el: Element, name: string) => boolean} [options.ignoreAttribute]
  */
-export function createAnalyzer({ ignored = () => false, ignoreAttribute = () => false } = {}) {
+export function createAnalyzer({
+  ignored = () => false,
+  ignoreAttribute = () => false,
+} = {}) {
   const metaCache = new WeakMap();
   const unitsCache = new WeakMap();
 
-  function attrString(el) {
+  /** One pass over the attributes yields both the hash input and the signature. */
+  function attrParts(el) {
+    const attrs = el.attributes;
+    const n = attrs.length;
+    if (n === 0) return { all: "", sig: el.tagName + "|" };
     const parts = [];
-    for (const a of el.attributes) {
-      if (ignoreAttribute(el, a.name)) continue;
-      parts.push(a.name + "=" + a.value);
+    let classes = "";
+    const sigParts = [];
+    for (let i = 0; i < n; i++) {
+      const a = attrs[i];
+      const name = a.name;
+      if (!ignoreAttribute(el, name)) parts.push(name + "=" + a.value);
+      if (name === "class")
+        classes =
+          a.value.indexOf(" ") < 0
+            ? a.value
+            : a.value.split(/\s+/).filter(Boolean).sort().join(" ");
+      else if (SIG_ATTRS.has(name)) sigParts.push(name + "=" + a.value);
     }
-    parts.sort();
-    return parts.join("\u0001");
-  }
-
-  function signature(el) {
-    const classes = el.classList && el.classList.length ? Array.from(el.classList).sort().join(" ") : "";
-    let s = el.tagName + "|" + classes;
-    for (const name of SIG_ATTRS) {
-      const v = el.getAttribute(name);
-      if (v != null) s += "|" + name + "=" + v;
-    }
-    return s;
+    if (parts.length > 1) parts.sort();
+    if (sigParts.length > 1) sigParts.sort();
+    return {
+      all: parts.join("\u0001"),
+      sig:
+        el.tagName +
+        "|" +
+        classes +
+        (sigParts.length ? "|" + sigParts.join("|") : ""),
+    };
   }
 
   function childrenOf(node) {
-    if (node.nodeType === 1 && node.tagName === "TEMPLATE" && node.content) return node.content.childNodes;
+    if (node.nodeType === 1 && node.tagName === "TEMPLATE" && node.content)
+      return node.content.childNodes;
     return node.childNodes;
   }
 
@@ -73,35 +100,52 @@ export function createAnalyzer({ ignored = () => false, ignoreAttribute = () => 
     let m = metaCache.get(node);
     if (m) return m;
     if (node.nodeType === 3) {
-      m = { hash: "T" + djb2(node.nodeValue), hint: collapse(node.nodeValue).slice(0, HINT_LENGTH), sig: null };
+      m = {
+        hash: "T" + djb2(node.nodeValue),
+        hint: collapse(node.nodeValue).slice(0, HINT_LENGTH),
+        sig: null,
+        tok: null,
+      };
     } else if (node.nodeType === 8) {
-      m = { hash: "C" + djb2(node.nodeValue), hint: "", sig: null };
+      m = { hash: "C" + djb2(node.nodeValue), hint: "", sig: null, tok: null };
     } else if (node.nodeType === 1) {
-      let h = djb2(node.tagName + "\u0002" + attrString(node));
+      const ap = attrParts(node);
+      let h = djb2(node.tagName + "\u0002" + ap.all);
       let hint = "";
-      for (const child of childrenOf(node)) {
-        if (child.nodeType === 1 && ignored(child)) continue;
-        if (child.nodeType !== 1 && child.nodeType !== 3 && child.nodeType !== 8) continue;
-        const cm = meta(child);
-        h = djb2(cm.hash, h);
-        // Element boundaries separate words for similarity even though
-        // textContent would run them together.
-        if (hint.length < HINT_LENGTH && child.nodeType !== 8) hint += (child.nodeType === 1 ? " " : "") + cm.hint;
+      // Children are consumed as units, so a text run is hashed once and
+      // reused by the aligner, and the unit list itself is built once.
+      for (const u of unitsOf(node)) {
+        if (u.nodeType === 1) {
+          const cm = meta(u);
+          h = djb2(cm.hash, h);
+          if (hint.length < HINT_LENGTH) hint += " " + cm.hint;
+        } else {
+          h = djb2(unitHash(u), h);
+          if (u.kind === "text" && hint.length < HINT_LENGTH)
+            hint += u.value.slice(0, HINT_LENGTH);
+        }
       }
-      m = { hash: "E" + h, hint: collapse(hint).trim().slice(0, HINT_LENGTH), sig: signature(node) };
+      m = {
+        hash: "E" + h,
+        hint: collapse(hint).trim().slice(0, HINT_LENGTH),
+        sig: ap.sig,
+        tok: null,
+      };
     } else {
-      m = { hash: "N" + node.nodeType, hint: "", sig: null };
+      m = { hash: "N" + node.nodeType, hint: "", sig: null, tok: null };
     }
-    let tok = null;
-    m.tokens = () => {
-      if (!tok) {
-        tok = new Set();
-        for (const w of m.hint.toLowerCase().split(/[^\p{L}\p{N}]+/u)) if (w) tok.add(w);
-      }
-      return tok;
-    };
     metaCache.set(node, m);
     return m;
+  }
+
+  /** Lowercased word tokens of a node's hint, computed on first use. */
+  function tokensOf(m) {
+    if (!m.tok) {
+      m.tok = new Set();
+      for (const w of m.hint.toLowerCase().split(/[^\p{L}\p{N}]+/u))
+        if (w) m.tok.add(w);
+    }
+    return m.tok;
   }
 
   /**
@@ -122,15 +166,29 @@ export function createAnalyzer({ ignored = () => false, ignoreAttribute = () => 
     if (units) return units;
     units = [];
     let run = null;
-    const flush = () => { if (run) { run.value = run.nodes.map((n) => n.nodeValue).join(""); units.push(run); run = null; } };
+    const flush = () => {
+      if (run) {
+        run.value = run.nodes.map((n) => n.nodeValue).join("");
+        units.push(run);
+        run = null;
+      }
+    };
     for (const child of childrenOf(parent)) {
       if (child.nodeType === 3) {
-        if (!run) run = { kind: "text", nodes: [], value: "", parent };
+        if (!run)
+          run = { kind: "text", nodes: [], value: "", parent, hash: undefined };
         run.nodes.push(child);
         continue;
       }
       flush();
-      if (child.nodeType === 8) units.push({ kind: "comment", nodes: [child], value: child.nodeValue, parent });
+      if (child.nodeType === 8)
+        units.push({
+          kind: "comment",
+          nodes: [child],
+          value: child.nodeValue,
+          parent,
+          hash: undefined,
+        });
       else if (child.nodeType === 1 && !ignored(child)) units.push(child);
     }
     flush();
@@ -140,11 +198,14 @@ export function createAnalyzer({ ignored = () => false, ignoreAttribute = () => 
 
   function unitHash(u) {
     if (u.nodeType === 1) return meta(u).hash;
-    return (u.kind === "text" ? "T" : "C") + djb2(u.value);
+    if (u.hash === undefined)
+      u.hash = (u.kind === "text" ? "T" : "C") + djb2(u.value);
+    return u.hash;
   }
 
   function similar(a, b) {
-    const ta = meta(a).tokens(), tb = meta(b).tokens();
+    const ta = tokensOf(meta(a)),
+      tb = tokensOf(meta(b));
     if (ta.size === 0 && tb.size === 0) return true;
     if (ta.size === 0 || tb.size === 0) return false;
     // Overlap coefficient: shared tokens over the smaller set. Jaccard would

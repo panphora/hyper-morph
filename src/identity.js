@@ -32,17 +32,23 @@ export function createIdentityStore(clientId) {
   const idOf = (el) => ids.get(el) || null;
   const ensure = (el) => {
     let id = ids.get(el);
-    if (!id) { id = `${clientId}:${++counter}`; ids.set(el, id); }
+    if (!id) {
+      id = `${clientId}:${++counter}`;
+      ids.set(el, id);
+    }
     return id;
   };
-  const adopt = (el, id) => { if (el && typeof id === "string" && id) ids.set(el, id); };
+  const adopt = (el, id) => {
+    if (el && typeof id === "string" && id) ids.set(el, id);
+  };
   const exportMap = (cloneRoot, toLive) => {
     const map = {};
     const visit = (clone, path) => {
       const live = toLive(clone);
       if (live) map[path] = ensure(live);
       const kids = clone.children;
-      for (let i = 0; i < kids.length; i++) visit(kids[i], path === "" ? String(i) : `${path}.${i}`);
+      for (let i = 0; i < kids.length; i++)
+        visit(kids[i], path === "" ? String(i) : `${path}.${i}`);
     };
     visit(cloneRoot, "");
     return map;
@@ -58,12 +64,14 @@ export function createIdentityStore(clientId) {
  */
 export function importMap(root, map) {
   const out = new WeakMap();
-  if (!root || !map || typeof map !== "object" || Array.isArray(map)) return out;
+  if (!root || !map || typeof map !== "object" || Array.isArray(map))
+    return out;
   const visit = (el, path) => {
     const id = map[path];
     if (typeof id === "string" && id) out.set(el, id);
     const kids = el.children;
-    for (let i = 0; i < kids.length; i++) visit(kids[i], path === "" ? String(i) : `${path}.${i}`);
+    for (let i = 0; i < kids.length; i++)
+      visit(kids[i], path === "" ? String(i) : `${path}.${i}`);
   };
   visit(root, "");
   return out;
@@ -101,23 +109,46 @@ export const defaultIdentity = tieredIdentity([
  * @param {(n: Node) => boolean} ignored
  * @returns {Map<string, Element>}
  */
-export function indexByIdentity(root, idOf, ignored) {
+export function indexByIdentity(root, idOf, ignored, fastSelector = null) {
   const map = new Map();
   const dup = new Set();
-  const visit = (el) => {
+  const consider = (el) => {
     if (ignored(el)) return;
     const id = idOf(el);
     if (id) {
       if (map.has(id)) dup.add(id);
       else map.set(id, el);
     }
-    const kids = el.tagName === "TEMPLATE" && el.content ? el.content.children : el.children;
-    for (let i = 0; i < kids.length; i++) visit(kids[i]);
   };
-  visit(root);
+  if (fastSelector) {
+    // Only elements the selector names can carry an identity: let the
+    // engine find them instead of visiting every element. Template content
+    // is inert and invisible to querySelectorAll, so every template (the
+    // root included) is queried through its content fragment.
+    const query = (scope) => {
+      for (const el of scope.querySelectorAll(fastSelector)) consider(el);
+      for (const t of scope.querySelectorAll("template"))
+        if (t.content) query(t.content);
+    };
+    consider(root);
+    query(root.tagName === "TEMPLATE" && root.content ? root.content : root);
+  } else {
+    const visit = (el) => {
+      consider(el);
+      const kids =
+        el.tagName === "TEMPLATE" && el.content
+          ? el.content.children
+          : el.children;
+      for (let i = 0; i < kids.length; i++) visit(kids[i]);
+    };
+    visit(root);
+  }
   for (const id of dup) {
     map.delete(id);
-    if (id.startsWith("merge:")) console.warn(`[hyper-morph] merge disabled for duplicate identity "${id.slice(id.indexOf(":", 6) + 1)}"`);
+    if (id.startsWith("merge:"))
+      console.warn(
+        `[hyper-morph] merge disabled for duplicate identity "${id.slice(id.indexOf(":", 6) + 1)}"`,
+      );
   }
   return map;
 }

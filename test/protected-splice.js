@@ -94,9 +94,7 @@ describe("Protected splice (findChangedRoots + spliceProtected)", function () {
   });
 
   it("promotes the parent when keyed children were locally reordered", function () {
-    const local = doc(
-      `<ul id="list"><li id="b">B</li><li id="a">A</li></ul>`,
-    );
+    const local = doc(`<ul id="list"><li id="b">B</li><li id="a">A</li></ul>`);
     const base = doc(`<ul id="list"><li id="a">A</li><li id="b">B</li></ul>`);
     const entries = diff(local, base);
     entries.length.should.equal(1);
@@ -413,9 +411,7 @@ describe("Protected splice (findChangedRoots + spliceProtected)", function () {
   });
 
   it("holds the frame when <body> itself is the dirty root", function () {
-    const entries = [
-      { type: "subtree", el: doc(`<p>whole body</p>`).body },
-    ];
+    const entries = [{ type: "subtree", el: doc(`<p>whole body</p>`).body }];
     const target = doc(`<p>incoming</p>`);
     splice(target, entries).ok.should.equal(false);
   });
@@ -523,9 +519,13 @@ describe("Protected splice (findChangedRoots + spliceProtected)", function () {
     let parent = make(
       `<div><div no-trigger-autosave><p>old filter</p></div></div>`,
     );
-    Idiomorph.morph(parent, `<div no-trigger-autosave><p>new filter</p></div>`, {
-      morphStyle: "innerHTML",
-    });
+    Idiomorph.morph(
+      parent,
+      `<div no-trigger-autosave><p>new filter</p></div>`,
+      {
+        morphStyle: "innerHTML",
+      },
+    );
     parent.querySelector("p").textContent.should.equal("new filter");
   });
 });

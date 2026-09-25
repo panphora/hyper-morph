@@ -3,17 +3,29 @@ import assert from "node:assert/strict";
 import { diff, merge3Text } from "../../src/text-merge.js";
 
 function apply(base, hunks) {
-  let out = "", pos = 0;
-  for (const h of hunks) { out += base.slice(pos, h.bs) + h.text; pos = h.be; }
+  let out = "",
+    pos = 0;
+  for (const h of hunks) {
+    out += base.slice(pos, h.bs) + h.text;
+    pos = h.be;
+  }
   return out + base.slice(pos);
 }
 
 test("diff round-trips arbitrary edits", () => {
   const cases = [
-    ["", "abc"], ["abc", ""], ["abc", "abc"], ["abc", "axc"], ["the lazy dog", "the sleepy dog"],
-    ["a\nb\nc", "a\nx\nc\nd"], ["😀x😀", "😀y😀"], ["aaaa", "aa"], ["kitten", "sitting"],
+    ["", "abc"],
+    ["abc", ""],
+    ["abc", "abc"],
+    ["abc", "axc"],
+    ["the lazy dog", "the sleepy dog"],
+    ["a\nb\nc", "a\nx\nc\nd"],
+    ["😀x😀", "😀y😀"],
+    ["aaaa", "aa"],
+    ["kitten", "sitting"],
   ];
-  for (const [a, b] of cases) assert.equal(apply(a, diff(a, b)), b, `${a} -> ${b}`);
+  for (const [a, b] of cases)
+    assert.equal(apply(a, diff(a, b)), b, `${a} -> ${b}`);
 });
 
 test("diff never splits a surrogate pair", () => {
@@ -31,12 +43,24 @@ test("T-T1 disjoint edits both apply", () => {
 
 test("T-T2 overlapping edits by policy", () => {
   const base = "the lazy dog";
-  assert.equal(merge3Text(base, "the LAZY dog", "the sleepy dog", "remote").text, "the sleepy dog");
-  assert.equal(merge3Text(base, "the LAZY dog", "the sleepy dog", "local").text, "the LAZY dog");
-  assert.equal(merge3Text(base, "the LAZY dog", "the sleepy dog", "both").text, "the LAZYsleepy dog");
+  assert.equal(
+    merge3Text(base, "the LAZY dog", "the sleepy dog", "remote").text,
+    "the sleepy dog",
+  );
+  assert.equal(
+    merge3Text(base, "the LAZY dog", "the sleepy dog", "local").text,
+    "the LAZY dog",
+  );
+  assert.equal(
+    merge3Text(base, "the LAZY dog", "the sleepy dog", "both").text,
+    "the LAZYsleepy dog",
+  );
   const r = merge3Text(base, "the LAZY dog", "the sleepy dog");
   assert.equal(r.conflicts.length, 1);
-  assert.deepEqual([r.conflicts[0].local, r.conflicts[0].remote], ["LAZY", "sleepy"]);
+  assert.deepEqual(
+    [r.conflicts[0].local, r.conflicts[0].remote],
+    ["LAZY", "sleepy"],
+  );
 });
 
 test("T-T3 two insertions at the same offset: local first, no conflict", () => {
@@ -65,15 +89,15 @@ test("fast paths", () => {
 
 test("T-T6 mapLocalOffset before, inside, after a remote hunk", () => {
   const base = "The lazy dog sleeps.";
-  const local = "The lazy dog sleeps!";     // local edited the end
+  const local = "The lazy dog sleeps!"; // local edited the end
   const remote = "The sleepy dog sleeps."; // remote replaced "lazy" (4..8) with "sleepy"
   const r = merge3Text(base, local, remote);
   assert.equal(r.text, "The sleepy dog sleeps!");
-  assert.equal(r.mapLocalOffset(2), 2);              // before
+  assert.equal(r.mapLocalOffset(2), 2); // before
   // inside the remote hunk -> after it; the trailing "y" is shared base text,
   // so the hunk is [4,7) "sleep" and the caret lands after "sleep"
   assert.equal(r.mapLocalOffset(6), 9);
-  assert.equal(r.mapLocalOffset(13), 15);            // after: shifted by +2
+  assert.equal(r.mapLocalOffset(13), 15); // after: shifted by +2
   assert.equal(r.mapLocalOffset(local.length), r.text.length);
 });
 

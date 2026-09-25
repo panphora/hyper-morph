@@ -60,11 +60,6 @@ describe("Core morphing tests", function () {
     initial.outerHTML.should.equal("<button>Bar</button>");
   });
 
-
-
-
-
-
   it("morphs innerHTML as content properly when argument is null", function () {
     let initial = make("<div>Foo</div>");
     Idiomorph.morph(initial, null, { morphStyle: "innerHTML" });
@@ -116,7 +111,6 @@ describe("Core morphing tests", function () {
     initial.outerHTML.should.equal("<div></div>");
   });
 
-
   it("can morph a template tag properly", function () {
     let initial = make("<template data-old>Foo</template>");
     let final = make("<template data-new>Bar</template>");
@@ -130,7 +124,6 @@ describe("Core morphing tests", function () {
     Idiomorph.morph(initial, final);
     initial.outerHTML.should.equal(final);
   });
-
 
   it("can morph a body tag properly", function () {
     let initial = parseHTML("<body>Foo</body>");
@@ -448,8 +441,6 @@ describe("Core morphing tests", function () {
       .should.eql([false, true]);
   });
 
-
-
   it("add loc coverage for findSoftMatch aborting on two future soft matches", function () {
     // when nodes can't be softMatched because they have different types it will scan ahead
     // but it aborts the scan ahead if it finds two nodes ahead in both the new and old content
@@ -461,7 +452,6 @@ describe("Core morphing tests", function () {
     Idiomorph.morph(initial.body, final.body);
     initial.body.outerHTML.should.equal(finalSrc);
   });
-
 
   it("do not build id in new content parent into persistent id set", function () {
     let initial = make("<span><div id='a'>Foo</div></span>");

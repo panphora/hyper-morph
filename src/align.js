@@ -39,22 +39,40 @@ const POSITIONAL_LOOKAHEAD = 3;
  */
 export function align(baseRoot, sideRoot, o) {
   const { meta, unitsOf, unitHash, similar } = o.analyzer;
-  const map = new Map(), reverse = new Map();
-  const moved = new Set(), identical = new Set();
+  const map = new Map(),
+    reverse = new Map();
+  const moved = new Set(),
+    identical = new Set();
   const visited = new Set();
-  const unpairedBase = [], unpairedSide = [];
+  const unpairedBase = [],
+    unpairedSide = [];
   const queue = [];
   let budget = MOVE_BUDGET;
+  let posB = new Map(),
+    posS = new Map();
 
-  const pair = (b, s) => { map.set(b, s); reverse.set(s, b); };
+  const pair = (b, s) => {
+    map.set(b, s);
+    reverse.set(s, b);
+  };
   const isEl = (u) => !!u && u.nodeType === 1;
   const codeLike = (el) => CODE_LIKE.has(el.tagName);
+
+  const prof = globalThis.__hyperMorphProfile;
+  let t0 = prof ? performance.now() : 0;
+  if (prof) {
+    meta(baseRoot);
+    meta(sideRoot);
+    prof.meta = (prof.meta || 0) + (performance.now() - t0);
+    t0 = performance.now();
+  }
 
   // Pass 1: identity.
   pair(baseRoot, sideRoot);
   for (const [id, b] of o.baseIndex) {
     const s = o.sideIndex.get(id);
-    if (s && s.tagName === b.tagName && !map.has(b) && !reverse.has(s)) pair(b, s);
+    if (s && s.tagName === b.tagName && !map.has(b) && !reverse.has(s))
+      pair(b, s);
   }
 
   // Pass 2: structure, from the root and from every identity pair.
@@ -65,8 +83,9 @@ export function align(baseRoot, sideRoot, o) {
   // Pass 3: moves, then the children of moved pairs.
   moves();
   drain();
+  if (prof) prof.align = (prof.align || 0) + (performance.now() - t0);
 
-  return { map, reverse, moved, identical };
+  return { map, reverse, moved, identical, pairIdenticalChildren };
 
   function drain() {
     while (queue.length) {
@@ -78,14 +97,35 @@ export function align(baseRoot, sideRoot, o) {
 
   function alignKids(bEl, sEl) {
     visited.add(bEl);
-    const bUnits = unitsOf(bEl), sUnits = unitsOf(sEl);
+    const bUnits = unitsOf(bEl),
+      sUnits = unitsOf(sEl);
+    // Positions are looked up many times per pass; never scan for them.
+    posB = new Map();
+    posS = new Map();
+    for (let i = 0; i < bUnits.length; i++) posB.set(bUnits[i], i);
+    for (let i = 0; i < sUnits.length; i++) posS.set(sUnits[i], i);
     // Structural singletons always correspond, whatever their content.
     if (bEl.tagName === "HTML") {
       for (const tag of ["HEAD", "BODY"]) {
-        const b = bUnits.find((u) => isEl(u) && u.tagName === tag), s = sUnits.find((u) => isEl(u) && u.tagName === tag);
+        const b = bUnits.find((u) => isEl(u) && u.tagName === tag),
+          s = sUnits.find((u) => isEl(u) && u.tagName === tag);
         if (b && s && !map.has(b) && !reverse.has(s)) pair(b, s);
       }
     }
+    // Pass 0: same index, equal subtree. Native and cheap, and it pairs
+    // nearly everything on an ordinary edit, so hashing only touches the
+    // remainder.
+    for (let i = 0; i < bUnits.length && i < sUnits.length; i++) {
+      const b = bUnits[i],
+        s = sUnits[i];
+      if (map.has(b) || reverse.has(s)) continue;
+      if (isEl(b)) {
+        if (isEl(s) && b.tagName === s.tagName && b.isEqualNode(s))
+          lockstep(b, s);
+      } else if (!isEl(s) && b.kind === s.kind && b.value === s.value)
+        lockstep(b, s);
+    }
+    pairUnambiguous(bUnits, sUnits);
     const freeB = bUnits.filter((u) => !map.has(u));
     const freeS = sUnits.filter((u) => !reverse.has(u));
     if (freeB.length && freeS.length) {
@@ -95,16 +135,24 @@ export function align(baseRoot, sideRoot, o) {
       passPositional(bUnits, sUnits);
     }
     for (const u of bUnits) {
-      if (!map.has(u)) { if (isEl(u)) unpairedBase.push(u); continue; }
+      if (!map.has(u)) {
+        if (isEl(u)) unpairedBase.push(u);
+        continue;
+      }
       if (isEl(u) && !identical.has(u)) queue.push([u, map.get(u)]);
     }
-    for (const u of sUnits) if (!reverse.has(u) && isEl(u)) unpairedSide.push(u);
+    for (const u of sUnits)
+      if (!reverse.has(u) && isEl(u)) unpairedSide.push(u);
   }
 
   function passIdentical(freeB, freeS) {
-    const byHashB = countBy(freeB, unitHash), byHashS = countBy(freeS, unitHash);
+    const byHashB = countBy(freeB, unitHash),
+      byHashS = countBy(freeS, unitHash);
     const sideByHash = new Map();
-    for (const s of freeS) { const h = unitHash(s); if (byHashS.get(h) === 1) sideByHash.set(h, s); }
+    for (const s of freeS) {
+      const h = unitHash(s);
+      if (byHashS.get(h) === 1) sideByHash.set(h, s);
+    }
     for (const b of freeB) {
       if (map.has(b)) continue;
       const h = unitHash(b);
@@ -122,17 +170,33 @@ export function align(baseRoot, sideRoot, o) {
   function lockstep(b, s) {
     pair(b, s);
     identical.add(b);
-    if (!isEl(b)) return;
-    visited.add(b);
-    const bu = unitsOf(b), su = unitsOf(s);
-    for (let i = 0; i < bu.length && i < su.length; i++) lockstep(bu[i], su[i]);
+    if (isEl(b)) visited.add(b);
+  }
+
+  /**
+   * Pair the children of an identical pair, one level, on demand. A merge
+   * that descends into an identical subtree (hooks present, or a children
+   * only morph) needs the pairs; one that skips it never pays for them.
+   */
+  function pairIdenticalChildren(b) {
+    const s = map.get(b);
+    if (!s || !isEl(b)) return;
+    const bu = unitsOf(b),
+      su = unitsOf(s);
+    for (let i = 0; i < bu.length && i < su.length; i++)
+      if (!map.has(bu[i])) lockstep(bu[i], su[i]);
   }
 
   function passSigHint(freeB, freeS) {
-    const key = (u) => (isEl(u) && !codeLike(u) ? meta(u).sig + "\u0003" + meta(u).hint : null);
-    const cb = countBy(freeB, key), cs = countBy(freeS, key);
+    const key = (u) =>
+      isEl(u) && !codeLike(u) ? meta(u).sig + "\u0003" + meta(u).hint : null;
+    const cb = countBy(freeB, key),
+      cs = countBy(freeS, key);
     const sideByKey = new Map();
-    for (const s of freeS) { const k = key(s); if (k != null && cs.get(k) === 1) sideByKey.set(k, s); }
+    for (const s of freeS) {
+      const k = key(s);
+      if (k != null && cs.get(k) === 1) sideByKey.set(k, s);
+    }
     for (const b of freeB) {
       if (map.has(b)) continue;
       const k = key(b);
@@ -148,18 +212,23 @@ export function align(baseRoot, sideRoot, o) {
       if (!isEl(s) || reverse.has(s) || codeLike(s)) continue;
       const sig = meta(s).sig;
       if (!buckets.has(sig)) buckets.set(sig, []);
-      buckets.get(sig).push({ el: s, index: sUnits.indexOf(s) });
+      buckets.get(sig).push({ el: s, index: posS.get(s) });
     }
     for (const b of freeB) {
       if (map.has(b) || !isEl(b) || codeLike(b)) continue;
       const bucket = buckets.get(meta(b).sig);
       if (!bucket || !bucket.length) continue;
-      const bi = bUnits.indexOf(b);
-      let cands = bucket.filter((c) => !reverse.has(c.el)).map((c) => ({ c, d: Math.abs(c.index - bi) }));
+      const bi = posB.get(b);
+      let cands = bucket
+        .filter((c) => !reverse.has(c.el))
+        .map((c) => ({ c, d: Math.abs(c.index - bi) }));
       cands.sort((x, y) => x.d - y.d);
       if (cands.length > NEAREST_WINDOW) cands = cands.slice(0, NEAREST_WINDOW);
       for (const { c } of cands) {
-        if (similar(b, c.el)) { pair(b, c.el); break; }
+        if (similar(b, c.el)) {
+          pair(b, c.el);
+          break;
+        }
       }
     }
   }
@@ -186,13 +255,17 @@ export function align(baseRoot, sideRoot, o) {
    */
   function pairRunsByAnchor(bUnits, sUnits) {
     const runAfter = (units, el) => {
-      const i = el === null ? -1 : units.indexOf(el);
+      const i =
+        el === null ? -1 : units === sUnits ? posS.get(el) : posB.get(el);
       const next = units[i + 1];
       return next && !isEl(next) ? next : null;
     };
     let prevEl = null;
     for (const b of bUnits) {
-      if (isEl(b)) { prevEl = b; continue; }
+      if (isEl(b)) {
+        prevEl = b;
+        continue;
+      }
       if (map.has(b)) continue;
       const twin = prevEl === null ? null : map.get(prevEl);
       if (prevEl !== null && !twin) continue;
@@ -206,35 +279,54 @@ export function align(baseRoot, sideRoot, o) {
     let cursor = 0;
     for (const b of bUnits) {
       if (map.has(b)) {
-        const si = sUnits.indexOf(map.get(b));
-        if (si >= cursor) cursor = si + 1;
+        const si = posS.get(map.get(b));
+        if (si !== undefined && si >= cursor) cursor = si + 1;
         continue;
       }
       let looked = 0;
-      for (let i = cursor; i < sUnits.length && looked < POSITIONAL_LOOKAHEAD; i++) {
+      for (
+        let i = cursor;
+        i < sUnits.length && looked < POSITIONAL_LOOKAHEAD;
+        i++
+      ) {
         const s = sUnits[i];
         if (reverse.has(s)) continue;
         looked++;
-        if (compatible(b, s)) { pair(b, s); cursor = i + 1; break; }
+        if (compatible(b, s)) {
+          pair(b, s);
+          cursor = i + 1;
+          break;
+        }
       }
     }
-    // Unambiguous replacement: when exactly one element of a tag is left
-    // unpaired on each side and both sit at the same index, they are the same
-    // slot with rewritten content (a heading retitled, a button relabeled).
-    // With any second candidate the shift could be an insertion, so no pair.
-    const leftB = bUnits.filter((u) => isEl(u) && !map.has(u)), leftS = sUnits.filter((u) => isEl(u) && !reverse.has(u));
+    pairUnambiguous(bUnits, sUnits);
+  }
+
+  /**
+   * Unambiguous replacement: exactly one element of a tag is unpaired on
+   * each side and both sit at the same index. That is the same slot with
+   * rewritten content (a heading retitled, a container whose insides
+   * changed). With any second candidate the shift could be an insertion,
+   * so no pair. Runs before the hash passes because it needs no hashing,
+   * which keeps an ordinary edit from hashing the whole document.
+   */
+  function pairUnambiguous(bUnits, sUnits) {
+    const leftB = bUnits.filter((u) => isEl(u) && !map.has(u)),
+      leftS = sUnits.filter((u) => isEl(u) && !reverse.has(u));
     if (!leftB.length || !leftS.length) return;
-    const byTagB = countBy(leftB, (u) => u.tagName), byTagS = countBy(leftS, (u) => u.tagName);
+    const byTagB = countBy(leftB, (u) => u.tagName),
+      byTagS = countBy(leftS, (u) => u.tagName);
     for (const b of leftB) {
       const tag = b.tagName;
       if (byTagB.get(tag) !== 1 || byTagS.get(tag) !== 1) continue;
       const s = leftS.find((u) => u.tagName === tag);
-      if (s && bUnits.indexOf(b) === sUnits.indexOf(s) && !codeLike(b) === !codeLike(s)) pair(b, s);
+      if (s && !reverse.has(s) && posB.get(b) === posS.get(s)) pair(b, s);
     }
   }
 
   function moves() {
-    const byHash = new Map(), bySig = new Map();
+    const byHash = new Map(),
+      bySig = new Map();
     for (const s of unpairedSide) {
       if (reverse.has(s)) continue;
       const h = meta(s).hash;
@@ -250,18 +342,31 @@ export function align(baseRoot, sideRoot, o) {
       const same = byHash.get(meta(b).hash);
       if (same) {
         const s = same.find((x) => !reverse.has(x));
-        if (s) { lockstep(b, s); moved.add(b); continue; }
+        if (s) {
+          lockstep(b, s);
+          moved.add(b);
+          continue;
+        }
       }
       if (codeLike(b) || budget <= 0) continue;
       const bucket = bySig.get(meta(b).sig);
       if (!bucket) continue;
-      let hit = null, count = 0;
+      let hit = null,
+        count = 0;
       for (const s of bucket) {
         if (reverse.has(s)) continue;
         if (budget-- <= 0) break;
-        if (similar(b, s)) { count++; hit = s; if (count > 1) break; }
+        if (similar(b, s)) {
+          count++;
+          hit = s;
+          if (count > 1) break;
+        }
       }
-      if (count === 1) { pair(b, hit); moved.add(b); queue.push([b, hit]); }
+      if (count === 1) {
+        pair(b, hit);
+        moved.add(b);
+        queue.push([b, hit]);
+      }
     }
   }
 }

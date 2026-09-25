@@ -75,9 +75,7 @@ describe("config.key matching", function () {
     // key-pair with old `liA`, swapping its text to "B". With dup handling,
     // key "x" is disqualified and content scoring pairs by text — `liA`
     // moves to position 1 to stay with text "A".
-    let old = make(
-      '<ul><li data-id="x">A</li><li data-id="other">B</li></ul>',
-    );
+    let old = make('<ul><li data-id="x">A</li><li data-id="other">B</li></ul>');
     let liA = old.children[0];
     Idiomorph.morph(
       old,
@@ -85,14 +83,14 @@ describe("config.key matching", function () {
       { key: keyByDataId },
     );
     old.children[1].should.equal(liA);
-    old.children[1].textContent.should.equal('A');
+    old.children[1].textContent.should.equal("A");
   });
 
   it("key returning null for all elements is a no-op", function () {
-    let old = make('<ul><li>Apple</li><li>Banana</li></ul>');
+    let old = make("<ul><li>Apple</li><li>Banana</li></ul>");
     let liApple = old.children[0];
     let liBanana = old.children[1];
-    Idiomorph.morph(old, '<ul><li>Banana</li><li>Apple</li></ul>', {
+    Idiomorph.morph(old, "<ul><li>Banana</li><li>Apple</li></ul>", {
       key: () => null,
     });
     // Identical to running without key — content scoring swaps them.

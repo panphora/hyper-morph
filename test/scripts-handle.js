@@ -61,7 +61,6 @@ describe("Body script handling (scripts.handle)", function () {
     window.__x.should.equal(1);
   });
 
-
   it("does not execute scripts inside sync-ignored regions", function () {
     window.__x = 0;
     const el = make("<div><p>hi</p></div>");

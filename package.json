@@ -1,52 +1,55 @@
 {
   "name": "hyper-morph",
-  "description": "content-based DOM morphing library",
+  "description": "Three-way merge of HTML documents applied to a live DOM: character-level text merging, identity without ids, and a report of every decision",
   "keywords": [
     "HTML",
     "DOM",
     "morph",
-    "diff"
+    "merge",
+    "three-way",
+    "diff",
+    "collaboration"
   ],
-  "version": "0.5.4",
+  "version": "1.0.0",
   "homepage": "https://github.com/panphora/hyper-morph",
   "bugs": {
     "url": "https://github.com/panphora/hyper-morph/issues"
   },
   "license": "MIT-0",
   "files": [
-    "packed-contract.json",
     "LICENSE",
     "README.md",
+    "CHANGELOG.md",
     "THIRD-PARTY-NOTICES.md",
     "src",
     "dist/*.js"
   ],
-  "main": "src/hyper-morph.js",
-  "module": "src/hyper-morph.js",
+  "main": "src/index.js",
+  "module": "src/index.js",
   "type": "module",
   "exports": {
-    ".": "./src/hyper-morph.js",
-    "./matcher": "./src/hyper-morph-matcher.js",
+    ".": "./src/index.js",
     "./json-merge": "./src/hyper-morph-json-merge.js",
-    "./json-parse": "./src/hyper-morph-json-parse.js"
+    "./json-parse": "./src/hyper-morph-json-parse.js",
+    "./splice": "./src/legacy-splice.js",
+    "./text-merge": "./src/text-merge.js"
   },
   "scripts": {
-    "build": "npx esbuild src/hyper-morph.js --bundle --minify --format=iife --global-name=HyperMorph --outfile=dist/hyper-morph.min.js",
-    "copy-to-hyperclayjs": "npm run build && node scripts/propagate.js --only hyperclayjs",
-    "copy-to-clayjs": "npm run build && node scripts/propagate.js --only clayjs",
+    "build": "esbuild src/index.js --bundle --minify --format=iife --global-name=HyperMorph --outfile=dist/hyper-morph.min.js",
     "dev": "http-server . -p 5692 -o demo/index.html",
-    "test": "web-test-runner",
+    "test": "npm run test:node && npm run test:chrome",
+    "test:node": "node --test \"test/node/**/*.test.js\"",
+    "test:browser": "web-test-runner",
     "test:debug": "web-test-runner --manual --open",
     "test:chrome": "web-test-runner --playwright --browsers chromium",
     "test:firefox": "web-test-runner --concurrency 1 --playwright --browsers firefox",
     "test:webkit": "web-test-runner --playwright --browsers webkit",
     "test:all": "web-test-runner --concurrency 1 --playwright --browsers chromium firefox webkit",
-    "test:ci": "npm run typecheck && npm run format:check && npm run test:all -- --fail-only && node test/lib/ensure-full-coverage.js",
+    "test:ci": "npm run format:check && npm run test:node && npm run test:chrome -- --fail-only",
     "test:coverage": "npm run test:chrome && node test/lib/ensure-full-coverage.js",
-    "perf": "node perf/runner.js",
+    "perf": "node perf/profile.mjs clean && node perf/profile.mjs dirty",
     "format": "prettier --write .",
-    "format:check": "prettier --check .",
-    "typecheck": "tsc"
+    "format:check": "prettier --check ."
   },
   "repository": {
     "type": "git",
@@ -57,9 +60,7 @@
     "@web/test-runner-playwright": "^0.11.0",
     "chai": "^4.3.6",
     "chai-dom": "^1.11.0",
-    "chromedriver": "latest",
     "esbuild": "^0.28.0",
-    "fs-extra": "^9.1.0",
     "htmx.org": "1.9.9",
     "http-server": "^14.1.1",
     "jsdom": "^24.1.3",
@@ -67,13 +68,6 @@
     "mocha": "^11.0.1",
     "playwright": "1.56.1",
     "prettier": "^3.4.2",
-    "sinon": "^9.2.4",
-    "tachometer": "^0.7.1",
-    "typescript": "^5.3.3",
-    "uglify-js": "^3.15.0"
-  },
-  "hyper": {
-    "kind": "lib",
-    "status": "active"
+    "sinon": "^9.2.4"
   }
 }

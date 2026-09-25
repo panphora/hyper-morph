@@ -41,12 +41,25 @@ export function headSignature(el, baseURI) {
   if (tag === "SCRIPT") return scriptSignature(el, baseURI);
   if (tag === "LINK") {
     const href = el.getAttribute("href");
-    if (href) return "link|" + (el.getAttribute("rel") || "") + "|" + absoluteWithoutHash(href, baseURI);
+    if (href)
+      return (
+        "link|" +
+        (el.getAttribute("rel") || "") +
+        "|" +
+        absoluteWithoutHash(href, baseURI)
+      );
     return el.outerHTML;
   }
   if (tag === "META") {
-    for (const name of ["charset", "name", "property", "http-equiv", "itemprop"]) {
-      if (el.hasAttribute(name)) return "meta|" + name + "=" + el.getAttribute(name);
+    for (const name of [
+      "charset",
+      "name",
+      "property",
+      "http-equiv",
+      "itemprop",
+    ]) {
+      if (el.hasAttribute(name))
+        return "meta|" + name + "=" + el.getAttribute(name);
     }
     return el.outerHTML;
   }

@@ -4,11 +4,22 @@
 function syncSplice(live, baseHtml, remoteHtml) {
   const base = parseHTML(baseHtml);
   const incoming = parseHTML(remoteHtml);
-  const { entries } = HyperMorph.findChangedRoots(live.documentElement, base.documentElement);
+  const { entries } = HyperMorph.findChangedRoots(
+    live.documentElement,
+    base.documentElement,
+  );
   const res = HyperMorph.spliceProtected(incoming, entries);
-  if (!res.ok) return { held: true, heldOn: res.held && res.held.el && res.held.el.tagName, entries: entries.map(e => e.type + ":" + e.el.tagName) };
+  if (!res.ok)
+    return {
+      held: true,
+      heldOn: res.held && res.held.el && res.held.el.tagName,
+      entries: entries.map((e) => e.type + ":" + e.el.tagName),
+    };
   HyperMorph.morph(live.documentElement, incoming.documentElement);
-  return { held: false, entries: entries.map(e => e.type + ":" + e.el.tagName) };
+  return {
+    held: false,
+    entries: entries.map((e) => e.type + ":" + e.el.tagName),
+  };
 }
 function syncPlain(live, remoteHtml) {
   HyperMorph.morph(live.documentElement, parseHTML(remoteHtml).documentElement);
@@ -21,37 +32,60 @@ describe("SCENARIOS against current library", function () {
     const base = doc(`<p>The quick brown fox jumps over the lazy dog.</p>`);
     const remote = doc(`<p>The quick brown fox jumps over the sleepy dog.</p>`);
     let live = parseHTML(base);
-    live.querySelector("p").firstChild.nodeValue = "Note: The quick brown fox jumps over the lazy dog.";
+    live.querySelector("p").firstChild.nodeValue =
+      "Note: The quick brown fox jumps over the lazy dog.";
     syncPlain(live, remote);
     log("S1 plain  ->", live.body.innerHTML);
     live = parseHTML(base);
-    live.querySelector("p").firstChild.nodeValue = "Note: The quick brown fox jumps over the lazy dog.";
+    live.querySelector("p").firstChild.nodeValue =
+      "Note: The quick brown fox jumps over the lazy dog.";
     const r = syncSplice(live, base, remote);
     log("S1 splice ->", JSON.stringify(r), "|", live.body.innerHTML);
   });
 
   it("S2 local reorders a keyless list while remote edits one item", function () {
-    const base = doc(`<ul><li>Apples</li><li>Bananas</li><li>Cherries</li></ul>`);
-    const remote = doc(`<ul><li>Apples</li><li>Bananas (organic)</li><li>Cherries</li></ul>`);
+    const base = doc(
+      `<ul><li>Apples</li><li>Bananas</li><li>Cherries</li></ul>`,
+    );
+    const remote = doc(
+      `<ul><li>Apples</li><li>Bananas (organic)</li><li>Cherries</li></ul>`,
+    );
     let live = parseHTML(base);
-    let ul = live.querySelector("ul"); ul.insertBefore(ul.lastElementChild, ul.firstElementChild);
+    let ul = live.querySelector("ul");
+    ul.insertBefore(ul.lastElementChild, ul.firstElementChild);
     const cherries = live.querySelector("li");
     syncPlain(live, remote);
-    log("S2 plain  ->", live.body.innerHTML, "| cherries node kept:", cherries.isConnected);
+    log(
+      "S2 plain  ->",
+      live.body.innerHTML,
+      "| cherries node kept:",
+      cherries.isConnected,
+    );
     live = parseHTML(base);
-    ul = live.querySelector("ul"); ul.insertBefore(ul.lastElementChild, ul.firstElementChild);
+    ul = live.querySelector("ul");
+    ul.insertBefore(ul.lastElementChild, ul.firstElementChild);
     const r = syncSplice(live, base, remote);
     log("S2 splice ->", JSON.stringify(r), "|", live.body.innerHTML);
   });
 
   it("S3 local drags a card to another column while remote edits its title", function () {
-    const base = doc(`<div class="col"><div class="card"><h3>Pricing</h3><video src="a.mp4"></video></div><div class="card"><h3>About</h3></div></div><div class="col"><div class="card"><h3>Team</h3></div></div>`);
-    const remote = doc(`<div class="col"><div class="card"><h3>Pricing plans</h3><video src="a.mp4"></video></div><div class="card"><h3>About</h3></div></div><div class="col"><div class="card"><h3>Team</h3></div></div>`);
+    const base = doc(
+      `<div class="col"><div class="card"><h3>Pricing</h3><video src="a.mp4"></video></div><div class="card"><h3>About</h3></div></div><div class="col"><div class="card"><h3>Team</h3></div></div>`,
+    );
+    const remote = doc(
+      `<div class="col"><div class="card"><h3>Pricing plans</h3><video src="a.mp4"></video></div><div class="card"><h3>About</h3></div></div><div class="col"><div class="card"><h3>Team</h3></div></div>`,
+    );
     let live = parseHTML(base);
-    let card = live.querySelector(".card"); const video = card.querySelector("video");
+    let card = live.querySelector(".card");
+    const video = card.querySelector("video");
     live.querySelectorAll(".col")[1].appendChild(card);
     syncPlain(live, remote);
-    log("S3 plain  ->", live.body.innerHTML, "| video node kept:", video.isConnected);
+    log(
+      "S3 plain  ->",
+      live.body.innerHTML,
+      "| video node kept:",
+      video.isConnected,
+    );
     live = parseHTML(base);
     card = live.querySelector(".card");
     live.querySelectorAll(".col")[1].appendChild(card);
@@ -61,7 +95,9 @@ describe("SCENARIOS against current library", function () {
 
   it("S4 both users append to the same list", function () {
     const base = doc(`<ul><li>Apples</li><li>Bananas</li></ul>`);
-    const remote = doc(`<ul><li>Apples</li><li>Bananas</li><li>Elderberries</li></ul>`);
+    const remote = doc(
+      `<ul><li>Apples</li><li>Bananas</li><li>Elderberries</li></ul>`,
+    );
     let live = parseHTML(base);
     live.querySelector("ul").insertAdjacentHTML("beforeend", "<li>Dates</li>");
     syncPlain(live, remote);
@@ -117,17 +153,35 @@ describe("SCENARIOS against current library", function () {
     const p = wa.querySelector("#a");
     p.focus();
     p.firstChild.nodeValue = "Hello brave world";
-    const sel = window.getSelection(); const rng = document.createRange();
-    rng.setStart(p.firstChild, 11); rng.collapse(true); sel.removeAllRanges(); sel.addRange(rng);
-    HyperMorph.morph(wa, `<pre id="work-area" hx-ext="morph"><article><p contenteditable id="a">Hello world</p><p>Other edited</p></article></pre>`);
+    const sel = window.getSelection();
+    const rng = document.createRange();
+    rng.setStart(p.firstChild, 11);
+    rng.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(rng);
+    HyperMorph.morph(
+      wa,
+      `<pre id="work-area" hx-ext="morph"><article><p contenteditable id="a">Hello world</p><p>Other edited</p></article></pre>`,
+    );
     const s = window.getSelection();
-    log("S8 plain  ->", wa.innerHTML, "| active:", document.activeElement && document.activeElement.id, "| caret:", s.rangeCount ? s.getRangeAt(0).startOffset : "none");
+    log(
+      "S8 plain  ->",
+      wa.innerHTML,
+      "| active:",
+      document.activeElement && document.activeElement.id,
+      "| caret:",
+      s.rangeCount ? s.getRangeAt(0).startOffset : "none",
+    );
   });
 
   it("S9 page with doctype, whole-document sync", function () {
     const live = parseHTML(`<!DOCTYPE html>` + doc(`<p>a</p>`));
     let err = null;
-    try { HyperMorph.morph(live, `<!DOCTYPE html>` + doc(`<p>b</p>`)); } catch (e) { err = String(e); }
+    try {
+      HyperMorph.morph(live, `<!DOCTYPE html>` + doc(`<p>b</p>`));
+    } catch (e) {
+      err = String(e);
+    }
     log("S9 plain  ->", err || live.body.innerHTML);
   });
 });

@@ -45,14 +45,14 @@ pipeline either discards one person's work or applies nothing at all.
 
 ## Measured defects
 
-| Check | Result |
-|---|---|
-| Full suite (Chromium, Playwright 1.56.1) | 606 pass, 4 fail, 15 skipped, 97.6% coverage |
-| `morph(document, "<!DOCTYPE html>...")` | throws `HierarchyRequestError: Only one doctype on document allowed` |
-| `morph(doc.documentElement, "<!DOCTYPE html>...")` | same throw |
-| Attached element as new content with a nested `no-save` descendant | throws `TypeError: newContent.contains is not a function` |
-| `innerHTML` morph of one `documentElement` into another | produces `<html><html>...</html></html>` |
-| 3000-element page, one text edit | 758 ms; upstream Idiomorph 277 ms on the same input |
+| Check                                                              | Result                                                               |
+| ------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| Full suite (Chromium, Playwright 1.56.1)                           | 606 pass, 4 fail, 15 skipped, 97.6% coverage                         |
+| `morph(document, "<!DOCTYPE html>...")`                            | throws `HierarchyRequestError: Only one doctype on document allowed` |
+| `morph(doc.documentElement, "<!DOCTYPE html>...")`                 | same throw                                                           |
+| Attached element as new content with a nested `no-save` descendant | throws `TypeError: newContent.contains is not a function`            |
+| `innerHTML` morph of one `documentElement` into another            | produces `<html><html>...</html></html>`                             |
+| 3000-element page, one text edit                                   | 758 ms; upstream Idiomorph 277 ms on the same input                  |
 
 - **Doctype crash.** Inherited from Idiomorph. ClayJS avoids it only because
   it morphs `documentElement` against a parsed `documentElement`, never a
@@ -109,12 +109,12 @@ ClayJS source at v1.4.0.
 ClayJS never keeps a shadow DOM tree in sync with the page. It keeps
 serialized strings and re-parses them when needed:
 
-| Baseline | Owner | Domain | Advances when |
-|---|---|---|---|
-| `lastHtml` + `_lastIdentityMap` | `sync/live-sync.js` | snapshot domain (what peers see) | own relay POST succeeds; a peer frame applies (set to the raw frame, never the merged result); a clean disk apply |
-| `lastSavedContents` | `core/save.js` | autosave-comparison domain | a save lands; a verified-clean sync apply |
-| `lastSavedDirty` | `core/save.js` | dirty domain (keeps `no-trigger-autosave`) | same as above |
-| source-map model | `core/source-map.js` | the file's own bytes | boot fetch; accepted save; re-pair on `clay:sync-applied` |
+| Baseline                        | Owner                | Domain                                     | Advances when                                                                                                     |
+| ------------------------------- | -------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `lastHtml` + `_lastIdentityMap` | `sync/live-sync.js`  | snapshot domain (what peers see)           | own relay POST succeeds; a peer frame applies (set to the raw frame, never the merged result); a clean disk apply |
+| `lastSavedContents`             | `core/save.js`       | autosave-comparison domain                 | a save lands; a verified-clean sync apply                                                                         |
+| `lastSavedDirty`                | `core/save.js`       | dirty domain (keeps `no-trigger-autosave`) | same as above                                                                                                     |
+| source-map model                | `core/source-map.js` | the file's own bytes                       | boot fetch; accepted save; re-pair on `clay:sync-applied`                                                         |
 
 Parsing is memoized one-deep per lane (`splice-merge.js` `makeParseCache`)
 because a typing burst reuses the same base string across frames.
@@ -134,12 +134,12 @@ WeakMap from every clone node to its live node (`originalSnapshotNode`).
 Then, in order: snapshot hooks (form values written into attributes),
 authored URL restore, `onbeforesnapshot` handlers, extension-noise strip.
 
-| Domain | What is stripped | Used for |
-|---|---|---|
-| snapshot | `no-snapshot` only | live-sync wire (`serializeForSync` also drops tab-local root attrs) |
-| save | plus `no-save`, transforms, `freeze` restore | the file |
-| comparison | `no-save`, `freeze`, `no-trigger-autosave`, `no-dirty`, `no-watch`; `onbeforesave` and every document transform run (inert forms, root library attrs stripped) | "should this autosave" |
-| dirty | like comparison but keeps `no-trigger-autosave` | "would the person lose work", and today's disk-lane merge base |
+| Domain     | What is stripped                                                                                                                                               | Used for                                                            |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| snapshot   | `no-snapshot` only                                                                                                                                             | live-sync wire (`serializeForSync` also drops tab-local root attrs) |
+| save       | plus `no-save`, transforms, `freeze` restore                                                                                                                   | the file                                                            |
+| comparison | `no-save`, `freeze`, `no-trigger-autosave`, `no-dirty`, `no-watch`; `onbeforesave` and every document transform run (inert forms, root library attrs stripped) | "should this autosave"                                              |
+| dirty      | like comparison but keeps `no-trigger-autosave`                                                                                                                | "would the person lose work", and today's disk-lane merge base      |
 
 Both save baselines are therefore inert-form, transform-run strings, while
 the live DOM and the snapshot clone are activated. That mismatch is why the
@@ -281,70 +281,70 @@ remote. None of the elements below carry ids.
 Base `<p>The quick brown fox jumps over the lazy dog.</p>`. Local prepends
 "Note: ". Remote changes "lazy" to "sleepy".
 
-| | Result |
-|---|---|
-| plain | `<p>The quick brown fox jumps over the sleepy dog.</p>` (local edit lost) |
-| splice | held on BODY; nothing applied, remote edit never lands while local stays dirty |
-| prototype | `<p>Note: The quick brown fox jumps over the sleepy dog.</p>` |
+|           | Result                                                                         |
+| --------- | ------------------------------------------------------------------------------ |
+| plain     | `<p>The quick brown fox jumps over the sleepy dog.</p>` (local edit lost)      |
+| splice    | held on BODY; nothing applied, remote edit never lands while local stays dirty |
+| prototype | `<p>Note: The quick brown fox jumps over the sleepy dog.</p>`                  |
 
 ### S1b: two people edit the same word
 
 Base `the lazy dog`, local `the LAZY dog`, remote `the sleepy dog`.
 
-| | Result |
-|---|---|
+|           | Result                                                                                                                     |
+| --------- | -------------------------------------------------------------------------------------------------------------------------- |
 | prototype | `the sleepy dog`, reported as a text conflict (remote wins the overlapping hunk; the report lets the UI offer "keep mine") |
 
 ### S2: local reorders a keyless list while remote edits one item
 
-| | Result |
-|---|---|
-| plain | remote order wins, local reorder silently reverted, then saved as reverted |
-| splice | held on BODY |
-| prototype | `Cherries, Apples, Bananas (organic)` (both survive) |
+|           | Result                                                                     |
+| --------- | -------------------------------------------------------------------------- |
+| plain     | remote order wins, local reorder silently reverted, then saved as reverted |
+| splice    | held on BODY                                                               |
+| prototype | `Cherries, Apples, Bananas (organic)` (both survive)                       |
 
 ### S3: local drags a card to another column; remote edits its title
 
 The card contains a `<video>`.
 
-| | Result |
-|---|---|
-| plain | card recreated (video node lost, playback reset), move reverted |
-| splice | held on BODY |
+|           | Result                                                                                                                                            |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| plain     | card recreated (video node lost, playback reset), move reverted                                                                                   |
+| splice    | held on BODY                                                                                                                                      |
 | prototype | card in the new column with the new title; the merge output records that the card corresponds to the local card, so apply moves the existing node |
 
 ### S4: both users append to the same list
 
-| | Result |
-|---|---|
-| plain | local "Dates" deleted |
-| splice | held on BODY |
+|           | Result                                 |
+| --------- | -------------------------------------- |
+| plain     | local "Dates" deleted                  |
+| splice    | held on BODY                           |
 | prototype | `Apples, Bananas, Dates, Elderberries` |
 
 ### S5: attribute edits on different elements
 
 Local sets `style` on `<h1>`; remote adds a class on the `<section>`.
 
-| | Result |
-|---|---|
-| plain | local `style` lost |
-| splice | held on BODY (a keyless attribute edit promotes to the parent) |
-| prototype | both attributes present |
+|           | Result                                                         |
+| --------- | -------------------------------------------------------------- |
+| plain     | local `style` lost                                             |
+| splice    | held on BODY (a keyless attribute edit promotes to the parent) |
+| prototype | both attributes present                                        |
 
 ### S6: different attributes on the same element
 
-| | Result |
-|---|---|
-| plain | local `class` lost |
-| splice | held on BODY |
+|           | Result                              |
+| --------- | ----------------------------------- |
+| plain     | local `class` lost                  |
+| splice    | held on BODY                        |
 | prototype | `<div class="box open" data-x="2">` |
 
 ### S7: remote deletes the paragraph local is editing, and adds another
 
-| | Result |
-|---|---|
-| plain | local edit destroyed with the paragraph |
-| splice | held on BODY |
+|           | Result                                                                                  |
+| --------- | --------------------------------------------------------------------------------------- |
+| plain     | local edit destroyed with the paragraph                                                 |
+| splice    | held on BODY                                                                            |
 | prototype | `One, "Two, edited locally", Three, Four` (edits beat deletes; the new paragraph lands) |
 
 S7 also produced the one bug in the prototype, which the specification now
@@ -355,25 +355,25 @@ key requires similar text (Part 4.6).
 
 ### S8: typing in a contenteditable while a remote edit lands elsewhere
 
-| | Result |
-|---|---|
-| plain | local typing reverted to the frame's text; caret moved to offset 0 |
+|            | Result                                                                                |
+| ---------- | ------------------------------------------------------------------------------------- |
+| plain      | local typing reverted to the frame's text; caret moved to offset 0                    |
 | new design | text merged; caret mapped through the merge hunks to its logical position (Part 4.10) |
 
 ### S9: whole-document sync of a page with a doctype
 
-| | Result |
-|---|---|
-| plain | throws |
+|            | Result                               |
+| ---------- | ------------------------------------ |
+| plain      | throws                               |
 | new design | doctype synced explicitly (Part 4.4) |
 
 ### S10: performance, 3000-element page, one edit
 
-| | Result |
-|---|---|
-| current, clean tab | 758 ms |
+|                    | Result                                         |
+| ------------------ | ---------------------------------------------- |
+| current, clean tab | 758 ms                                         |
 | current, dirty tab | 758 ms plus a full capture and diff, or a hold |
-| target | 40 ms merge plus apply, measured in CI |
+| target             | 40 ms merge plus apply, measured in CI         |
 
 ### Why the current pipeline holds
 
@@ -471,7 +471,11 @@ type MergeOptions = {
   // such nodes are skipped at apply, never inserted [I11].
   local?: { root: Element; toLive: (n: Node) => Node | null };
 
-  identity?: { base?: IdentitySpec; local?: IdentitySpec; remote?: IdentitySpec };
+  identity?: {
+    base?: IdentitySpec;
+    local?: IdentitySpec;
+    remote?: IdentitySpec;
+  };
   // Default for every side: data-id, then id.
 
   // Never touched on the live side, never imported from the remote side,
@@ -487,12 +491,12 @@ type MergeOptions = {
   // Default () => false. ClayJS maps its tab-local root attributes here [C5].
   ignoreAttribute?: (el: Element, name: string) => boolean;
 
-  conflicts?: "remote" | "local" | "both";  // default "remote"; "both" is text only, attributes use "remote" [I17]
-  protectFocusedValue?: boolean;             // default true
-  head?: { awaitLoads?: boolean; preserve?: (el: Element) => boolean };   // awaitLoads default false
-  scripts?: { execute?: boolean; mergeTags?: MergeTagRecognizer[] };      // execute default true
-  formState?: "attribute" | "property";     // default "attribute"
-  children?: boolean;                        // morphElement only
+  conflicts?: "remote" | "local" | "both"; // default "remote"; "both" is text only, attributes use "remote" [I17]
+  protectFocusedValue?: boolean; // default true
+  head?: { awaitLoads?: boolean; preserve?: (el: Element) => boolean }; // awaitLoads default false
+  scripts?: { execute?: boolean; mergeTags?: MergeTagRecognizer[] }; // execute default true
+  formState?: "attribute" | "property"; // default "attribute"
+  children?: boolean; // morphElement only
 
   hooks?: {
     beforeNodeAdded?: (n: Node) => boolean | void;
@@ -501,7 +505,11 @@ type MergeOptions = {
     afterNodeRemoved?: (n: Node) => void;
     beforeNodeMorphed?: (oldN: Node, newN: Node) => boolean | void;
     afterNodeMorphed?: (oldN: Node, newN: Node) => void;
-    beforeAttributeUpdated?: (name: string, el: Element, kind: "update" | "remove") => boolean | void;
+    beforeAttributeUpdated?: (
+      name: string,
+      el: Element,
+      kind: "update" | "remove",
+    ) => boolean | void;
   };
 };
 
@@ -523,40 +531,80 @@ type MergeReport = {
   // own record with the remote id, which is how ids converge across tabs
   // after one round trip [C1].
   identities: Array<[Element, string]>;
-  moved: Element[];     // live elements that changed parent
-  replaced: Element[];  // live elements removed and recreated (no local twin)
+  moved: Element[]; // live elements that changed parent
+  replaced: Element[]; // live elements removed and recreated (no local twin)
 };
 
 type Applied =
   | { kind: "text"; node: Text; before: string; after: string }
-  | { kind: "attr"; el: Element; name: string; before: string | null; after: string | null }
+  | {
+      kind: "attr";
+      el: Element;
+      name: string;
+      before: string | null;
+      after: string | null;
+    }
   | { kind: "insert"; node: Node; parent: Element }
   | { kind: "remove"; node: Node; parent: Element }
   | { kind: "move"; el: Element; from: Element; to: Element };
 
 type Decision =
   | { kind: "text"; node: Text | null; source: Side; applied: boolean }
-  | { kind: "attr"; el: Element | null; name: string; source: Side; applied: boolean }
+  | {
+      kind: "attr";
+      el: Element | null;
+      name: string;
+      source: Side;
+      applied: boolean;
+    }
   | { kind: "insert"; el: Element | null; source: Side; applied: boolean }
   | { kind: "remove"; source: Side; applied: boolean; base: Element }
   | { kind: "move"; el: Element | null; source: Side; applied: boolean };
 // `node`/`el` are live nodes when the decision has a live counterpart.
 
 type Conflict =
-  | { kind: "text"; node: Text; base: string; local: string; remote: string; resolved: string }
-  | { kind: "attr"; el: Element; name: string; base: string | null; local: string | null; remote: string | null; resolved: string | null }
+  | {
+      kind: "text";
+      node: Text;
+      base: string;
+      local: string;
+      remote: string;
+      resolved: string;
+    }
+  | {
+      kind: "attr";
+      el: Element;
+      name: string;
+      base: string | null;
+      local: string | null;
+      remote: string | null;
+      resolved: string | null;
+    }
   | { kind: "structure"; el: Element | null; detail: StructureDetail };
 type StructureDetail =
-  | "both-reordered"            // both sides reordered the same children; order side won
-  | "both-moved"                // both sides moved the element to different parents; order side's destination won
-  | "edit-beats-delete"         // one side deleted, the other edited; the edit survived
-  | "move-beats-delete"         // one side deleted, the other moved; the move survived
-  | "insert-collision";         // both sides inserted different text at the same anchor
+  | "both-reordered" // both sides reordered the same children; order side won
+  | "both-moved" // both sides moved the element to different parents; order side's destination won
+  | "edit-beats-delete" // one side deleted, the other edited; the edit survived
+  | "move-beats-delete" // one side deleted, the other moved; the move survived
+  | "insert-collision"; // both sides inserted different text at the same anchor
 
 declare function mergeDocument(o: MergeOptions): Promise<MergeReport>;
-declare function morphDocument(live: Document, remote: string | Document, o?: Omit<MergeOptions, "live" | "base" | "remote">): Promise<MergeReport>;
-declare function morphElement(oldEl: Element, newEl: Element, o?: Omit<MergeOptions, "live" | "base" | "remote">): Promise<MergeReport>;
-declare function merge3(base: Document, local: Document, remote: Document, o?: Partial<MergeOptions>): MergeResult;
+declare function morphDocument(
+  live: Document,
+  remote: string | Document,
+  o?: Omit<MergeOptions, "live" | "base" | "remote">,
+): Promise<MergeReport>;
+declare function morphElement(
+  oldEl: Element,
+  newEl: Element,
+  o?: Omit<MergeOptions, "live" | "base" | "remote">,
+): Promise<MergeReport>;
+declare function merge3(
+  base: Document,
+  local: Document,
+  remote: Document,
+  o?: Partial<MergeOptions>,
+): MergeResult;
 ```
 
 Rules: applying functions always return a Promise; unknown option keys
@@ -857,20 +905,30 @@ divergence, which is what `protectPeerDoc` did for the oracle.
 
 ```js
 // _doApplyUpdate, replacing protectPeerDoc + morph
-const hooks = { beforeAttributeUpdated: (name, el) => isTabLocalRootAttr(name, el) ? false : undefined };
+const hooks = {
+  beforeAttributeUpdated: (name, el) =>
+    isTabLocalRootAttr(name, el) ? false : undefined,
+};
 const common = {
   live: document,
   remote: html,
-  identity: { remote: { map: identityMap }, local: (el) => store.idOf(originalSnapshotNode(el) || el) },
-  ignore: (el) => el.matches(SYNC_IGNORE) || el.matches(EXTENSION_NODE_SELECTOR),
+  identity: {
+    remote: { map: identityMap },
+    local: (el) => store.idOf(originalSnapshotNode(el) || el),
+  },
+  ignore: (el) =>
+    el.matches(SYNC_IGNORE) || el.matches(EXTENSION_NODE_SELECTOR),
   remoteWins: (el) => el.matches(NO_DIRTY_SELECTOR),
-  ignoreAttribute: (el, name) => !el.parentElement && TAB_LOCAL_ROOT_ATTRS.has(name),
+  ignoreAttribute: (el, name) =>
+    !el.parentElement && TAB_LOCAL_ROOT_ATTRS.has(name),
   scripts: { mergeTags: mergeTagRecognizers },
   hooks,
 };
 let report;
-if (this.lane === 'live' && pageMaybeDirty()) {
-  if (!this.lastHtml) { /* hold exactly as today */ return; }
+if (this.lane === "live" && pageMaybeDirty()) {
+  if (!this.lastHtml) {
+    /* hold exactly as today */ return;
+  }
   const gateToken = gateCaptureToken();
   const clone = captureSnapshot({ flushUndo: false });
   report = await mergeDocument({
@@ -879,11 +937,14 @@ if (this.lane === 'live' && pageMaybeDirty()) {
     identity: { ...common.identity, base: { map: this._lastIdentityMap } },
     local: { root: clone, toLive: originalSnapshotNode },
   });
-  if (!report.localDiverged) { probeMarkClean(); gateClearIfUnchanged(gateToken); }
+  if (!report.localDiverged) {
+    probeMarkClean();
+    gateClearIfUnchanged(gateToken);
+  }
 } else {
   report = await mergeDocument({ ...common, base: null });
 }
-for (const [el, id] of report.identities) store.adopt(el, id);   // overwrite, as afterNodeMorphed did
+for (const [el, id] of report.identities) store.adopt(el, id); // overwrite, as afterNodeMorphed did
 ```
 
 `SYNC_IGNORE` is the set the vendored morph ignores today (`no-snapshot`,
@@ -982,15 +1043,15 @@ Phase 4: ClayJS cut-over per 5.1 on a ClayJS branch; then delete
 
 ## 5.4 Size
 
-| Module | Lines |
-|---|---|
-| index, parse, ignore, identity | ~400 |
-| similarity, align | ~450 |
-| text-merge | ~300 |
-| merge, head-merge | ~750 |
-| scripts | ~120 |
-| apply | ~500 |
-| total | ~2,500 (current core plus splice and matcher: ~4,900) |
+| Module                         | Lines                                                 |
+| ------------------------------ | ----------------------------------------------------- |
+| index, parse, ignore, identity | ~400                                                  |
+| similarity, align              | ~450                                                  |
+| text-merge                     | ~300                                                  |
+| merge, head-merge              | ~750                                                  |
+| scripts                        | ~120                                                  |
+| apply                          | ~500                                                  |
+| total                          | ~2,500 (current core plus splice and matcher: ~4,900) |
 
 ## 5.5 What was not verified
 
