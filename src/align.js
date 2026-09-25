@@ -79,6 +79,13 @@ export function align(baseRoot, sideRoot, o) {
   function alignKids(bEl, sEl) {
     visited.add(bEl);
     const bUnits = unitsOf(bEl), sUnits = unitsOf(sEl);
+    // Structural singletons always correspond, whatever their content.
+    if (bEl.tagName === "HTML") {
+      for (const tag of ["HEAD", "BODY"]) {
+        const b = bUnits.find((u) => isEl(u) && u.tagName === tag), s = sUnits.find((u) => isEl(u) && u.tagName === tag);
+        if (b && s && !map.has(b) && !reverse.has(s)) pair(b, s);
+      }
+    }
     const freeB = bUnits.filter((u) => !map.has(u));
     const freeS = sUnits.filter((u) => !reverse.has(u));
     if (freeB.length && freeS.length) {
@@ -162,6 +169,11 @@ export function align(baseRoot, sideRoot, o) {
     if (isEl(b)) {
       if (b.tagName !== s.tagName) return false;
       if (codeLike(b)) return true;
+      // An element that was empty on one side (a new paragraph being typed
+      // into, a cleared field) pairs positionally; similarity has nothing to
+      // compare, and two fills of the same empty element surface as a
+      // collision conflict rather than as a duplicate.
+      if (meta(b).hint === "" || meta(s).hint === "") return true;
       return similar(b, s);
     }
     return b.kind === s.kind;
