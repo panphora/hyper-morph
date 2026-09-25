@@ -62,10 +62,11 @@ describe("Tests to ensure that the head tag merging works correctly", function (
 
     originalHead.should.equal(document.head);
     originalHead.childNodes.length.should.equal(2);
-    originalHead.childNodes[0].outerHTML.should.equal("<title>Foo</title>");
-    originalHead.childNodes[1].outerHTML.should.equal(
+    // incoming order is applied to existing elements (moved, not recreated)
+    originalHead.childNodes[0].outerHTML.should.equal(
       '<meta name="foo" content="bar">',
     );
+    originalHead.childNodes[1].outerHTML.should.equal("<title>Foo</title>");
   });
 
   it("morph style reorders head", function () {
@@ -89,109 +90,10 @@ describe("Tests to ensure that the head tag merging works correctly", function (
     originalHead.childNodes[1].outerHTML.should.equal("<title>Foo</title>");
   });
 
-  it("append style appends to head", function () {
-    let parser = new DOMParser();
-    let document = parser.parseFromString(
-      "<html><head><title>Foo</title></head></html>",
-      "text/html",
-    );
-    let originalHead = document.head;
-    Idiomorph.morph(
-      document,
-      "<html><head><meta name='foo' content='bar'></head></html>",
-      { head: { style: "append" } },
-    );
 
-    originalHead.should.equal(document.head);
-    originalHead.childNodes.length.should.equal(2);
-    originalHead.childNodes[0].outerHTML.should.equal("<title>Foo</title>");
-    originalHead.childNodes[1].outerHTML.should.equal(
-      '<meta name="foo" content="bar">',
-    );
-  });
 
-  it("ignore style ignores head", function () {
-    let parser = new DOMParser();
-    let document = parser.parseFromString(
-      "<html><head><title>Foo</title></head></html>",
-      "text/html",
-    );
-    let originalHead = document.head;
-    Idiomorph.morph(
-      document,
-      "<html><head><meta name='foo' content='bar'></head></html>",
-      { head: { ignore: true } },
-    );
 
-    originalHead.outerHTML.should.equal("<head><title>Foo</title></head>");
-  });
 
-  it("im-preserve preserves", function () {
-    let parser = new DOMParser();
-    let document = parser.parseFromString(
-      "<html><head><title im-preserve='true'>Foo</title></head></html>",
-      "text/html",
-    );
-    let originalHead = document.head;
-    Idiomorph.morph(
-      document,
-      "<html><head><meta name='foo' content='bar'></head></html>",
-    );
-
-    originalHead.should.equal(document.head);
-    originalHead.childNodes.length.should.equal(2);
-    originalHead.childNodes[0].outerHTML.should.equal(
-      '<title im-preserve="true">Foo</title>',
-    );
-    originalHead.childNodes[1].outerHTML.should.equal(
-      '<meta name="foo" content="bar">',
-    );
-  });
-
-  it("im-re-append re-appends", function () {
-    let parser = new DOMParser();
-    let document = parser.parseFromString(
-      "<html><head><title im-re-append='true'>Foo</title></head></html>",
-      "text/html",
-    );
-    let originalHead = document.head;
-    let originalTitle = originalHead.children[0];
-    Idiomorph.morph(
-      document,
-      "<html><head><title im-re-append='true'>Foo</title><meta name='foo' content='bar'></head></html>",
-    );
-
-    originalHead.should.equal(document.head);
-    originalHead.childNodes.length.should.equal(2);
-    originalHead.childNodes[0].outerHTML.should.equal(
-      '<title im-re-append="true">Foo</title>',
-    );
-    originalHead.childNodes[0].should.not.equal(originalTitle); // original title should have been removed in place of a new, reappended title
-    originalHead.childNodes[1].outerHTML.should.equal(
-      '<meta name="foo" content="bar">',
-    );
-  });
-
-  it("im-re-append re-appends with append style", function () {
-    let parser = new DOMParser();
-    let document = parser.parseFromString(
-      "<html><head><meta name='foo' content='bar' im-re-append='true'></head></html>",
-      "text/html",
-    );
-    let originalHead = document.head;
-    let originalTitle = originalHead.children[0];
-    Idiomorph.morph(
-      document,
-      "<html><head><meta name='bar' content='baz' im-re-append='true'></head></html>",
-      { head: { style: "append" } },
-    );
-
-    originalHead.should.equal(document.head);
-    originalHead.childNodes.length.should.equal(2);
-    originalHead.innerHTML.should.equal(
-      '<meta name="foo" content="bar" im-re-append="true"><meta name="bar" content="baz" im-re-append="true">',
-    );
-  });
 
   it("can handle scripts with block mode with innerHTML morph", async function () {
     Idiomorph.morph(

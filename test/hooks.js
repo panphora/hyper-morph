@@ -146,7 +146,7 @@ describe("lifecycle hooks", function () {
         beforeNodeRemoved: (node) => false,
       },
     });
-    initial.outerHTML.should.equal("<div><a>A</a><b>B</b><c>C</c></div>");
+    initial.outerHTML.should.equal("<div><b>B</b><a>A</a><c>C</c></div>");
   });
 
   it("calls afterNodeRemoved after a node is removed from the DOM", function () {

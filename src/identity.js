@@ -115,6 +115,9 @@ export function indexByIdentity(root, idOf, ignored) {
     for (let i = 0; i < kids.length; i++) visit(kids[i]);
   };
   visit(root);
-  for (const id of dup) map.delete(id);
+  for (const id of dup) {
+    map.delete(id);
+    if (id.startsWith("merge:")) console.warn(`[hyper-morph] merge disabled for duplicate identity "${id.slice(id.indexOf(":", 6) + 1)}"`);
+  }
   return map;
 }

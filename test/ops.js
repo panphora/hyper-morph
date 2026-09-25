@@ -7,8 +7,8 @@ describe("morphing operations", function () {
   it("removing anonymous siblings", function () {
     assertOps("<div><a>A</a><b>B</b><c>C</c></div>", "<div><b>B</b></div>", [
       ["Morphed", "<div><a>A</a><b>B</b><c>C</c></div>", "<div><b>B</b></div>"],
-      ["Removed", "<a>A</a>"],
       ["Morphed", "<b>B</b>", "<b>B</b>"],
+      ["Removed", "<a>A</a>"],
       ["Removed", "<c>C</c>"],
     ]);
   });
@@ -23,8 +23,8 @@ describe("morphing operations", function () {
           `<div><a id="a">A</a><b id="b">B</b><c id="c">C</c></div>`,
           `<div><b id="b">B</b></div>`,
         ],
-        ["Removed", `<a id="a">A</a>`],
         ["Morphed", `<b id="b">B</b>`, `<b id="b">B</b>`],
+        ["Removed", `<a id="a">A</a>`],
         ["Removed", `<c id="c">C</c>`],
       ],
     );
@@ -127,9 +127,9 @@ describe("morphing operations", function () {
           "<section><a>A</a><a>B</a><a>C</a></section>",
           "<section><a>B</a><a>C</a></section>",
         ],
-        ["Removed", "<a>A</a>"],
         ["Morphed", "<a>B</a>", "<a>B</a>"],
         ["Morphed", "<a>C</a>", "<a>C</a>"],
+        ["Removed", "<a>A</a>"],
       ],
     );
   });
@@ -145,8 +145,8 @@ describe("morphing operations", function () {
           "<section><a>A</a><a>C</a></section>",
         ],
         ["Morphed", "<a>A</a>", "<a>A</a>"],
-        ["Removed", "<a>B</a>"],
         ["Morphed", "<a>C</a>", "<a>C</a>"],
+        ["Removed", "<a>B</a>"],
       ],
     );
   });

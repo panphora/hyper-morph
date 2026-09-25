@@ -61,18 +61,25 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   const { unitsOf, meta } = analyzer;
   const baseURI = o.baseURI;
 
-  // Head children identify by their head signature.
-  const withHead = (idOf) => (el) => (el.parentElement && el.parentElement.tagName === "HEAD" ? headSignature(el, baseURI) : idOf(el));
+  // Head children identify by their head signature; mergeable JSON scripts by
+  // their merge identity, so a content change never reads as a new script.
+  const mergeOn = o.mergeTags !== null;
+  const withHead = (idOf) => (el) => {
+    if (mergeOn && el.tagName === "SCRIPT") { const m = mergeIdentityOf(el, o.mergeTags); if (m) return "merge:" + m.key; }
+    if (el.parentElement && el.parentElement.tagName === "HEAD") return headSignature(el, baseURI);
+    return idOf(el);
+  };
   const idBase = withHead(o.identity.base), idLocal = withHead(o.identity.local), idRemote = withHead(o.identity.remote);
 
-  const bRoot = baseDoc.documentElement, lRoot = localDoc.documentElement, rRoot = remoteDoc.documentElement;
+  const rootOf = (x) => (x && x.nodeType === 9 ? x.documentElement : x);
+  const bRoot = rootOf(baseDoc), lRoot = rootOf(localDoc), rRoot = rootOf(remoteDoc);
   const bIndex = indexByIdentity(bRoot, idBase, ignored);
   const L = o.localIsBase
     ? identityAlignment(bRoot, analyzer)
     : align(bRoot, lRoot, { analyzer, baseIndex: bIndex, sideIndex: indexByIdentity(lRoot, idLocal, ignored) });
   const R = align(bRoot, rRoot, { analyzer, baseIndex: bIndex, sideIndex: indexByIdentity(rRoot, idRemote, ignored) });
 
-  const out = baseDoc.implementation.createHTMLDocument("");
+  const out = bRoot.ownerDocument.implementation.createHTMLDocument("");
   const provenance = new WeakMap();
   const textMappers = new WeakMap();
   const decisions = [], conflicts = [];
@@ -86,10 +93,11 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   const remoteDecision = (d) => decisions.push(d);
   const conflict = (c) => { conflicts.push(c); if (policy !== "remote") localDiverged = true; };
 
-  const html = mergeElement(bRoot, L.map.get(bRoot), R.map.get(bRoot), !!o.localIsBase);
-  out.replaceChild(html, out.documentElement);
+  const html = mergeElement(bRoot, L.map.get(bRoot), R.map.get(bRoot), !!o.localIsBase, !!o.childrenOnly);
+  if (html.tagName === "HTML") out.replaceChild(html, out.documentElement);
+  else out.body.appendChild(html);
 
-  return { doc: out, provenance, textMappers, decisions, conflicts, localDiverged, mergedScripts, remoteIdOf: o.identity.remote, L, R };
+  return { doc: out, root: html, provenance, textMappers, decisions, conflicts, localDiverged, mergedScripts, remoteIdOf: o.identity.remote, L, R };
 
   // ---------------------------------------------------------------------
   // Side views: a side that lacks an element, or a remoteWins region, reads
@@ -118,7 +126,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   // ---------------------------------------------------------------------
   // Elements
   // ---------------------------------------------------------------------
-  function mergeElement(b, l, r, localAsBase) {
+  function mergeElement(b, l, r, localAsBase, childrenOnly = false) {
     const asBase = localAsBase || o.remoteWins(b);
     const el = b.namespaceURI && b.namespaceURI !== "http://www.w3.org/1999/xhtml"
       ? out.createElementNS(b.namespaceURI, b.tagName)
@@ -128,7 +136,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     if (l) emitted.add(l);
     if (r) emitted.add(r);
     building.add(b);
-    mergeAttrs(b, asBase ? b : l, r, el);
+    if (!childrenOnly) mergeAttrs(b, asBase ? b : l, r, el);
     const tag = b.tagName;
     if (isHtmlScript(b)) {
       mergeScriptElement(b, asBase ? b : l, r, el);
@@ -155,13 +163,16 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
 
   function mergeScriptElement(b, l, r, el) {
     const bt = b.textContent, lt = l ? l.textContent : bt, rt = r ? r.textContent : bt;
-    const found = mergeIdentityOf(b, o.mergeTags);
+    const found = mergeOn ? mergeIdentityOf(b, o.mergeTags, true) : null;
     if (found && lt !== rt) {
       const keyAttr = (r && r.getAttribute("merge-key")) || b.getAttribute("merge-key");
-      const { text } = mergeScriptText(bt, lt, rt, {
+      // Two-way mode has no separate base: a JSON merge then keeps local-only
+      // keys rather than letting remote overwrite the whole tag.
+      const { text, warnings } = mergeScriptText(o.localIsBase ? undefined : bt, lt, rt, {
         parse: found.recognizer.parse,
         keyCandidates: keyAttr ? keyAttr.split(/[\s,]+/).filter(Boolean) : undefined,
       });
+      for (const w of warnings) console.warn(`[hyper-morph] merge "${found.raw}": ${w}`);
       el.textContent = text;
       mergedScripts.add(el);
       if (text !== rt) localDecision({ kind: "text", node: el, source: text === lt ? "local" : "both" });
@@ -306,7 +317,22 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     provenance.set(el, { base: null, local: side === "local" ? su : null, remote: side === "remote" ? su : null });
     emitted.add(su);
     const target = su.tagName === "TEMPLATE" && el.content ? el.content : el;
+    const A = side === "local" ? L : R;
     for (const child of unitsOf(su)) {
+      // A descendant of an inserted container may correspond to a base
+      // node (an element moved into a new wrapper, or a wrapper whose tag
+      // changed). Merge it rather than cloning it, so apply keeps the live
+      // node and the other side's edits are not lost.
+      const bk = isEl(child) ? A.reverse.get(child) : null;
+      if (bk && !emitted.has(bk) && !building.has(bk)) {
+        const lk = L.map.get(bk) || null, rk = R.map.get(bk) || null;
+        if (lk || rk) {
+          const node = mergeElement(bk, lk, rk, false);
+          if (side === "local") localDecision({ kind: "move", el: node, source: "local" }); else remoteDecision({ kind: "move", el: node, source: "remote" });
+          target.appendChild(node);
+          continue;
+        }
+      }
       const c = cloneUnit(child, side);
       if (c) target.appendChild(c);
     }

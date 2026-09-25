@@ -23,12 +23,7 @@ let config = {
       <script src="/node_modules/htmx.org/dist/htmx.js"></script>
       <script src="/test/lib/morphdom.js"></script>
 
-      <script type="module">
-        import HyperMorph from '/src/hyper-morph.js';
-        window.HyperMorph = HyperMorph;
-        window.HyperMatch = HyperMorph;
-        window.Idiomorph = HyperMorph;
-      </script>
+      <script type="module" src="/test/lib/compat.js"></script>
       <script type="module" src="${testFramework}"></script>
     </head>
     <body>

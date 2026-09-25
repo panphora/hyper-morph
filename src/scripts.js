@@ -62,15 +62,19 @@ const builtinRecognizer = {
  * @param {MergeTagRecognizer[]} [extra]
  * @returns {{ key: string, recognizer: MergeTagRecognizer } | null}
  */
-export function mergeIdentityOf(el, extra = []) {
-  if (!isHtmlScript(el) || el.hasAttribute("src") || !isJsonScript(el)) return null;
+export function mergeIdentityOf(el, extra = [], warn = false) {
+  if (!isHtmlScript(el) || el.hasAttribute("src")) return null;
   const recognizers = [builtinRecognizer, ...extra];
   for (let i = 0; i < recognizers.length; i++) {
     const r = recognizers[i];
     if (!r.match(el)) continue;
+    if (!isJsonScript(el)) {
+      if (warn) console.warn("[hyper-morph] merge ignored: script type is not JSON", el);
+      return null;
+    }
     const raw = r.identity(el);
     if (raw == null || raw === "") return null;
-    return { key: i + ":" + raw, recognizer: r };
+    return { key: i + ":" + raw, raw, recognizer: r };
   }
   return null;
 }
@@ -84,10 +88,9 @@ export function mergeIdentityOf(el, extra = []) {
  */
 export function collectBodyScriptSignatures(root, ignored, baseURI) {
   const out = new Set();
-  for (const el of root.querySelectorAll("script")) {
-    if (!isHtmlScript(el) || ignored(el) || el.closest("head")) continue;
-    out.add(scriptSignature(el, baseURI));
-  }
+  const visit = (el) => { if (isHtmlScript(el) && !ignored(el)) out.add(scriptSignature(el, baseURI)); };
+  visit(root);
+  for (const el of root.querySelectorAll("script")) visit(el);
   return out;
 }
 
@@ -122,8 +125,10 @@ export function makeInertScript(script, doc) {
  */
 export function executeNewScripts(root, before, o) {
   const executed = [], loads = [];
-  for (const el of Array.from(root.querySelectorAll("script"))) {
-    if (!isHtmlScript(el) || o.ignored(el) || o.skip.has(el) || el.closest("head")) continue;
+  const all = Array.from(root.querySelectorAll("script"));
+  if (isHtmlScript(root)) all.unshift(root);
+  for (const el of all) {
+    if (!isHtmlScript(el) || o.ignored(el) || o.skip.has(el)) continue;
     if (before.has(scriptSignature(el, o.baseURI))) continue;
     const fresh = el.ownerDocument.createElement("script");
     for (const attr of el.attributes) fresh.setAttribute(attr.name, attr.value);

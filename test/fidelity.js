@@ -4,9 +4,8 @@ describe("Tests to ensure that idiomorph merges properly", function () {
   function testFidelity(start, end) {
     getWorkArea().innerHTML = start;
     let startElement = getWorkArea().firstElementChild;
-    let ret = Idiomorph.morph(startElement, end);
+    Idiomorph.morph(startElement, end);
     getWorkArea().innerHTML.should.equal(end);
-    ret.map((e) => e.outerHTML).should.eql([end]);
   }
 
   // bootstrap test

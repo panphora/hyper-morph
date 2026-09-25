@@ -179,7 +179,30 @@ export function align(baseRoot, sideRoot, o) {
     return b.kind === s.kind;
   }
 
+  /**
+   * Text and comment runs pair by the element they follow: the run after
+   * element E on the base side is the run after E's twin on the side. This
+   * survives reorders, where global order would skew every run by one.
+   */
+  function pairRunsByAnchor(bUnits, sUnits) {
+    const runAfter = (units, el) => {
+      const i = el === null ? -1 : units.indexOf(el);
+      const next = units[i + 1];
+      return next && !isEl(next) ? next : null;
+    };
+    let prevEl = null;
+    for (const b of bUnits) {
+      if (isEl(b)) { prevEl = b; continue; }
+      if (map.has(b)) continue;
+      const twin = prevEl === null ? null : map.get(prevEl);
+      if (prevEl !== null && !twin) continue;
+      const s = runAfter(sUnits, twin);
+      if (s && !reverse.has(s) && s.kind === b.kind) pair(b, s);
+    }
+  }
+
   function passPositional(bUnits, sUnits) {
+    pairRunsByAnchor(bUnits, sUnits);
     let cursor = 0;
     for (const b of bUnits) {
       if (map.has(b)) {
@@ -194,6 +217,19 @@ export function align(baseRoot, sideRoot, o) {
         looked++;
         if (compatible(b, s)) { pair(b, s); cursor = i + 1; break; }
       }
+    }
+    // Unambiguous replacement: when exactly one element of a tag is left
+    // unpaired on each side and both sit at the same index, they are the same
+    // slot with rewritten content (a heading retitled, a button relabeled).
+    // With any second candidate the shift could be an insertion, so no pair.
+    const leftB = bUnits.filter((u) => isEl(u) && !map.has(u)), leftS = sUnits.filter((u) => isEl(u) && !reverse.has(u));
+    if (!leftB.length || !leftS.length) return;
+    const byTagB = countBy(leftB, (u) => u.tagName), byTagS = countBy(leftS, (u) => u.tagName);
+    for (const b of leftB) {
+      const tag = b.tagName;
+      if (byTagB.get(tag) !== 1 || byTagS.get(tag) !== 1) continue;
+      const s = leftS.find((u) => u.tagName === tag);
+      if (s && bUnits.indexOf(b) === sUnits.indexOf(s) && !codeLike(b) === !codeLike(s)) pair(b, s);
     }
   }
 

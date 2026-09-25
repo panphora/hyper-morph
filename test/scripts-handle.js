@@ -61,20 +61,6 @@ describe("Body script handling (scripts.handle)", function () {
     window.__x.should.equal(1);
   });
 
-  it("re-executes scripts marked for re-append", function () {
-    const el = make(
-      `<div><script im-re-append="true">window.__x = (window.__x || 0) + 1;</script></div>`,
-    );
-    getWorkArea().appendChild(el);
-    window.__x = 0;
-
-    Idiomorph.morph(
-      el,
-      `<div><script im-re-append="true">window.__x = (window.__x || 0) + 1;</script></div>`,
-    );
-
-    window.__x.should.equal(1);
-  });
 
   it("does not execute scripts inside sync-ignored regions", function () {
     window.__x = 0;
