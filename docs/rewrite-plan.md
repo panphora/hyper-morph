@@ -155,7 +155,9 @@ is a hand-maintained copy of part of this list.
 minted lazily at snapshot time and never written to the DOM or the file.
 On every relay, `_buildIdentityMap` walks the snapshot clone and emits
 `{ "0.1.3": "abc:17", ... }` keyed by dot-path over element children. The
-frame carries `{ html, identityMap, sender, seq, etag, by }`.
+frame as received carries `{ html, identityMap, sender, seq, etag, by }`
+(`seq` and `by` are added by the server; the POST body's snapshot key is
+`snapshot` on the spec wire and `html` on the legacy one).
 
 The receiver walks the parsed frame by the same paths to build
 `parsedWeakMap`, passes `key = el => liveWeakMap.get(el) || parsedWeakMap.get(el) || data-id || id`
@@ -606,7 +608,7 @@ Precomputation (one bottom-up pass per tree, cached per node) [I13]:
 - `index`: position among element siblings.
 
 `similar(a, b)` [I7]: both token sets empty is similar; one empty is not;
-otherwise the Jaccard index of the two token sets is at least 0.5. Never
+otherwise the overlap coefficient (shared tokens over the smaller token set) is at least 0.5; Jaccard was tried and rejected a container that merely gained content. Never
 used for the code-like elements listed below.
 
 Pass 1, identity (global): pair equal usable ids with equal tag. A
