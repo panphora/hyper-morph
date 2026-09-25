@@ -138,8 +138,12 @@ authored URL restore, `onbeforesnapshot` handlers, extension-noise strip.
 |---|---|---|
 | snapshot | `no-snapshot` only | live-sync wire (`serializeForSync` also drops tab-local root attrs) |
 | save | plus `no-save`, transforms, `freeze` restore | the file |
-| comparison | plus `no-trigger-autosave`, `no-dirty`, `no-watch` | "should this autosave" |
-| dirty | like comparison but keeps `no-trigger-autosave` | "would the person lose work", and the disk-lane merge base |
+| comparison | `no-save`, `freeze`, `no-trigger-autosave`, `no-dirty`, `no-watch`; `onbeforesave` and every document transform run (inert forms, root library attrs stripped) | "should this autosave" |
+| dirty | like comparison but keeps `no-trigger-autosave` | "would the person lose work", and today's disk-lane merge base |
+
+Both save baselines are therefore inert-form, transform-run strings, while
+the live DOM and the snapshot clone are activated. That mismatch is why the
+disk lane in Part 5.1 needs a save-domain baseline of its own.
 
 The region vocabulary is in `lib/region-policy.js` (`clay="no-save freeze"`
 tokens plus legacy bare attributes). hyper-morph's `SYNC_IGNORE_SELECTOR`
@@ -164,9 +168,11 @@ rewrite builds on it rather than on content scoring.
 
 Fragilities to carry into the design:
 
-- Path keys break under any divergence between the sender's clone and the
-  receiver's parse (an `onbeforesnapshot` handler that adds a sibling). Both
-  walkers abort a subtree on child-count mismatch.
+- Path keys are computed on the sender's clone alone, resolving each element
+  through provenance, so a handler-added sibling costs only its own id. On
+  the receiver, `_fillInIdsAfterMorph` walks live and parsed in lockstep and
+  aborts a subtree on child-count mismatch; its doc comment describing the
+  sender as lockstep is stale.
 - Elements inside `<template>` and text nodes have no identity.
 - Duplicate ids can arise when a subtree is cloned in the page (a
   drag-duplicate); both sides then fall back to content matching.
@@ -192,7 +198,8 @@ autosave until a save lands or the user chooses to overwrite.
 
 1. Parse the frame; build `parsedWeakMap` from `identityMap`.
 2. If `pageMaybeDirty()` (a counter fed by dirty-domain mutations and input
-   events, cleared on save, plus a probe of `[persist]` controls):
+   events, plus a probe of `[persist]` controls; cleared on save, at boot
+   settle, and by `protectPeerDoc` when its diff finds nothing):
    `protectPeerDoc` captures a snapshot clone, parses `lastHtml`, fills ids
    on both, runs `findChangedRoots(localClone, baseDoc)`, and
    `spliceProtected(newDoc, entries)`. If the splice reports `ok: false`,
@@ -223,15 +230,21 @@ and rebuilds `lastHtml`.
 ## 2.7 Other consumers of the morph
 
 - `hypercms.vendor.js` morphs its own panel with
-  `{ morphStyle: 'innerHTML', formStateSync: 'property', policy: 'raw' }`.
-  It builds new content in memory with property assignment, so it needs the
-  property mode the earlier draft of this plan proposed to drop. It stays.
+  `morph(el, built, { morphStyle: 'innerHTML', ignoreActiveValue: r, restoreFocus: true, formStateSync: 'property', policy: 'raw' })`
+  with `r` defaulting to true. It builds new content in memory with
+  property assignment, so property mode stays. `policy: 'raw'` maps to the
+  default `ignore`, `ignoreActiveValue` to `protectFocusedValue`.
+- `plugins/wire.js` waits on `clay:sync-applied` with `source: 'disk'` to
+  learn that an agent's write landed, so that event's detail shape is a
+  contract.
 - `sync/section-notice.js` compares a region's `outerHTML` across
   `clay:sync-applied` to say "Ana changed this section". It has no access
   to what the merge actually changed and infers it.
 - `plugins/source.js` re-pairs live nodes to file byte ranges on
-  `clay:sync-applied` because "a morph replaces live nodes". With the new
-  apply step, the set of replaced nodes is known and can be reported.
+  `clay:sync-applied` because "a morph replaces live nodes", and re-models
+  from `detail.html` on a disk frame. Its `pair()` is a whole-tree
+  alignment keyed by live node; there is no incremental mode, so it keeps
+  the full re-pair.
 - `lib/mutation.js` bridges `Mutation.pause()` to `clay.undo.pause()`, so
   remote frames never enter the undo stack. The rewrite keeps applying
   under the caller's pause; it does not manage undo.
@@ -374,6 +387,12 @@ merges at the node where the change happened.
 
 # Part 4: Architecture and specification
 
+Revision 2. This part was reviewed by two independent reviewers (an
+implementer reading for buildability, a ClayJS maintainer reading for
+integration) and revised against their 42 findings. Where a rule exists
+because of a finding, the finding is named in brackets so a later reader
+knows why it is there.
+
 ## 4.1 One operation
 
 ```
@@ -381,102 +400,97 @@ mergeDocument({ live, base, remote, ... }) -> Promise<MergeReport>
 ```
 
 reads three trees and mutates `live` so that it holds the three-way merge
-of base, local (the current state of `live`), and remote. Everything else
-in the library is a special case or a building block:
+of base, local (the current state of `live`), and remote.
 
 - Two-way morph is `base = null`: local is treated as unchanged, so remote
-  wins everywhere except ignored regions.
+  wins everywhere except ignored regions. The library never holds a frame;
+  whether a caller with unsaved local edits and no base should apply a
+  two-way morph is the caller's decision (ClayJS keeps its hold for that
+  case, Part 5.1). An empty base string is treated as null [C9].
 - `morphElement(oldEl, newEl, options)` is the two-way case on one element
-  pair, for consumers like hypercms.
+  pair; `options.children: true` morphs children only (the innerHTML case
+  hypercms uses) [I15].
 
-The operation is split into a pure phase and an apply phase:
+The operation is a pure phase and an apply phase:
 
 ```
-merge3(baseDoc, localDoc, remoteDoc, opts) -> { doc, provenance, changes, conflicts }
-apply(live, mergedDoc, provenance, localToLive, opts) -> AppliedReport
+merge3(baseDoc, localDoc, remoteDoc, opts) -> MergeResult
+apply(live, mergeResult, toLive, opts)     -> AppliedReport
 ```
 
-`merge3` never touches the live DOM and runs on parsed documents, so it is
-unit-testable in Node with jsdom and reusable server-side. `apply` never
-guesses: every node in the merged tree carries provenance saying which
-local node it came from, and the caller supplies `localToLive` (ClayJS's
-`originalSnapshotNode`). The identity-preservation problem the current
-library solves with pantries and scoring becomes a lookup.
+`merge3` runs on parsed documents and never touches the live DOM.
+`apply` never guesses: every merged node carries provenance naming the
+local node(s) it came from, and `toLive` maps those to live nodes.
+
+Merge and apply run synchronously in one task. Anything awaited
+(stylesheet loads, external scripts) is awaited after the DOM mutation, so
+keystrokes cannot land between the local snapshot and the apply [I11].
 
 ## 4.2 Module layout
 
 ```
 src/
   index.js          mergeDocument, morphDocument, morphElement; option validation
-  parse.js          toDocument, syncDoctype, one-deep parse cache
-  ignore.js         cached ancestor-aware ignore predicate
-  identity.js       synthetic identity store, export/import of path maps, tiered idOf
-  align.js          align(base, side): Map<baseNode, sideNode> + moved/inserted/deleted
-  similarity.js     signatures, text hints, similarity test
-  text-merge.js     character diff (Myers), diff3 with hunk policy, offset mapping
-  merge.js          merge3: attributes, children, text, special elements; change report
-  head-merge.js     head children identity and merge rules
-  scripts.js        script signatures, JSON merge integration, inert clones, execute-once
-  apply.js          apply merged tree to live DOM by provenance; focus and caret restore
+  parse.js          toDocument, syncDoctype, per-lane parse cache
+  ignore.js         cached ancestor-aware predicate wrapper
+  identity.js       identity store, path-map export/import, tiered idOf, per-side index
+  similarity.js     structural hash, text hint, token similarity
+  align.js          align(base, side): pairing map plus moved/inserted/deleted sets
+  text-merge.js     Myers diff, hunk coalescing, diff3, local-offset mapper
+  merge.js          merge3: attributes, text runs, children, moves, provenance, decisions
+  head-merge.js     head signatures and head-specific rules
+  scripts.js        script signatures, inert clones, execute-once, JSON merge hook
+  apply.js          provenance-driven apply, focus and caret, head two-phase, report
   json-merge.js     unchanged
   json-parse.js     unchanged
+  legacy-splice.js  findChangedRoots and spliceProtected, kept until ClayJS cuts over
 ```
 
-Deleted: `hyper-morph.js`, `hyper-morph-matcher.js`, `lib/content-dom.js`,
-`lib/region-capabilities.js`, `scripts/propagate.js`,
-`scripts/vendor-format.js`, `packed-contract.json`. `findChangedRoots` and
-`spliceProtected` are deleted once ClayJS is on `mergeDocument`; until then
-they are kept as `src/legacy-splice.js` behind the old export names.
-
-No module references the global `document` or `window`; an ESLint
-`no-restricted-globals` rule enforces it in `src/`.
+No module references the global `document` or `window` except the
+DOMParser fallback in `parse.js`. An ESLint `no-restricted-globals` rule
+enforces it.
 
 ## 4.3 Public API
 
 ```ts
-type Side = "base" | "local" | "remote";
+type Side = "base" | "local" | "remote" | "both";
+type IdOf = (el: Element) => string | null | undefined;
+// A path-keyed id map is applied after the library parses the side [I14, C10].
+type IdentitySpec = IdOf | { map: Record<string, string>; then?: IdOf };
 
 type MergeOptions = {
-  // The document to mutate.
   live: Document;
-
-  // Last common state, as the caller serialized it. null means two-way.
   base: string | Document | null;
-
-  // Incoming state.
   remote: string | Document;
 
-  // Optional snapshot of the local side. When omitted, the live DOM is used
-  // directly. ClayJS passes its snapshot clone here (form values already
-  // written into attributes, no-snapshot regions stripped) with the
-  // provenance function that maps clone nodes back to live nodes.
-  local?: { root: Element; toLive: (node: Node) => Node | null };
+  // The local side. When omitted the live DOM is used. ClayJS passes its
+  // snapshot clone plus the provenance function that maps clone nodes to
+  // live nodes. toLive may return null for nodes a snapshot hook added;
+  // such nodes are skipped at apply, never inserted [I11].
+  local?: { root: Element; toLive: (n: Node) => Node | null };
 
-  // Identity per side. Return a stable string or null. Called once per
-  // element per side. Defaults to data-id then id on every side.
-  identity?: { base?: IdOf; local?: IdOf; remote?: IdOf };
+  identity?: { base?: IdentitySpec; local?: IdentitySpec; remote?: IdentitySpec };
+  // Default for every side: data-id, then id.
 
-  // Regions the merge must not touch on the live side and must not import
-  // from the remote side. Ancestor-aware. Default: () => false.
+  // Never touched on the live side, never imported from the remote side,
+  // never indexed for identity. Ancestor-aware. Default () => false [I9].
   ignore?: (el: Element) => boolean;
 
-  // Conflict policy for overlapping edits to the same text or attribute.
-  // "remote" (default), "local", or "both" (text only: keep both hunks in
-  // base order, local first).
-  conflicts?: "remote" | "local" | "both";
+  // Regions whose local edits do not count: the local side is read as base
+  // inside them, so the remote version lands unchanged. Ancestor-aware.
+  // Default () => false. ClayJS maps `no-dirty` here [C7].
+  remoteWins?: (el: Element) => boolean;
 
-  // Keep the focused input/textarea value even if the merge says
-  // otherwise. Default true.
-  protectFocusedValue?: boolean;
+  // Attributes excluded from the merge on every side and from every report.
+  // Default () => false. ClayJS maps its tab-local root attributes here [C5].
+  ignoreAttribute?: (el: Element, name: string) => boolean;
 
-  head?: { awaitLoads?: boolean; preserve?: (el: Element) => boolean };
-
-  scripts?: {
-    execute?: boolean;                 // default true
-    mergeTags?: MergeTagRecognizer[];  // same shape as today
-  };
-
-  formState?: "attribute" | "property"; // default "attribute"
+  conflicts?: "remote" | "local" | "both";  // default "remote"; "both" is text only, attributes use "remote" [I17]
+  protectFocusedValue?: boolean;             // default true
+  head?: { awaitLoads?: boolean; preserve?: (el: Element) => boolean };   // awaitLoads default false
+  scripts?: { execute?: boolean; mergeTags?: MergeTagRecognizer[] };      // execute default true
+  formState?: "attribute" | "property";     // default "attribute"
+  children?: boolean;                        // morphElement only
 
   hooks?: {
     beforeNodeAdded?: (n: Node) => boolean | void;
@@ -489,320 +503,344 @@ type MergeOptions = {
   };
 };
 
+// Two separate lists, because they answer different questions [I3, C4].
 type MergeReport = {
-  changes: Change[];     // what the apply did to live nodes, by kind
-  conflicts: Conflict[]; // overlapping edits and how each was resolved
-  moved: Element[];      // live nodes moved to a new parent
-  replaced: Element[];   // live nodes that were removed and recreated
-  identities: Map<Element, string>; // ids for elements that gained one (see 4.5)
+  // What apply did to the live DOM. Matches what a MutationObserver sees.
+  applied: Applied[];
+  // Every merge decision that differs from base, with the side that caused
+  // it. A local-only decision is already in the live DOM, so it appears
+  // here and not in `applied`.
+  decisions: Decision[];
+  conflicts: Conflict[];
+  // True when the merged document differs from the remote document outside
+  // ignored regions and ignored attributes: the merged state exists only in
+  // this DOM and must be relayed or saved to reach anyone else [C4].
+  localDiverged: boolean;
+  // Every live element paired with a remote element that carried an id,
+  // whether it was morphed, moved, or inserted. The consumer overwrites its
+  // own record with the remote id, which is how ids converge across tabs
+  // after one round trip [C1].
+  identities: Array<[Element, string]>;
+  moved: Element[];     // live elements that changed parent
+  replaced: Element[];  // live elements removed and recreated (no local twin)
 };
 
-type Change =
-  | { kind: "text"; node: Text; before: string; after: string; source: Side }
-  | { kind: "attr"; el: Element; name: string; before: string | null; after: string | null; source: Side }
-  | { kind: "insert"; el: Element; source: Side }
-  | { kind: "remove"; el: Element; source: Side }
-  | { kind: "move"; el: Element; from: Element; to: Element; source: Side };
+type Applied =
+  | { kind: "text"; node: Text; before: string; after: string }
+  | { kind: "attr"; el: Element; name: string; before: string | null; after: string | null }
+  | { kind: "insert"; node: Node; parent: Element }
+  | { kind: "remove"; node: Node; parent: Element }
+  | { kind: "move"; el: Element; from: Element; to: Element };
+
+type Decision =
+  | { kind: "text"; node: Text | null; source: Side; applied: boolean }
+  | { kind: "attr"; el: Element | null; name: string; source: Side; applied: boolean }
+  | { kind: "insert"; el: Element | null; source: Side; applied: boolean }
+  | { kind: "remove"; source: Side; applied: boolean; base: Element }
+  | { kind: "move"; el: Element | null; source: Side; applied: boolean };
+// `node`/`el` are live nodes when the decision has a live counterpart.
 
 type Conflict =
   | { kind: "text"; node: Text; base: string; local: string; remote: string; resolved: string }
   | { kind: "attr"; el: Element; name: string; base: string | null; local: string | null; remote: string | null; resolved: string | null }
-  | { kind: "structure"; el: Element; detail: string };
+  | { kind: "structure"; el: Element | null; detail: StructureDetail };
+type StructureDetail =
+  | "both-reordered"            // both sides reordered the same children; order side won
+  | "both-moved"                // both sides moved the element to different parents; order side's destination won
+  | "edit-beats-delete"         // one side deleted, the other edited; the edit survived
+  | "move-beats-delete"         // one side deleted, the other moved; the move survived
+  | "insert-collision";         // both sides inserted different text at the same anchor
 
 declare function mergeDocument(o: MergeOptions): Promise<MergeReport>;
-declare function morphDocument(live: Document, remote: string | Document, o?: Partial<MergeOptions>): Promise<MergeReport>;
-declare function morphElement(oldEl: Element, newEl: Element, o?: Partial<MergeOptions>): Promise<MergeReport>;
-declare function merge3(base: Document, local: Document, remote: Document, o?: Partial<MergeOptions>): MergeResult; // pure
+declare function morphDocument(live: Document, remote: string | Document, o?: Omit<MergeOptions, "live" | "base" | "remote">): Promise<MergeReport>;
+declare function morphElement(oldEl: Element, newEl: Element, o?: Omit<MergeOptions, "live" | "base" | "remote">): Promise<MergeReport>;
+declare function merge3(base: Document, local: Document, remote: Document, o?: Partial<MergeOptions>): MergeResult;
 ```
 
-Rules: always a Promise from the applying functions; unknown option keys
-throw before any mutation; no global defaults object.
+Rules: applying functions always return a Promise; unknown option keys
+throw before any mutation; no global defaults object; a protected focused
+value records a conflict only when the merged value differs from the live
+value [I20].
 
 ## 4.4 Parse (`parse.js`)
 
-```
-toDocument(input, ownerDoc):
-  string   -> DOMParser on ownerDoc.defaultView (globalThis fallback) -> Document
-  Document -> as is
-  else     -> TypeError
-```
+Implemented. `toDocument(input, ownerDoc)` accepts a string or a Document
+and throws otherwise. `createParseCache(ownerDoc)` is one-deep per lane.
+`syncDoctype(live, remote)` inserts or replaces, never removes.
 
-`parseCached(key)` keeps the last string and its parsed Document per lane
-(the caller passes a lane name), because a burst reuses the base string.
-
-```
-syncDoctype(live, remote):
-  if remote.doctype == null: return
-  if live.doctype == null: insert createDocumentType(...) before documentElement
-  else if name/publicId/systemId differ: replaceChild
-```
-
-Nodes outside `<html>` other than the doctype are ignored.
+Document-level fast paths in `merge3` [I13]: when the base and local
+serializations are byte-equal the local side is base (no L alignment); when
+base and remote are byte-equal the result is local and only ignored-region
+and identity bookkeeping runs.
 
 ## 4.5 Identity (`identity.js`)
 
-The library ships the synthetic identity scheme ClayJS implements today so
-every consumer gets it and the walkers are maintained in one place:
+Implemented. `createIdentityStore(clientId)` gives `idOf`, `ensure`,
+`adopt` (which overwrites [C1]), and `exportMap(cloneRoot, toLive)`, a walk
+of the clone alone that resolves each element through `toLive` and skips
+nothing [C11]. `importMap(root, map)` applies a path map to a parsed tree.
+`indexByIdentity(root, idOf, ignored)` builds the per-side index, dropping
+ids that occur twice on a side and skipping ignored subtrees [I9].
 
-```
-createIdentityStore(clientId):
-  idOf(liveEl)           -> existing id or null
-  ensure(liveEl)         -> existing id or a freshly minted "<clientId>:<n>"
-  exportMap(cloneRoot, toLive) -> { "0.1.3": id }  (dot-path over element children of the clone;
-                                                   subtree skipped on child-count divergence)
-  importMap(parsedRoot, map)   -> WeakMap<Element, id>
-  adopt(liveEl, id)      -> record an id learned from a frame
-```
+`mergeDocument` resolves each side's `IdentitySpec` after parsing: a
+function is used as is; `{ map, then }` becomes "the imported map id, else
+`then(el)`, else data-id, else id". Text nodes and template contents have
+no identity.
 
-`mergeDocument` takes `identity.{base,local,remote}` functions. The tiered
-default, which ClayJS will pass explicitly, is:
-
-```
-tier 1: synthetic id (store / imported map)
-tier 2: data-id
-tier 3: id
-```
-
-A value is usable on a side only if unique on that side. A pair requires the
-same `tagName`. After apply, `MergeReport.identities` lists live elements
-that received an id from the remote side (the element was inserted from
-remote, or morphed into an element whose remote counterpart carried an id
-the live one lacked). ClayJS calls `store.adopt` for each, replacing
-`afterNodeMorphed` and `_fillInIdsAfterMorph`.
-
-Text nodes and template contents have no identity and align structurally.
+For `base = null`, local is base, `identity.base` is never called, and the
+base-local alignment is the identity map of local onto itself [I19].
 
 ## 4.6 Alignment (`align.js`, `similarity.js`)
 
-`align(baseRoot, sideRoot, idOfBase, idOfSide, ignore)` returns
+`align(baseRoot, sideRoot, { idOfBase, idOfSide, ignored })` returns
+`{ map, moved, inserted, deleted }`, a one-to-one pairing of base nodes to
+side nodes.
+
+Precomputation (one bottom-up pass per tree, cached per node) [I13]:
+
+- `hash`: structural hash of tag, sorted attributes (minus ignored
+  attributes), and children's hashes; for text and comments, the value.
+  Two nodes with equal hashes are identical subtrees.
+- `hint`: the first 64 characters of the node's whitespace-collapsed text.
+- `tokens`: the lowercased word tokens of `hint`.
+- `index`: position among element siblings.
+
+`similar(a, b)` [I7]: both token sets empty is similar; one empty is not;
+otherwise the Jaccard index of the two token sets is at least 0.5. Never
+used for the code-like elements listed below.
+
+Pass 1, identity (global): pair equal usable ids with equal tag. A
+cross-parent pair from this pass has its children aligned by pass 2 like
+any other pair [I19].
+
+Pass 2, structure (top-down over paired element pairs; `<template>` pairs
+recurse into `.content` [I19]). Children lists exclude ignored elements on
+both sides. Adjacent text nodes are coalesced into one run per side, and a
+run pairs as one unit [I6, C15]. For the remaining children:
 
 ```
-{ map: Map<baseNode, sideNode>, moved: Set<baseEl>, inserted: Set<sideNode>, deleted: Set<baseNode> }
+a. identical: nodes whose hash is unique on both sides pair; their subtrees
+   are marked identical and never recursed into by align or merge
+b. signature and hint both equal, unique on both sides
+c. signature equal and similar(), nearest sibling index; candidates are the
+   16 nearest by index within the signature bucket
+d. positional: in order, same node type and tag, and similar() for elements;
+   a text run pairs with the next unpaired text run
 ```
 
-Every base node maps to at most one side node and vice versa.
+Pass 3, moves (global) [I12]: unpaired base elements and unpaired side
+elements are bucketed by signature; within a bucket, pairs that are
+`similar()` and unique pair and are recorded in `moved`; their subtrees go
+through pass 2. The pass stops after 2,000 similarity evaluations; what is
+left stays delete plus insert.
 
-Pass 1, identity (global): index both roots by usable id; pair equal ids
-with equal tag.
+Rule from S7: no element pair is ever formed on tag and class alone.
 
-Pass 2, structure (top-down over paired element pairs, children only):
-
-```
-alignKids(bKids, sKids):
-  a. exact: nodes whose serialization (outerHTML, or nodeValue for text and
-     comments) is unique on both sides pair.
-  b. signature + text hint, unique on both sides.
-  c. signature + similar text, nearest sibling index. Signature is
-     tag + sorted classes + href/src/name/type/role. Similar means the
-     character edit distance between the two 64-char hints is at most the
-     longer hint's length, or both hints are empty.
-  d. positional: remaining nodes pair in order when node type and tag agree
-     AND (for elements) similar text. A text node pairs with the next
-     unpaired text node.
-```
-
-Pass 3, moves (global): every still-unpaired base element is compared with
-every still-unpaired side element under the same parent-independent rules
-b then c; a unique match is recorded in `moved` and its subtree is aligned
-with pass 2. The pass is skipped when the product of the two unpaired
-counts exceeds 250,000, and those elements stay delete-plus-insert.
-
-Rule carried from S7: no element pair is ever formed on tag and class alone.
-Similar text or a usable identity is required, or the elements are a delete
-and an insert. Elements with empty text on both sides (icons, spacers,
-inputs) satisfy "similar".
-
-Elements whose text hint is code or data (`script`, `style`, `textarea`,
-`template`, `iframe`, `object`, `canvas`, `video`, `audio`, `svg`) skip
-rules b and c and pair by identity, exact equality, or position only.
-
-Text hints are computed once per node in one top-down pass and cached in
-a WeakMap along with the node's sibling index. No sibling walks.
-
-Complexity: O(N) identity and hint passes; per parent O(k) with buckets and
-a 16-candidate window for oversized buckets (the current
-`selectCandidateSubset` without the per-call filter); pass 3 bounded as
-above.
+Code-like elements (`script`, `style`, `textarea`, `template`, `iframe`,
+`object`, `canvas`, `video`, `audio`, `svg`) skip rules b and c and the
+move pass; they pair by identity, hash, or position.
 
 ## 4.7 Text merge (`text-merge.js`)
 
-```
-diff(a, b) -> Hunk[]              Myers O(ND) on UTF-16 code units, hunks as {bs, be, text}
-merge3Text(base, local, remote, policy) -> { text, conflicts: Hunk[], mapLocalOffset: (n) => n }
-```
+Implemented and tested (12 cases). `diff` is Myers over code units with
+surrogate pairs intact, with common prefix and suffix trimmed and hunks
+separated by three or fewer equal characters coalesced (Myers finds shared
+letters inside rewritten words and would otherwise split one edit into
+several). `merge3Text(base, local, remote, policy)` returns
+`{ text, conflicts, mapLocalOffset, granularity }`.
 
-Fast paths: `local === remote` returns local; `local === base` returns
-remote; `remote === base` returns local.
+Overlapping hunks resolve by policy over the union of their ranges; two
+insertions at the same offset are not a conflict and apply local first.
+`mapLocalOffset` maps a caret offset in the local text to the merged text
+by first expressing it in base coordinates through the local hunks, then
+walking the merged segments [I5]. A caret exactly at a segment start stays
+before that segment, so a remote insertion at the caret lands after it.
 
-Otherwise both hunk lists are walked in base order. Two hunks overlap when
-their base ranges intersect; two pure insertions at the same base offset do
-not overlap and both apply, local first. Non-overlapping hunks apply from
-both sides. Overlapping hunks resolve by policy:
-
-- `remote`: remote's hunk applies over the union of the two ranges, local's
-  hunk is dropped and reported.
-- `local`: symmetric.
-- `both`: both replacement texts are emitted, local first, over the union.
-
-`mapLocalOffset` maps a caret offset in the local text to the merged text:
-offsets before a remote hunk are unchanged, offsets inside a remote hunk
-clamp to the hunk's end in the merged text, offsets after it shift by the
-hunk's length delta. This is what keeps the caret in place in S8.
-
-Cost bound: for two strings longer than 20,000 code units, or when the
-Myers edit distance exceeds 4,000, fall back to line-granularity diff and
-then to whole-value three-way (last writer wins with a conflict record).
-Paragraph text is the normal case and is far below either limit.
+Bounds: over 20,000 characters or 4,000 edits, line granularity; beyond
+that, whole-value with a conflict record.
 
 ## 4.8 Merge (`merge.js`)
 
-`merge3(baseDoc, localDoc, remoteDoc, opts)` aligns base with local (`L`)
-and base with remote (`R`), then builds a fresh output document. Every
-output node records provenance `{ base, local, remote }` (any may be null).
+`merge3` aligns base with local (`L`) and base with remote (`R`), then
+builds a fresh output document. Every output node records provenance
+`{ base, local, remote }`; for a text run each entry is an array of the
+run's nodes on that side [I6]. A merge-wide `emitted` set records every
+base node and every side node that has produced output, so nothing is
+emitted twice [I2].
 
 ### Attributes
 
+Names come from the union of the three sides minus `ignoreAttribute`
+[C5]. For each name, with absent as null and a side lacking the element
+inheriting base:
+
 ```
-for each name in union(base, local, remote):
-  bv, lv, rv (null when absent; a side that lacks the element inherits bv)
-  lv === rv -> lv ; lv === bv -> rv ; rv === bv -> lv ; else policy, record conflict
+lv === rv -> lv ; lv === bv -> rv ; rv === bv -> lv ; else policy (remote for attributes), conflict recorded
 ```
 
-`class` and `style` merge token-wise and declaration-wise before falling
-back to the string rule, so S6's "local added a class, remote changed a
-data attribute" and "local added one class, remote added another" both
-survive.
+`class` merges as a token set and `style` as a declaration map before the
+string rule, with absent read as the empty set [I17]. `style` splits on
+semicolons outside quotes and parentheses; a value that does not parse
+falls back to the string rule.
 
-### Text and comment nodes
+### Text
 
-`merge3Text` on `nodeValue`. Adjacent text nodes on each side are coalesced
-into one run before alignment (the live DOM splits text under typing; a
-parsed document does not), and the merged run is emitted as one node.
+Runs merge with `merge3Text` and the run's `mapLocalOffset` is stored on
+the output node's provenance. A text run with no base counterpart on both
+sides (both inserted text under the same parent at the same anchor) merges
+with an empty base and records an `insert-collision` conflict when both
+are non-empty [I18].
 
 ### Children
 
 ```
-mergeChildren(b, l, r):
-  bKids = children of b (text runs coalesced)
-  order side O: remote if remote reordered kept children, else local if local did, else remote
-  for each node in O's children, in order:
-    paired to a base child here      -> emit mergeNode(bk, L.get(bk), R.get(bk)) unless dropped
-    paired to a base child elsewhere -> a move in: emit mergeNode(bk, ...) here, record move
-    unpaired                          -> an insertion: emit a clone, record insert
-    after each base child, emit the other side's insertions anchored after it
-  base children not emitted (O deleted or moved them out):
-    deleted by both                    -> gone
-    deleted by one, untouched by other -> gone
-    deleted by one, edited by other    -> emitted after its nearest surviving preceding base sibling (edits beat deletes)
-    moved out by one side              -> emitted at that side's destination, with the other side's edits merged in
-  both sides inserted a byte-identical node at the same anchor -> emitted once
+mergeChildren(bEl, lEl, rEl):
+  bKids, lKids, rKids: element children minus ignored, with text runs coalesced;
+                       inside a remoteWins region lKids := bKids [C7]
+  O := remote if remote reordered its kept base children, else local if local did, else remote
+       (both reordered -> "both-reordered" conflict) [I10]
+  P := the other side
+
+  step 1, insertion pairing [I4]: every lKid with no base twin is compared with
+    every rKid with no base twin under this parent: equal usable identity, else
+    equal hash. A pair is merged as mergeNode(base := the remote copy, local, remote),
+    because a remote copy of a local insertion is an echo of what local sent
+    earlier; local's later typing then reads as its edits. Text runs pair by
+    anchor, as above.
+
+  step 2, walk O's children in order:
+    node with a base twin under bEl     -> emitBase(twin)
+    node with a base twin elsewhere     -> a move in: emitMoved(twin) (rules below)
+    node paired in step 1               -> emit the pair once
+    node with no twin                   -> emit a clone (insertion)
+    then flush P's pending insertions anchored on this node (rule below)
+
+  step 3, base children not yet emitted:
+    deleted by both                     -> gone
+    deleted by one, unchanged on other  -> gone
+    deleted by one, edited on other     -> emit after the nearest preceding base sibling with
+                                           output here; "edit-beats-delete" conflict
+    moved out by one, deleted by other  -> emitted at the mover's destination; "move-beats-delete"
+    moved out by one, edited by other   -> emitted at the mover's destination with the edits merged
+    moved out by both, different parents-> O's destination; "both-moved" conflict; the other
+                                           side's edits merged in
 ```
 
-"Edited" means the side's subtree serialization differs from base.
+Anchors are resolved at emit time [I1]: an insertion from side P is
+pending on the nearest preceding node in P's own child list that produces
+output under this parent (walking backwards past nodes that were deleted,
+moved out, or ignored), or on "start" when none does. Pending insertions
+are flushed right after their anchor's output, start-anchored ones before
+anything else. When both sides have insertions at the same anchor, local's
+come first [I21].
 
-A side that moves an element into its own descendant is treated as an
-insertion at the destination and a deletion at the origin (no cycle can be
-created in the output because the output is built fresh).
+`emitMoved(twin)` checks the output path: if the twin's output would
+contain the parent being built (the two sides moved elements into each
+other), the move is downgraded to insert-at-destination plus
+delete-at-origin for the side whose move is applied second, and a
+"both-moved" conflict is recorded [I2].
+
+"Edited" means the side's structural hash differs from base's.
 
 ### Special elements
 
-- `<head>`: children keyed by head signature (4.9), then the same rules.
+- `<head>`: children keyed by head signature (4.9), then the rules above.
 - `<script>` with a JSON type and a merge identity: `mergeScriptText`
   three-way. Any other `<script>`: whole-text three-way, never character
-  merged (a half-merged program is worse than a lost edit).
-- `<textarea>`: value attribute and text as one value, whole-value three-way.
+  merged.
+- `<textarea>`: whole-value three-way on its text.
 - `<template>`: children merge on `.content`.
-- Ignored regions: a local ignored element is copied from local verbatim
-  with provenance, so apply keeps the live node untouched; a remote ignored
-  element is dropped.
-- Form controls: `value`, `checked`, `selected` merge as attributes (the
-  snapshot clone carries live values as attributes). Apply protects the
-  focused control (4.10).
+- Form controls: `value`, `checked`, `selected` merge as attributes.
+- Ignored elements: absent from every kid list, so never in the output;
+  apply leaves the live ones where they are [I9].
 
-### Change report
+### Decisions and `localDiverged`
 
-Every decision that differs from base on either side is recorded with the
-side that caused it and the output node, so apply can translate it to live
-nodes for `MergeReport.changes`.
+Every attribute, text, insertion, removal, and move that differs from
+base is recorded with its side. `localDiverged` is true when any decision
+has source `local` or `both`, or when a conflict resolved in local's
+favor [C4].
 
 ## 4.9 Head (`head-merge.js`)
 
-Head children get an identity of their own so they align without ids:
+Head children get an identity of their own:
 
 ```
-TITLE, BASE            -> the tag name (singletons)
-SCRIPT with src        -> "script|src|" + type + "|" + absolute URL without hash
-SCRIPT inline          -> "script|inline|" + type + "|" + hash(text)
-LINK with href         -> "link|" + rel + "|" + absolute URL without hash
-META                   -> "meta|" + first of charset/name/property/http-equiv/itemprop and its value
-STYLE                  -> "style|" + hash(text)
-else                   -> outerHTML
+TITLE, BASE        -> the tag name
+SCRIPT with src    -> "script|src|" + type + "|" + absolute URL without hash
+SCRIPT inline      -> "script|inline|" + type + "|" + hash(text)
+LINK with href     -> "link|" + rel + "|" + absolute URL without hash
+META               -> "meta|" + first of charset/name/property/http-equiv/itemprop + its value
+STYLE              -> "style|" + hash(text)
+else               -> outerHTML
 ```
 
 URLs resolve against the live document's `baseURI`; the query string is
-kept. Duplicate signatures form a multiset. Apply keeps incoming order,
-updates a matched element in place (a title change is a text change), and
-inserts a new stylesheet before removing a replaced one. `awaitLoads`
-awaits `load` or `error` on inserted stylesheets and external scripts.
+kept. Duplicate signatures form a multiset.
 
 ## 4.10 Apply (`apply.js`)
 
-Input: the live document, the merged document, provenance, `toLive`.
+Input: the live document, the merge result, `toLive`, options.
+
+Pre-pass [I5, I8]: build `liveToMerged` by walking the merged tree and
+resolving every provenance entry through `toLive`; a local node whose live
+counterpart is null or no longer connected to `live` is treated as absent,
+so its merged node is inserted as a clone [I11]. Capture focus: the active
+element of `live`, its selection, and for a caret in a text node the run it
+belongs to and the offset within the run (the sum of preceding run members'
+lengths plus the offset in the node) [I6, C15]. Capture scroll offsets.
 
 ```
 applyElement(liveEl, mergedEl):
-  syncAttributes (namespaced; hooks consulted; form-state attrs via syncFormState)
-  special: textarea, script (text only; execution decided later), template (content)
+  syncAttributes; syncFormState (attribute or property mode; property mode reads
+    the original remote node from provenance, not the merged clone) [I15]
+  textarea: value; script: text; template: content
   applyChildren(liveEl, mergedEl)
 
 applyChildren(liveParent, mergedParent):
   cursor = first live child that is not ignored
   for mergedChild in mergedParent.childNodes:
-    liveChild = toLive(provenance(mergedChild).local)      // null when inserted from remote
-    if liveChild:
-      if liveChild !== cursor: moveBefore(liveParent, liveChild, cursor)   // from anywhere in the live tree
-      applyNode(liveChild, mergedChild); cursor = next non-ignored after liveChild
-    else if mergedChild is text and cursor is an unclaimed live text node:
-      set nodeValue; claim; advance
-    else:
-      insert an inert clone before cursor (importNode from the merged doc; scripts made inert)
-  remove every live child not claimed, not ignored, and not the local twin of a merged node elsewhere
+    live = liveToMerged twin of mergedChild
+    element with a live twin: if live !== cursor: moveBefore(liveParent, live, cursor); applyElement; claim
+    text run with live twins: reuse the FIRST member; if its value differs from the run's
+      local text (typing landed after the snapshot) re-merge with base := snapshot text,
+      local := live text, remote := merged text [I11]; set nodeValue; claim the first
+      member; the other members are leftovers
+    no twin: insert an inert clone before cursor; claim
+    cursor = next non-ignored live node after the claimed node
+  leftovers of this parent are recorded, not removed
+
+after the whole tree: remove every recorded leftover that is still unclaimed
+  and not ignored [I8]
 ```
 
-There is no pantry: a live node whose merged counterpart sits under another
-parent stays put until that parent is applied and then `moveBefore` pulls
-it in. Leftover removal skips it because provenance names it.
+Ignored live elements are never moved; the cursor skips them so inserts
+land around them.
 
-`moveBefore` is used when present (Chrome 133+, Firefox 133+) so iframe,
-video, and focus survive; `insertBefore` otherwise.
+Head [I16]: `applyHead` is two-phase: insert and update in incoming order,
+awaiting loads if enabled, then remove leftovers, so a replaced stylesheet
+is never absent. A head script whose signature was present before never
+re-executes; a new head inline or `src` script is created fresh and runs on
+insertion.
 
-Focus and caret: before applying, capture `activeElement`, its selection
-range, and scroll offsets, from `live`, not the global document. For a
-contenteditable, keep a reference to the text node and offset. After
-applying, if that text node still exists, map the offset through the
-`mapLocalOffset` function the text merge returned for it; if it was
-replaced, place the caret at the same offset in the merged node that took
-its place; if the element was recreated, refocus by identity. The focused
-input or textarea keeps its live value when `protectFocusedValue` is true;
-the merged value is recorded as a conflict so the caller can decide.
+Focus and caret: after apply, if the caret's run still has a live node,
+map the run-relative offset through the run's `mapLocalOffset` and place
+the caret in the surviving member; if the element was recreated, refocus
+by identity. The focused input or textarea keeps its live value when
+`protectFocusedValue` is true.
 
-Script execution runs after apply: a body script whose signature (4.9 rule)
-was not present before apply executes once by replacement with a fresh
-element; merged JSON scripts never execute.
+Body scripts run after apply: a script whose signature was not present
+before executes once by replacement; merged JSON scripts never execute.
 
-## 4.11 Baselines and holds
+`applied` is recorded as the mutations are made, and `decisions` get their
+`applied` flag and live node references from the same pass.
 
-The library takes baselines as the caller holds them. It does not own them.
-What it guarantees:
+## 4.11 Baselines
 
-- With a base, every frame merges. There is no structural hold; a
-  structural impossibility (the two sides cannot both be honored, such as
-  one side deleting a container the other side moved content into) is
-  resolved by policy and reported as a `structure` conflict.
-- With `base = null`, the merge is two-way and remote wins. ClayJS today
-  holds a dirty tab's first frame because `lastHtml` is null until the
-  first send. The recommended fix is in Part 5: seed `lastHtml` from the
-  boot capture so `base` is never null after boot.
+The library takes baselines as the caller holds them and never advances
+them. Everything about holds, stamps, epochs, and convergence stays in the
+caller; what the library adds is `localDiverged` and the two report lists
+so the caller can decide with facts instead of inference.
 
 ---
 
@@ -810,169 +848,154 @@ What it guarantees:
 
 ## 5.1 ClayJS changes
 
-`sync/live-sync.js`, `_doApplyUpdate`:
+The peer lane keeps its structure [C6]: the clean path is a two-way morph
+with no capture, the dirty path is the three-way merge. The gate token is
+taken before the capture and cleared when the merge reports no local
+divergence, which is what `protectPeerDoc` did for the oracle.
 
 ```js
-const clone = captureSnapshot({ flushUndo: false });
-const report = await mergeDocument({
+// _doApplyUpdate, replacing protectPeerDoc + morph
+const hooks = { beforeAttributeUpdated: (name, el) => isTabLocalRootAttr(name, el) ? false : undefined };
+const common = {
   live: document,
-  base: this.lastHtml,                       // may be null before first send; see below
   remote: html,
-  local: { root: clone, toLive: originalSnapshotNode },
-  identity: {
-    base:   (el) => baseIds.get(el)   || el.getAttribute('data-id') || el.getAttribute('id'),
-    local:  (el) => store.idOf(originalSnapshotNode(el)) || el.getAttribute('data-id') || el.getAttribute('id'),
-    remote: (el) => remoteIds.get(el) || el.getAttribute('data-id') || el.getAttribute('id'),
-  },
-  ignore: (el) => el.matches(PEER_SKIP_SELECTOR) || isExtensionNode(el),
+  identity: { remote: { map: identityMap }, local: (el) => store.idOf(originalSnapshotNode(el) || el) },
+  ignore: (el) => el.matches(SYNC_IGNORE) || el.matches(EXTENSION_NODE_SELECTOR),
+  remoteWins: (el) => el.matches(NO_DIRTY_SELECTOR),
+  ignoreAttribute: (el, name) => !el.parentElement && TAB_LOCAL_ROOT_ATTRS.has(name),
   scripts: { mergeTags: mergeTagRecognizers },
-  hooks: { beforeAttributeUpdated: (name, el) => isTabLocalRootAttr(name, el) ? false : undefined },
-});
-for (const [el, id] of report.identities) store.adopt(el, id);
+  hooks,
+};
+let report;
+if (this.lane === 'live' && pageMaybeDirty()) {
+  if (!this.lastHtml) { /* hold exactly as today */ return; }
+  const gateToken = gateCaptureToken();
+  const clone = captureSnapshot({ flushUndo: false });
+  report = await mergeDocument({
+    ...common,
+    base: this.lastHtml,
+    identity: { ...common.identity, base: { map: this._lastIdentityMap } },
+    local: { root: clone, toLive: originalSnapshotNode },
+  });
+  if (!report.localDiverged) { probeMarkClean(); gateClearIfUnchanged(gateToken); }
+} else {
+  report = await mergeDocument({ ...common, base: null });
+}
+for (const [el, id] of report.identities) store.adopt(el, id);   // overwrite, as afterNodeMorphed did
 ```
 
-`baseIds` is `importMap(baseDoc, this._lastIdentityMap)`; `remoteIds` is
-`importMap(newDoc, identityMap)`. `protectPeerDoc`, `findChangedRoots`, and
-`spliceProtected` are no longer called. The hold path remains only for
-`base == null`. `lastHtml` stays the raw frame, and the convergence save
-stays: it runs when `report.changes` contains any change with
-`source: "local"` that the frame did not carry, which is exactly "the
-merged state exists only here".
+`SYNC_IGNORE` is the set the vendored morph ignores today (`no-snapshot`,
+`no-save`, `freeze`, `editor-ui`, `save-ignore`), not `PEER_SKIP_SELECTOR`
+[C7]. `lastHtml` stays the raw frame. The convergence save runs when
+`report.localDiverged` is true [C4]; on a manual-save page it is replaced
+by a relay of the merged snapshot without a save, which is a ClayJS policy
+decision recorded here as an open item.
 
-`_doApplyExternal`: the same call with `base: getLastSavedDirty()`, `local`
-from `captureForMerge()`'s compare clone (its `pairMap` gives the save-domain
-twin when a subtree must be imported), and `activateIncomingDoc` applied to
-the parsed remote first.
+Disk lane [C2, C3]: all three sides are in the save domain. `save.js`
+keeps a third baseline, `lastSavedSave`, the pre-renderer `forSave` bytes,
+advanced wherever `lastSavedDirty` is. The local side is the save clone
+from `captureForMerge` (it has provenance; the compare clone does not), the
+remote is the disk document left inert, and `activateIncomingDoc` runs on
+the merged output before apply, which the library exposes as a
+`beforeApply(mergedDoc)` hook. `lastSavedSave` is initialised to null, and
+`getLastSavedDirty() === ''` means no base [C9].
 
-`sync/section-notice.js` reads `report.changes` filtered to the region
-instead of comparing `outerHTML` (it can then also say what changed).
-`plugins/source.js` re-pairs only `report.replaced` and `report.moved`.
-`sync/splice-merge.js` is deleted. `sync/merge-tags.js` is unchanged.
+Boot seeding [C8]: `snapshot.js` gains `captureBootBaseline()` returning
+`{ forComparison, forDirty, forSave, forSync, identityMap }` from one
+clone; `live-sync.start()` seeds `lastHtml` and `_lastIdentityMap` from it
+and again at settle. Until it lands, the null-base hold above covers the
+window.
 
-Seed `lastHtml` at boot from the settled baseline capture (the snapshot
-domain serialization of the same clone `save.js` already takes), so a dirty
-tab's first incoming frame has a base and never holds.
+Consumers: `clay:sync-applied` keeps its detail shape (`seq`, `source`,
+`etag`, `by`, `html` on disk frames) for `plugins/wire.js` and
+`plugins/source.js` [C12, C13], and gains `report`. `section-notice.js`
+reads `report.applied` entries inside the region instead of comparing
+`outerHTML` [C14]. `source.js` keeps its full re-pair. `splice-merge.js`
+is deleted; `merge-tags.js` is unchanged. hypercms calls
+`morphElement(panel, built, { children: true, formState: 'property', protectFocusedValue: r })`
+[C19].
 
-hypercms keeps calling `morphElement(panel, built, { formState: 'property' })`.
+ClayJS tests that change [C17]: the peer-protect "unmergeable keyless
+edit holds" case becomes "merges"; the disk-lane holds in
+`live-sync-external.test.js` and `splice-merge-disk.test.js` likewise;
+"a held frame never adopts a stamp" is re-pinned on the null-base hold.
 
 ## 5.2 Test plan
 
-Runner stays `@web/test-runner` for DOM tests; `merge3`, `align`, and
-`text-merge` also run under Node with jsdom so the pure core is tested
-without a browser. Every whole-document fixture includes a doctype.
+Pure modules run under Node with jsdom (`npm run test:node`); DOM behavior
+runs in Chromium (`npm run test:chrome`). Every whole-document fixture
+includes a doctype.
 
-Text merge (`text-merge`):
+Implemented so far: `text-merge` (T-T1 to T-T8, mapper cases), `parse`
+(T-P1 to T-P5), `ignore` (T-I1), `identity` (store, maps, index, T-A2).
 
-- T-T1 disjoint edits both apply (S1).
-- T-T2 overlapping edits: remote policy, local policy, both policy; conflict reported.
-- T-T3 two insertions at the same offset: local first, no conflict.
-- T-T4 insertion adjacent to a deletion: both apply.
-- T-T5 one side empties the string, other edits: policy applies, conflict reported.
-- T-T6 `mapLocalOffset` before, inside, and after a remote hunk.
-- T-T7 surrogate pairs are never split.
-- T-T8 size fallback: 30,000-character strings merge at line granularity within 50 ms.
+Alignment: T-A1 identity across parents; T-A3 identical siblings keep
+order; T-A4 retyped heading pairs; T-A5 tag and class alone never pair;
+T-A6 move detection; T-A7 move bound; T-A8 split text runs pair with one
+parsed node; T-A9 code-like elements; T-A10 identical subtrees are skipped.
 
-Alignment (`align`):
+Merge: S1 to S7 and S10; T-M1 both insert the same element (one copy);
+T-M2 both reorder (remote, conflict); T-M3 class tokens; T-M4 style
+declarations; T-M5 remote deletes a container local moved content into;
+T-M6 ignored regions; T-M7 JSON and executable scripts; T-M8 head; T-M9
+provenance covers every node; T-M10 `base = null` equals two-way; T-M11
+insertion after a deleted anchor survives [I1]; T-M12 mutual moves
+terminate with a conflict [I2]; T-M13 echoed insertion pairs by identity
+and keeps later local typing [I4]; T-M14 `remoteWins` region takes remote;
+T-M15 `ignoreAttribute` names never appear in decisions; T-M16
+`localDiverged` false for a clean tab and true for each local decision kind.
 
-- T-A1 identity pairs across parents (S3 without content).
-- T-A2 duplicate identity on one side disables that id on that side.
-- T-A3 exact-equality pairing of repeated identical siblings keeps order.
-- T-A4 signature plus similar text pairs a retyped heading.
-- T-A5 tag-and-class alone never pairs dissimilar text (S7 rule).
-- T-A6 move detection pairs an unpaired base element with an unpaired side element under another parent.
-- T-A7 move detection is skipped above the size bound.
-- T-A8 text runs split by typing align with a single parsed text node.
-- T-A9 code-like elements never pair by text rules.
+Apply: T-P1 node identity kept; T-P2 leftovers claimed elsewhere survive
+until moved [I8]; T-P3 focus and selection (ports of the two focus suites
+plus S8 caret mapping through a run); T-P4 protected focused value; T-P5
+new inline script runs once; T-P6 `insertBefore` fallback; T-P7
+namespaced attributes; T-P8 iframe document; T-P9 `applied` equals the
+MutationObserver record; T-P10 typing between snapshot and apply survives
+[I11]; T-P11 head two-phase order; T-P12 property mode reads the original
+node.
 
-Merge (`merge3`), one test per scenario in Part 3 (S1 to S7, S10 structure)
-plus:
+Whole document: T-D1 doctype cases; T-D2 the test page; T-D3 unknown
+option throws.
 
-- T-M1 both sides append the same element: one copy.
-- T-M2 both sides reorder differently: remote order, structure conflict reported.
-- T-M3 class token merge: local adds `a`, remote adds `b`, result has both.
-- T-M4 style declaration merge.
-- T-M5 remote deletes a container local moved content into: content survives at local's destination, conflict reported.
-- T-M6 ignored region on local kept verbatim; on remote dropped.
-- T-M7 JSON merge script three-way; executable script whole-value.
-- T-M8 head: title change is a text change; stylesheet replaced in order; preload duplicates kept.
-- T-M9 provenance covers every output node.
-- T-M10 `base = null` equals a plain two-way morph on the whole existing `core`, `ops`, and `fidelity` suites (ported).
-
-Apply (`apply`):
-
-- T-P1 every live node with a local twin is the same object after apply (S2, S3 video node).
-- T-P2 leftover removal never removes a node claimed elsewhere.
-- T-P3 focus and selection preserved for input, textarea, contenteditable (ports of `restore-focus` and `preserve-focus`, plus S8 caret mapping).
-- T-P4 focused input value protected and reported.
-- T-P5 inert clones: a new inline script runs exactly once, after apply.
-- T-P6 `moveBefore` fallback to `insertBefore` behaves identically for structure.
-- T-P7 `xlink:href` and other namespaced attributes.
-- T-P8 iframe document: active element read from the right document.
-- T-P9 `MergeReport.changes` matches the DOM mutations observed by a MutationObserver.
-
-Whole document:
-
-- T-D1 doctype present, absent, changed.
-- T-D2 `morphDocument(document, string)` on the test page: body and head identity kept.
-- T-D3 unknown option throws before mutation.
-
-Performance (`perf/`, run in CI):
-
-- 3000-element page, clean tab, one remote text edit: merge plus apply at or under 40 ms, fail above 80 ms.
-- Same page, dirty tab with one local edit elsewhere: at or under 60 ms.
-- Alignment of two 3000-element documents with full synthetic identity: at or under 10 ms.
-
-ClayJS (in the ClayJS repo, after 5.1):
-
-- Port `live-sync-peer-protect.test.js` expectations; the "unmergeable keyless edit holds" test flips to "merges".
-- Two-frame burst keeps the local edit with raw `lastHtml`.
-- Convergence save fires only when the merge carried local-only changes.
+Performance, in CI: 3000-element page, clean tab, one remote edit, at or
+under 40 ms (fail at 80); dirty tab with one local edit, at or under 60 ms;
+alignment of two identical 3000-element documents at or under 10 ms.
 
 ## 5.3 Delivery phases
 
-Each phase ends with a green suite and a commit.
+Phase 0 (done): CI workflow, jsdom, `text-merge`, `parse`, `ignore`,
+`identity`.
 
-Phase 0, baseline: CI workflow running `npm run test:ci` in Chromium; fix
-the four focus tests; restore or remove `perf`.
+Phase 1: `similarity`, `align`, `merge`, `head-merge` with the Node suite.
+Exit: S1 to S7 pass through `merge3`.
 
-Phase 1, pure core: `parse`, `identity`, `similarity`, `align`,
-`text-merge`, `merge3` with the Node test suite. Deliverable: `merge3`
-passes S1 to S7 and the merge tests above. No DOM mutation yet.
+Phase 2: `scripts`, `apply`, `index`. Port the two-way suites. Delete the
+old core, keep `legacy-splice.js`. Exit: `test:node` and `test:chrome`
+green.
 
-Phase 2, apply: `apply`, focus and caret, script execution, head.
-`mergeDocument` and `morphDocument` wired. Port `core`, `ops`, `fidelity`,
-`restore-focus`, `preserve-focus`, `head`, `scripts-handle` as the two-way
-case. Delete the old core, keep `legacy-splice.js`.
+Phase 3: benchmark in CI, profile to target.
 
-Phase 3, performance: benchmark in CI; profile and fix until targets hold.
-
-Phase 4, ClayJS cut-over: the changes in 5.1 on a ClayJS branch, tested
-against its unit suite and a two-tab manual session; then delete
-`legacy-splice.js` and release 1.0.
+Phase 4: ClayJS cut-over per 5.1 on a ClayJS branch; then delete
+`legacy-splice.js`; release 1.0.
 
 ## 5.4 Size
 
 | Module | Lines |
 |---|---|
-| index, parse, ignore, identity | ~350 |
-| similarity, align | ~400 |
-| text-merge | ~250 |
-| merge, head-merge | ~600 |
+| index, parse, ignore, identity | ~400 |
+| similarity, align | ~450 |
+| text-merge | ~300 |
+| merge, head-merge | ~750 |
 | scripts | ~120 |
-| apply | ~400 |
-| total | ~2,100 (current core plus splice and matcher: ~4,900) |
-
-The core grows relative to the earlier draft of this plan because the
-merge is now the product. What is removed is duplication and guessing, not
-capability.
+| apply | ~500 |
+| total | ~2,500 (current core plus splice and matcher: ~4,900) |
 
 ## 5.5 What was not verified
 
 - The relay server (htmlclay) was not read; the wire shape was inferred
-  from the ClayJS client and its tests.
-- `hyper-undo`'s interaction with applied frames was not read beyond the
-  `Mutation.pause` bridge. Apply runs under the caller's pause exactly as
-  the morph does today, so no change is expected.
-- The prototype in `docs/evidence/` uses an O(n·m) diff and unbounded
-  pairing searches. It is evidence for the merge rules, not a performance
-  measurement.
+  from the ClayJS client as received (`snapshotKey` differs per wire
+  profile on the POST) [C18].
+- `hyper-undo` beyond the `Mutation.pause` bridge.
+- The prototype in `docs/evidence/` evidences the merge rules for S1 to
+  S7 only; it has one conflict policy, no offset mapper, no class token
+  merge, and unbounded searches [I22].
