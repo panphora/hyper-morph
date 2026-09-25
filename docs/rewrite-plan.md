@@ -1,1112 +1,978 @@
-# HyperMorph review and rewrite plan
+# HyperMorph: review, system map, and rewrite plan
 
-Date: 2026-09-24. Reviewed at v0.5.4 (commit 574c32c).
+Date: 2026-09-25. Reviewed at hyper-morph v0.5.4 (commit 574c32c) and
+clayjs v1.4.0 (commit dc18771). HyperclayJS is deprecated and was not used as
+a reference.
 
-This document has two parts. Part 1 is the review that motivates the rewrite.
-Part 2 is the implementation specification: module layout, data structures,
-algorithms, option semantics, edge cases, test plan, and delivery phases. Part 2
-is written so that an engineer who has not read the current source can build
-the new library from it.
+Decisions taken with the maintainer before this revision:
+
+1. Merging local unsaved work with incoming documents is the library's job,
+   not an add-on. The "protected splice" is folded into the core rather than
+   moved out.
+2. The library must work on ordinary HTML with no ids the author has to add,
+   and must never write identity into the user's DOM or file.
+3. Text merges at character granularity, inside the core.
+
+This document has five parts:
+
+- Part 1: what is wrong with the current library (measured).
+- Part 2: how ClayJS uses it and where the "mirror" lives (system map).
+- Part 3: real-world scenarios, with the current library's measured result
+  and the prototype three-way merge's result on the same inputs.
+- Part 4: the new architecture and per-module specification.
+- Part 5: ClayJS integration, test plan, delivery phases.
+
+The scenario runner and the prototype are in `docs/evidence/` and run with:
+
+```
+npx web-test-runner --playwright --browsers chromium --files docs/evidence/scenarios-current-library.js
+npx web-test-runner --playwright --browsers chromium --files docs/evidence/three-way-merge-prototype.js
+```
 
 ---
 
-# Part 1: Review
+# Part 1: Review of the current library
 
 ## Verdict
 
-The library does not currently do its one job. Morphing a live document against
-a real incoming page throws, the whole-document paths are the least tested paths
-in the suite, and about 60 percent of the source is Hyperclay-specific machinery
-bolted onto a vendored Idiomorph. A rewrite around a single "parse, pair,
-reconcile" pipeline is justified, and it can be roughly a quarter of the current
-size.
+The library is a two-way morph (Idiomorph plus content scoring) with a
+three-way JSON merge for script tags and a separate "diff local against
+base, splice into remote, then morph" pipeline bolted on. That shape cannot
+express the product's actual operation, which is a three-way merge of base,
+local, and remote. Part 3 shows the consequence: in every scenario where two
+people touch a page at once and the elements have no ids, the current
+pipeline either discards one person's work or applies nothing at all.
 
-## Confirmed defects
-
-Measured in Chromium (Playwright 1.56.1) with the existing suite plus a
-throwaway test for the whole-document path.
+## Measured defects
 
 | Check | Result |
 |---|---|
-| Full suite | 606 pass, 4 fail, 15 skipped, 97.6% coverage |
+| Full suite (Chromium, Playwright 1.56.1) | 606 pass, 4 fail, 15 skipped, 97.6% coverage |
 | `morph(document, "<!DOCTYPE html>...")` | throws `HierarchyRequestError: Only one doctype on document allowed` |
 | `morph(doc.documentElement, "<!DOCTYPE html>...")` | same throw |
-| Same call, incoming string without doctype | works |
-| Attached element as new content with a nested `no-save` child | throws `TypeError: newContent.contains is not a function` |
+| Attached element as new content with a nested `no-save` descendant | throws `TypeError: newContent.contains is not a function` |
 | `innerHTML` morph of one `documentElement` into another | produces `<html><html>...</html></html>` |
-| 3000-element page, one text edit | 758 ms, versus 277 ms for upstream Idiomorph on the same input |
+| 3000-element page, one text edit | 758 ms; upstream Idiomorph 277 ms on the same input |
 
-### Doctype crash (primary path is broken)
+- **Doctype crash.** Inherited from Idiomorph. ClayJS avoids it only because
+  it morphs `documentElement` against a parsed `documentElement`, never a
+  `Document` against a string. The head tests pass because their fixtures
+  omit the doctype.
+- **`.contains` crash (0.5.4).** `src/hyper-morph.js:1854` calls a method the
+  `SlicedParentNode` duck type does not have. ClayJS passes an attached
+  `documentElement` so it takes exactly this path; the crash needs an
+  ignored region with a child on the incoming side.
+- **Four focus tests fail on current Chromium** under `restoreFocus: false`
+  in `test/restore-focus.js`. There is no CI. `npm run perf` points at a
+  missing directory.
+- **Quadratic matcher.** 742 of the 758 ms are in `computeMatches`.
+  `computePath` walks previous siblings for every ancestor of every element
+  (`src/hyper-morph-matcher.js:217`), and every lookup re-filters the whole
+  signature bucket with `getAttribute` (`src/hyper-morph-matcher.js:713`).
+  Disabling both drops the run to 188 ms. ClayJS relays a frame per 150 ms
+  of typing, so on a large page a receiving tab spends most of its time in
+  this function.
+- **Global `document` and `window`** for active element, script creation,
+  head fragment creation, and URL resolution.
+- **Head merge** removes and re-appends a changed `<title>` instead of
+  updating it, and does not keep incoming order.
 
-Every real page starts with a doctype, so the "merge two full documents" path
-fails for the primary input. The bug is inherited from upstream Idiomorph. The
-head tests in `test/head.js` only pass because their fixtures omit the doctype.
-The new document's `DocumentType` child reaches `createNode`
-(`src/hyper-morph.js:991`) and is inserted next to the existing one.
+## Structural problems
 
-### `.contains` crash (new in 0.5.4)
+Five identity systems are reconciled after the fact (Idiomorph id sets,
+content scoring, slot candidates, the `key` callback, merge-tag pairing).
+The `key` block at `src/hyper-morph.js:1881` and the merge-pairing block at
+`src/hyper-morph.js:1945` are near duplicates. Because matching is decided
+lazily during the walk, the pantry, staged-node recovery,
+`removeNodesBetween`, `moveBeforeById`, ancestor id-map cleanup, and the
+cycle guard all exist to patch over decisions made too early.
 
-The scoping fix at `src/hyper-morph.js:1854` calls `newContent.contains`, but
-when new content is an attached element it is wrapped in `SlicedParentNode`,
-which has no such method. Any descendant of an ignored region on the incoming
-side trips it.
+Input normalization has five paths (`string`, detached node, attached node,
+array, `Document`) and the `SlicedParentNode` duck type is only partly
+honored. The three crashes above all come from that.
 
-### Nested `<html>` on innerHTML morph
-
-Documented in `test/document-level.js:55` as a known bug and then worked around
-in the test rather than fixed.
-
-### Red baseline, no CI
-
-Four focus tests fail on current Chromium: both "retains focus and selection
-state when elements are moved" cases under the `restoreFocus: false` group in
-`test/restore-focus.js`. There is no CI workflow to catch this. `npm run perf`
-points at a `perf/` directory that does not exist.
-
-### Quadratic matcher
-
-The matcher accounts for 742 of the 758 ms on the 3000-element page. Two hot
-spots, each about 270 ms:
-
-- `computePath` recomputes nth-of-type for every ancestor of every element by
-  walking previous siblings (`src/hyper-morph-matcher.js:217`).
-- `computeMatches` re-filters the whole signature bucket with `getAttribute`
-  for every new element (`src/hyper-morph-matcher.js:713`).
-
-Disabling both drops the run to 188 ms.
-
-### Global `document` and `window`
-
-Used for the active element, executable script creation, head fragment
-creation, and URL normalization. Morphing a parsed or iframe document reads the
-wrong document's focus and creates scripts in the wrong realm.
-
-### Head merge does not preserve order
-
-A changed `<title>` is removed and re-appended at the end of the head, firing
-remove and add hooks for what is really an update.
-
-## Why a rewrite rather than fixes
-
-The core has five overlapping identity systems reconciled after the fact:
-Idiomorph's id sets, the content matcher, slot candidates, the `key` callback,
-and merge-tag pairing. The `key` block (`src/hyper-morph.js:1881`) and the merge
-block (`src/hyper-morph.js:1945`) are near-duplicate reciprocal-cleanup code.
-Because matching is decided lazily during the walk, the pantry, staged-node
-recovery, `removeNodesBetween`, `moveBeforeById`, ancestor id-map cleanup, and
-the cycle guard all exist to patch over decisions made too early.
-
-Input normalization is the other structural problem. A string, a detached node,
-an attached node, an array, and a `Document` each take a different path through
-`normalizeParent`, and `SlicedParentNode` is a duck type that most of the
-codebase only partly honors. The three crashes above are all consequences.
-
-The rest is scope creep for a general library. By line count in
-`src/hyper-morph.js`: about 600 lines are `findChangedRoots` and
-`spliceProtected`, about 200 are JSON script merging, and about 150 are the
-sync-ignore policy layer with Hyperclay vocabulary (`clay~=`, `editor-ui`,
-`freeze`, `snapshot-remove`) baked in. `src/lib/content-dom.js` is generated
-from ClayJS and imported by nothing. `parseRulesRelaxed` is a Hyperclay dialect.
-`scripts/propagate.js` writes builds into sibling repos. The package reads as
-Hyperclay's vendored fork, and the README never states the one job.
+`findChangedRoots` and `spliceProtected` (about 600 lines) solve the merge
+problem by promotion: a dirty element without a key promotes to its nearest
+keyed ancestor, and on an id-free page that is `<body>`, which is a
+structural root the splice refuses to replace. That is why the "hold"
+outcome dominates Part 3.
 
 ---
 
-# Part 2: Implementation specification
+# Part 2: System map: how ClayJS uses this library
 
-## 2.1 Scope statement
+This is the part a rewrite has to fit. Everything here was read from the
+ClayJS source at v1.4.0.
 
-The library has one entry point:
+## 2.1 There is no mirror tree. There are baseline strings.
 
-```js
-await morphDocument(target, incoming, options)
+ClayJS never keeps a shadow DOM tree in sync with the page. It keeps
+serialized strings and re-parses them when needed:
+
+| Baseline | Owner | Domain | Advances when |
+|---|---|---|---|
+| `lastHtml` + `_lastIdentityMap` | `sync/live-sync.js` | snapshot domain (what peers see) | own relay POST succeeds; a peer frame applies (set to the raw frame, never the merged result); a clean disk apply |
+| `lastSavedContents` | `core/save.js` | autosave-comparison domain | a save lands; a verified-clean sync apply |
+| `lastSavedDirty` | `core/save.js` | dirty domain (keeps `no-trigger-autosave`) | same as above |
+| source-map model | `core/source-map.js` | the file's own bytes | boot fetch; accepted save; re-pair on `clay:sync-applied` |
+
+Parsing is memoized one-deep per lane (`splice-merge.js` `makeParseCache`)
+because a typing burst reuses the same base string across frames.
+
+The "mirror that gets patched as changes are made" is therefore the pair
+(`lastHtml`, `_lastIdentityMap`) for the peer lane and `lastSavedDirty` for
+the disk lane. The live DOM is the local side. Nothing is diffed
+incrementally; every frame that arrives while the page might be dirty
+re-captures the whole page and diffs it against the parsed baseline.
+
+## 2.2 Serialization domains
+
+`core/snapshot.js` produces several serializations of one clone. The clone
+is made by `createContentView` (`lib/content-dom.js`) with capability
+`snapshot`, which strips `no-snapshot` regions and records a provenance
+WeakMap from every clone node to its live node (`originalSnapshotNode`).
+Then, in order: snapshot hooks (form values written into attributes),
+authored URL restore, `onbeforesnapshot` handlers, extension-noise strip.
+
+| Domain | What is stripped | Used for |
+|---|---|---|
+| snapshot | `no-snapshot` only | live-sync wire (`serializeForSync` also drops tab-local root attrs) |
+| save | plus `no-save`, transforms, `freeze` restore | the file |
+| comparison | plus `no-trigger-autosave`, `no-dirty`, `no-watch` | "should this autosave" |
+| dirty | like comparison but keeps `no-trigger-autosave` | "would the person lose work", and the disk-lane merge base |
+
+The region vocabulary is in `lib/region-policy.js` (`clay="no-save freeze"`
+tokens plus legacy bare attributes). hyper-morph's `SYNC_IGNORE_SELECTOR`
+is a hand-maintained copy of part of this list.
+
+## 2.3 Identity without ids: the synthetic identity map
+
+`live-sync.js` keeps `liveWeakMap: Element -> "<clientId>:<n>"`. Ids are
+minted lazily at snapshot time and never written to the DOM or the file.
+On every relay, `_buildIdentityMap` walks the snapshot clone and emits
+`{ "0.1.3": "abc:17", ... }` keyed by dot-path over element children. The
+frame carries `{ html, identityMap, sender, seq, etag, by }`.
+
+The receiver walks the parsed frame by the same paths to build
+`parsedWeakMap`, passes `key = el => liveWeakMap.get(el) || parsedWeakMap.get(el) || data-id || id`
+to the morph, and in `afterNodeMorphed` copies the incoming id onto the
+live element it morphed into. `_fillInIdsAfterMorph` covers elements the
+morph inserted by cloning. So after one round trip, the same logical element
+carries the same id in every tab, and identity survives moves and content
+edits. This is what makes "no ids in the user's DOM" workable, and the
+rewrite builds on it rather than on content scoring.
+
+Fragilities to carry into the design:
+
+- Path keys break under any divergence between the sender's clone and the
+  receiver's parse (an `onbeforesnapshot` handler that adds a sibling). Both
+  walkers abort a subtree on child-count mismatch.
+- Elements inside `<template>` and text nodes have no identity.
+- Duplicate ids can arise when a subtree is cloned in the page (a
+  drag-duplicate); both sides then fall back to content matching.
+
+## 2.4 The send side
+
+`core/autosave.js`: mutations in the autosave domain (`Mutation.onAnyChange`
+with `require: 'autosave'`, 1.5 s debounce, 10 s max wait) call
+`savePageThrottled` (1.2 s throttle). `savePage` runs
+`captureForSaveAndComparison`, which dispatches `clay:snapshot-ready` with
+the clone before stripping. `live-sync.js` listens, serializes for sync,
+builds the identity map, and POSTs after a 150 ms debounce, single-flight
+with a one-deep queue. `lastHtml` advances only if no frame applied while the
+POST was in flight (`_applyGen`).
+
+Saves carry `If-Match` when the host supports conditional saves
+(`core/etag.js`); a 412 puts the tab in a conflict hold that suspends
+autosave until a save lands or the user chooses to overwrite.
+
+## 2.5 The receive side (peer lane)
+
+`_doApplyUpdate` under `Mutation.pause()` and `pauseGate()`:
+
+1. Parse the frame; build `parsedWeakMap` from `identityMap`.
+2. If `pageMaybeDirty()` (a counter fed by dirty-domain mutations and input
+   events, cleared on save, plus a probe of `[persist]` controls):
+   `protectPeerDoc` captures a snapshot clone, parses `lastHtml`, fills ids
+   on both, runs `findChangedRoots(localClone, baseDoc)`, and
+   `spliceProtected(newDoc, entries)`. If the splice reports `ok: false`,
+   the frame is **held**: nothing morphs, `lastHtml` does not move, the etag
+   is refused, a 3 s retry re-queues the same frame, and
+   `clay:sync-held` fires.
+3. `HyperMorph.morph(document.documentElement, newDoc.documentElement, { morphStyle: 'outerHTML', ignoreActiveValue: true, head: { style: 'merge' }, scripts: { handle: true, matchMode: 'smart', mergeBase: lastHtml, mergeTags }, key, callbacks: { afterNodeMorphed, beforeAttributeUpdated } })`.
+4. Restore scroll; fill ids; `lastHtml = raw frame`; record the etag; if
+   nothing was protected and the page is clean, advance both save
+   baselines; dispatch `clay:sync-applied`.
+5. If sections were protected, `savePageThrottled()` runs a convergence save
+   so the merged state reaches disk and peers.
+
+`lastHtml` is deliberately the raw frame, not the merged result: a patched
+baseline would make the next frame's diff read the protected section as
+clean (`tests/unit/live-sync-peer-protect.test.js`).
+
+## 2.6 The receive side (disk lane)
+
+External changes (the file changed on disk, or a fetch of the served page)
+go through `_doApplyExternal`: the same shape, but the base is
+`lastSavedDirty`, the local capture is `captureForMerge()` (a compare clone
+and a save clone from one snapshot, paired by a WeakMap), the incoming
+document is edit-mode activated (`activateIncomingDoc`) so inert attribute
+forms match the live ones, and a clean apply advances both save baselines
+and rebuilds `lastHtml`.
+
+## 2.7 Other consumers of the morph
+
+- `hypercms.vendor.js` morphs its own panel with
+  `{ morphStyle: 'innerHTML', formStateSync: 'property', policy: 'raw' }`.
+  It builds new content in memory with property assignment, so it needs the
+  property mode the earlier draft of this plan proposed to drop. It stays.
+- `sync/section-notice.js` compares a region's `outerHTML` across
+  `clay:sync-applied` to say "Ana changed this section". It has no access
+  to what the merge actually changed and infers it.
+- `plugins/source.js` re-pairs live nodes to file byte ranges on
+  `clay:sync-applied` because "a morph replaces live nodes". With the new
+  apply step, the set of replaced nodes is known and can be reported.
+- `lib/mutation.js` bridges `Mutation.pause()` to `clay.undo.pause()`, so
+  remote frames never enter the undo stack. The rewrite keeps applying
+  under the caller's pause; it does not manage undo.
+
+## 2.8 What this means for the rewrite
+
+- The three inputs of a three-way merge already exist: base is a baseline
+  string, local is the live DOM (via a snapshot clone with provenance),
+  remote is the frame.
+- Identity is available on all three sides: base ids come from
+  `_lastIdentityMap` or from the live WeakMap, local ids from the live
+  WeakMap through provenance, remote ids from the frame's map.
+- The consumer needs the apply to be identity-preserving against the live
+  DOM (caret, scroll, undo, source-map pairing, `no-snapshot` chrome) and
+  needs a precise change report afterward.
+- Holding a frame must become rare. Today a hold is the normal outcome on
+  an id-free page.
+
+---
+
+# Part 3: Scenarios
+
+Each scenario was run against the current library in two configurations:
+"plain" is `morph(live, remote)`; "splice" is the ClayJS pipeline
+`findChangedRoots` then `spliceProtected` then `morph`, which is what a
+dirty tab does. "Prototype" is the three-way merge prototype in
+`docs/evidence/three-way-merge-prototype.js` on the same base, local, and
+remote. None of the elements below carry ids.
+
+### S1: two people edit the same paragraph, different places
+
+Base `<p>The quick brown fox jumps over the lazy dog.</p>`. Local prepends
+"Note: ". Remote changes "lazy" to "sleepy".
+
+| | Result |
+|---|---|
+| plain | `<p>The quick brown fox jumps over the sleepy dog.</p>` (local edit lost) |
+| splice | held on BODY; nothing applied, remote edit never lands while local stays dirty |
+| prototype | `<p>Note: The quick brown fox jumps over the sleepy dog.</p>` |
+
+### S1b: two people edit the same word
+
+Base `the lazy dog`, local `the LAZY dog`, remote `the sleepy dog`.
+
+| | Result |
+|---|---|
+| prototype | `the sleepy dog`, reported as a text conflict (remote wins the overlapping hunk; the report lets the UI offer "keep mine") |
+
+### S2: local reorders a keyless list while remote edits one item
+
+| | Result |
+|---|---|
+| plain | remote order wins, local reorder silently reverted, then saved as reverted |
+| splice | held on BODY |
+| prototype | `Cherries, Apples, Bananas (organic)` (both survive) |
+
+### S3: local drags a card to another column; remote edits its title
+
+The card contains a `<video>`.
+
+| | Result |
+|---|---|
+| plain | card recreated (video node lost, playback reset), move reverted |
+| splice | held on BODY |
+| prototype | card in the new column with the new title; the merge output records that the card corresponds to the local card, so apply moves the existing node |
+
+### S4: both users append to the same list
+
+| | Result |
+|---|---|
+| plain | local "Dates" deleted |
+| splice | held on BODY |
+| prototype | `Apples, Bananas, Dates, Elderberries` |
+
+### S5: attribute edits on different elements
+
+Local sets `style` on `<h1>`; remote adds a class on the `<section>`.
+
+| | Result |
+|---|---|
+| plain | local `style` lost |
+| splice | held on BODY (a keyless attribute edit promotes to the parent) |
+| prototype | both attributes present |
+
+### S6: different attributes on the same element
+
+| | Result |
+|---|---|
+| plain | local `class` lost |
+| splice | held on BODY |
+| prototype | `<div class="box open" data-x="2">` |
+
+### S7: remote deletes the paragraph local is editing, and adds another
+
+| | Result |
+|---|---|
+| plain | local edit destroyed with the paragraph |
+| splice | held on BODY |
+| prototype | `One, "Two, edited locally", Three, Four` (edits beat deletes; the new paragraph lands) |
+
+S7 also produced the one bug in the prototype, which the specification now
+carries as a rule: pairing two elements by tag and class alone, without a
+text similarity check, let base "Two" align with remote "Four" and the
+character merge produced "Fo, edited locallyur". Content pairing without a
+key requires similar text (Part 4.6).
+
+### S8: typing in a contenteditable while a remote edit lands elsewhere
+
+| | Result |
+|---|---|
+| plain | local typing reverted to the frame's text; caret moved to offset 0 |
+| new design | text merged; caret mapped through the merge hunks to its logical position (Part 4.10) |
+
+### S9: whole-document sync of a page with a doctype
+
+| | Result |
+|---|---|
+| plain | throws |
+| new design | doctype synced explicitly (Part 4.4) |
+
+### S10: performance, 3000-element page, one edit
+
+| | Result |
+|---|---|
+| current, clean tab | 758 ms |
+| current, dirty tab | 758 ms plus a full capture and diff, or a hold |
+| target | 40 ms merge plus apply, measured in CI |
+
+### Why the current pipeline holds
+
+`findChangedRoots` can only express a local change as "replace this
+identified subtree". On a page without ids, nothing below `<body>` is
+identified, every dirty root promotes to `<body>`, and `spliceProtected`
+refuses to replace a structural root. So a dirty tab on an id-free page
+never receives a peer's edit until it saves, and its own save then
+overwrites the peer's edit. The three-way merge has no such promotion: it
+merges at the node where the change happened.
+
+---
+
+# Part 4: Architecture and specification
+
+## 4.1 One operation
+
+```
+mergeDocument({ live, base, remote, ... }) -> Promise<MergeReport>
 ```
 
-It mutates `target` (a live `Document`) so that its serialized form matches
-`incoming` (an HTML string or a parsed `Document`), while:
+reads three trees and mutates `live` so that it holds the three-way merge
+of base, local (the current state of `live`), and remote. Everything else
+in the library is a special case or a building block:
 
-1. keeping every DOM node that corresponds to a node in the incoming document
-   (node identity is preserved so focus, selection, scroll, CSS transitions,
-   iframe and video state survive),
-2. never executing a script twice and executing each genuinely new script
-   exactly once,
-3. leaving caller-designated local-only regions untouched,
-4. keeping the focused form control's value and caret.
+- Two-way morph is `base = null`: local is treated as unchanged, so remote
+  wins everywhere except ignored regions.
+- `morphElement(oldEl, newEl, options)` is the two-way case on one element
+  pair, for consumers like hypercms.
 
-Out of scope for the core: partial morphs of a fragment, innerHTML mode,
-arrays of nodes, three-way JSON merging (optional subpath), protected splicing
-(moves out), and Hyperclay attribute vocabulary (caller supplies a predicate).
+The operation is split into a pure phase and an apply phase:
 
-## 2.2 Module layout
+```
+merge3(baseDoc, localDoc, remoteDoc, opts) -> { doc, provenance, changes, conflicts }
+apply(live, mergedDoc, provenance, localToLive, opts) -> AppliedReport
+```
+
+`merge3` never touches the live DOM and runs on parsed documents, so it is
+unit-testable in Node with jsdom and reusable server-side. `apply` never
+guesses: every node in the merged tree carries provenance saying which
+local node it came from, and the caller supplies `localToLive` (ClayJS's
+`originalSnapshotNode`). The identity-preservation problem the current
+library solves with pantries and scoring becomes a lookup.
+
+## 4.2 Module layout
 
 ```
 src/
-  index.js        public API, option normalization, orchestration
-  parse.js        toDocument(): string | Document -> Document; doctype sync
-  ignore.js       makeIgnore(): cached "is this node inside an ignored region"
-  identity.js     key index per side, duplicate detection
-  matcher.js      content scoring for same-parent candidates
-  pairing.js      computePairing(): global Map<newEl, oldEl> built top-down
-  reconcile.js    applyPairing(): children, attributes, text, form state
-  head.js         mergeHead(): ordered signature merge with in-place updates
-  scripts.js      signature(), inert cloning, execute-once pass
-  focus.js        captureFocus(), restoreFocus()
-  json-merge.js   unchanged, exported at "hyper-morph/json-merge"
-  json-parse.js   unchanged, exported at "hyper-morph/json-parse"
-  splice.js       findChangedRoots + spliceProtected, moved verbatim,
-                  exported at "hyper-morph/splice" (candidate to leave the repo)
+  index.js          mergeDocument, morphDocument, morphElement; option validation
+  parse.js          toDocument, syncDoctype, one-deep parse cache
+  ignore.js         cached ancestor-aware ignore predicate
+  identity.js       synthetic identity store, export/import of path maps, tiered idOf
+  align.js          align(base, side): Map<baseNode, sideNode> + moved/inserted/deleted
+  similarity.js     signatures, text hints, similarity test
+  text-merge.js     character diff (Myers), diff3 with hunk policy, offset mapping
+  merge.js          merge3: attributes, children, text, special elements; change report
+  head-merge.js     head children identity and merge rules
+  scripts.js        script signatures, JSON merge integration, inert clones, execute-once
+  apply.js          apply merged tree to live DOM by provenance; focus and caret restore
+  json-merge.js     unchanged
+  json-parse.js     unchanged
 ```
 
-Deleted: `hyper-morph-matcher.js` (replaced by `matcher.js`),
-`lib/content-dom.js`, `lib/region-capabilities.js` (moves to the Hyperclay
-adapter), `scripts/propagate.js`, `scripts/vendor-format.js`,
-`packed-contract.json`.
+Deleted: `hyper-morph.js`, `hyper-morph-matcher.js`, `lib/content-dom.js`,
+`lib/region-capabilities.js`, `scripts/propagate.js`,
+`scripts/vendor-format.js`, `packed-contract.json`. `findChangedRoots` and
+`spliceProtected` are deleted once ClayJS is on `mergeDocument`; until then
+they are kept as `src/legacy-splice.js` behind the old export names.
 
-Every module receives the owner document through arguments or the context
-object. No module may reference the global `document` or `window`. Add an
-ESLint rule (`no-restricted-globals: document, window`) for `src/`.
+No module references the global `document` or `window`; an ESLint
+`no-restricted-globals` rule enforces it in `src/`.
 
-## 2.3 Public API
+## 4.3 Public API
 
 ```ts
-type Options = {
-  // Identity. Return a string to pair elements across the two documents
-  // regardless of position. null/undefined/"" means "no key".
-  // Default: el => el.getAttribute("id")
-  key?: (el: Element) => string | null | undefined;
+type Side = "base" | "local" | "remote";
 
-  // Local-only regions. True means: this element and everything inside it
-  // is never morphed, removed, moved, or used as a match, and its incoming
-  // counterpart is never inserted. Default: () => false
+type MergeOptions = {
+  // The document to mutate.
+  live: Document;
+
+  // Last common state, as the caller serialized it. null means two-way.
+  base: string | Document | null;
+
+  // Incoming state.
+  remote: string | Document;
+
+  // Optional snapshot of the local side. When omitted, the live DOM is used
+  // directly. ClayJS passes its snapshot clone here (form values already
+  // written into attributes, no-snapshot regions stripped) with the
+  // provenance function that maps clone nodes back to live nodes.
+  local?: { root: Element; toLive: (node: Node) => Node | null };
+
+  // Identity per side. Return a stable string or null. Called once per
+  // element per side. Defaults to data-id then id on every side.
+  identity?: { base?: IdOf; local?: IdOf; remote?: IdOf };
+
+  // Regions the merge must not touch on the live side and must not import
+  // from the remote side. Ancestor-aware. Default: () => false.
   ignore?: (el: Element) => boolean;
 
-  // Keep the focused input/textarea value and caret even if the incoming
-  // document says otherwise. Default: true
+  // Conflict policy for overlapping edits to the same text or attribute.
+  // "remote" (default), "local", or "both" (text only: keep both hunks in
+  // base order, local first).
+  conflicts?: "remote" | "local" | "both";
+
+  // Keep the focused input/textarea value even if the merge says
+  // otherwise. Default true.
   protectFocusedValue?: boolean;
 
-  head?: {
-    // Wait for newly inserted stylesheets and external scripts in <head>
-    // to load (or error) before resolving. Default: false
-    awaitLoads?: boolean;
-    // Keep an old head element even if absent from the incoming head.
-    // Default: () => false
-    preserve?: (el: Element) => boolean;
-  };
+  head?: { awaitLoads?: boolean; preserve?: (el: Element) => boolean };
 
   scripts?: {
-    // Execute scripts that are new to the body. Default: true
-    execute?: boolean;
-    // Optional in-place merge for a paired <script> whose type is JSON.
-    // Return a string to replace the old element's text; return undefined
-    // to fall through to plain text replacement. Default: undefined
-    merge?: (oldEl: HTMLScriptElement, newEl: HTMLScriptElement) => string | undefined;
+    execute?: boolean;                 // default true
+    mergeTags?: MergeTagRecognizer[];  // same shape as today
   };
 
+  formState?: "attribute" | "property"; // default "attribute"
+
   hooks?: {
-    beforeNodeAdded?:      (node: Node) => boolean | void;   // false skips
-    afterNodeAdded?:       (node: Node) => void;
-    beforeNodeRemoved?:    (node: Node) => boolean | void;   // false keeps
-    afterNodeRemoved?:     (node: Node) => void;
-    beforeNodeMorphed?:    (oldNode: Node, newNode: Node) => boolean | void; // false skips subtree
-    afterNodeMorphed?:     (oldNode: Node, newNode: Node) => void;
+    beforeNodeAdded?: (n: Node) => boolean | void;
+    afterNodeAdded?: (n: Node) => void;
+    beforeNodeRemoved?: (n: Node) => boolean | void;
+    afterNodeRemoved?: (n: Node) => void;
+    beforeNodeMorphed?: (oldN: Node, newN: Node) => boolean | void;
+    afterNodeMorphed?: (oldN: Node, newN: Node) => void;
     beforeAttributeUpdated?: (name: string, el: Element, kind: "update" | "remove") => boolean | void;
   };
 };
 
-declare function morphDocument(
-  target: Document | HTMLHtmlElement,
-  incoming: string | Document,
-  options?: Options
-): Promise<void>;
-```
-
-Rules:
-
-- `morphDocument` always returns a Promise, even when nothing is asynchronous.
-- If `target` is an `<html>` element it must be `target.ownerDocument.documentElement`;
-  otherwise throw `TypeError("target must be a Document or its documentElement")`.
-- If `incoming` is a `Document` it is used as is and will be consumed (its
-  nodes are cloned, never moved, so it remains intact, but the caller must not
-  rely on that).
-- Options are validated once. Unknown keys throw. This replaces the mutable
-  `HyperMorph.defaults` object; there is no global state.
-
-A secondary export `morphElement(oldEl, newEl, options)` runs pairing and
-reconcile on one element pair with no head, doctype, or script execution
-handling. It exists for tests and for callers who already have two elements.
-It is not the primary path and gets no special input normalization.
-
-## 2.4 Context object
-
-Every internal function takes `ctx` as its first argument:
-
-```ts
-type Ctx = {
-  doc: Document;                     // target document
-  opts: NormalizedOptions;           // all options with defaults filled in
-  ignored: (node: Node) => boolean;  // from ignore.js, cached, ancestor-aware
-  pairing: Map<Element, Element>;    // newEl -> oldEl
-  reverse: Map<Element, Element>;    // oldEl -> newEl
-  oldScriptSigs: Set<string>;        // body script signatures before mutation
-  mergedScripts: Set<Element>;       // scripts merged by opts.scripts.merge
-  loads: Promise<void>[];            // things to await before resolving
+type MergeReport = {
+  changes: Change[];     // what the apply did to live nodes, by kind
+  conflicts: Conflict[]; // overlapping edits and how each was resolved
+  moved: Element[];      // live nodes moved to a new parent
+  replaced: Element[];   // live nodes that were removed and recreated
+  identities: Map<Element, string>; // ids for elements that gained one (see 4.5)
 };
+
+type Change =
+  | { kind: "text"; node: Text; before: string; after: string; source: Side }
+  | { kind: "attr"; el: Element; name: string; before: string | null; after: string | null; source: Side }
+  | { kind: "insert"; el: Element; source: Side }
+  | { kind: "remove"; el: Element; source: Side }
+  | { kind: "move"; el: Element; from: Element; to: Element; source: Side };
+
+type Conflict =
+  | { kind: "text"; node: Text; base: string; local: string; remote: string; resolved: string }
+  | { kind: "attr"; el: Element; name: string; base: string | null; local: string | null; remote: string | null; resolved: string | null }
+  | { kind: "structure"; el: Element; detail: string };
+
+declare function mergeDocument(o: MergeOptions): Promise<MergeReport>;
+declare function morphDocument(live: Document, remote: string | Document, o?: Partial<MergeOptions>): Promise<MergeReport>;
+declare function morphElement(oldEl: Element, newEl: Element, o?: Partial<MergeOptions>): Promise<MergeReport>;
+declare function merge3(base: Document, local: Document, remote: Document, o?: Partial<MergeOptions>): MergeResult; // pure
 ```
 
-## 2.5 Orchestration (`index.js`)
+Rules: always a Promise from the applying functions; unknown option keys
+throw before any mutation; no global defaults object.
+
+## 4.4 Parse (`parse.js`)
 
 ```
-async function morphDocument(target, incoming, options):
-  opts   = normalizeOptions(options)
-  doc    = target.nodeType === 9 ? target : target.ownerDocument
-  newDoc = toDocument(incoming, doc)                     // parse.js
-  ctx    = makeCtx(doc, opts)
-  syncDoctype(doc, newDoc)                               // parse.js
-  ctx.oldScriptSigs = collectBodyScriptSignatures(ctx, doc.body)
-  focus  = captureFocus(ctx)                             // focus.js
-  syncAttributes(ctx, doc.documentElement, newDoc.documentElement)
-  mergeHead(ctx, doc.head, newDoc.head)                  // head.js
-  computePairing(ctx, doc.body, newDoc.body)             // pairing.js
-  reconcileElement(ctx, doc.body, newDoc.body)           // reconcile.js
-  executeNewScripts(ctx, doc.body)                       // scripts.js
-  restoreFocus(ctx, focus)                               // focus.js
-  await Promise.all(ctx.loads)
+toDocument(input, ownerDoc):
+  string   -> DOMParser on ownerDoc.defaultView (globalThis fallback) -> Document
+  Document -> as is
+  else     -> TypeError
 ```
 
-Order rationale: the head goes first so stylesheets start loading before body
-mutation; scripts execute after the body is fully reconciled so they see the
-final DOM; focus restores after scripts because a script may have moved focus
-deliberately, and restore is a no-op when focus is still where it was.
-
-If any step throws, the error propagates. There is no pantry to unwind because
-nothing is ever parked outside the tree.
-
-## 2.6 Parse (`parse.js`)
+`parseCached(key)` keeps the last string and its parsed Document per lane
+(the caller passes a lane name), because a burst reuses the base string.
 
 ```
-function toDocument(incoming, ownerDoc):
-  if typeof incoming === "string":
-    return new ownerDoc.defaultView.DOMParser().parseFromString(incoming, "text/html")
-    // If defaultView is null (a parsed document with no window), fall back
-    // to globalThis.DOMParser. This is the only permitted global use.
-  if incoming.nodeType === 9: return incoming
-  throw new TypeError("incoming must be an HTML string or a Document")
+syncDoctype(live, remote):
+  if remote.doctype == null: return
+  if live.doctype == null: insert createDocumentType(...) before documentElement
+  else if name/publicId/systemId differ: replaceChild
 ```
 
-`DOMParser` always yields `<html><head></head><body></body></html>` even for a
-fragment string, so `newDoc.head` and `newDoc.body` are never null.
+Nodes outside `<html>` other than the doctype are ignored.
+
+## 4.5 Identity (`identity.js`)
+
+The library ships the synthetic identity scheme ClayJS implements today so
+every consumer gets it and the walkers are maintained in one place:
 
 ```
-function syncDoctype(doc, newDoc):
-  old = doc.doctype, next = newDoc.doctype
-  if next == null: return                      // never remove a doctype
-  if old == null:
-    doc.insertBefore(doc.implementation.createDocumentType(next.name, next.publicId, next.systemId), doc.documentElement)
-  else if old.name !== next.name || old.publicId !== next.publicId || old.systemId !== next.systemId:
-    doc.replaceChild(doc.implementation.createDocumentType(...), old)
+createIdentityStore(clientId):
+  idOf(liveEl)           -> existing id or null
+  ensure(liveEl)         -> existing id or a freshly minted "<clientId>:<n>"
+  exportMap(cloneRoot, toLive) -> { "0.1.3": id }  (dot-path over element children of the clone;
+                                                   subtree skipped on child-count divergence)
+  importMap(parsedRoot, map)   -> WeakMap<Element, id>
+  adopt(liveEl, id)      -> record an id learned from a frame
 ```
 
-Comments or processing instructions that sit outside `<html>` are ignored on
-both sides. Document mode (quirks or standards) cannot change after parse;
-the doctype is synced for serialization fidelity only.
-
-## 2.7 Ignore (`ignore.js`)
+`mergeDocument` takes `identity.{base,local,remote}` functions. The tiered
+default, which ClayJS will pass explicitly, is:
 
 ```
-function makeIgnore(pred):
-  cache = new WeakMap()   // Element -> boolean
-  return function ignored(node):
-    if node.nodeType !== 1: return false
-    if cache.has(node): return cache.get(node)
-    result = pred(node) || (node.parentElement != null && ignored(node.parentElement))
-    cache.set(node, result)
-    return result
+tier 1: synthetic id (store / imported map)
+tier 2: data-id
+tier 3: id
 ```
 
-Ancestor walk stops at the document (parentElement of `<html>` is null). Both
-documents share one cache; nodes are distinct objects so there is no
-collision. `pred` is called at most once per element per morph.
+A value is usable on a side only if unique on that side. A pair requires the
+same `tagName`. After apply, `MergeReport.identities` lists live elements
+that received an id from the remote side (the element was inserted from
+remote, or morphed into an element whose remote counterpart carried an id
+the live one lacked). ClayJS calls `store.adopt` for each, replacing
+`afterNodeMorphed` and `_fillInIdsAfterMorph`.
 
-Semantics applied everywhere:
+Text nodes and template contents have no identity and align structurally.
 
-- Old ignored element: not indexed for identity, not scored, never moved,
-  never removed, never morphed, and the reconcile cursor skips over it.
-- New ignored element: never inserted, never paired.
-- Head: same rules, applied to head children.
+## 4.6 Alignment (`align.js`, `similarity.js`)
 
-## 2.8 Identity (`identity.js`)
-
-```
-function buildKeyIndex(ctx, root):
-  map = new Map()      // key -> Element
-  dups = new Set()
-  for el of [root, ...root.querySelectorAll("*")]:
-    if ctx.ignored(el): continue
-    k = ctx.opts.key(el)
-    if k == null || k === "": continue
-    if map.has(k): dups.add(k) else map.set(k, el)
-  for k of dups: map.delete(k)
-  return map
-```
-
-Called once per side on the body subtree. Duplicate keys on a side disable
-that key on that side (same rule as today's `createPersistentIds`). A key pair
-is only used when both elements have the same `tagName`.
-
-Note on `<template>`: `querySelectorAll` does not descend into
-`template.content`. Elements inside templates are therefore keyless and are
-reconciled positionally inside the template's content fragment. This matches
-current behavior.
-
-## 2.9 Matcher (`matcher.js`)
-
-The matcher only scores candidates that share a parent pair. Because both
-elements have the same ancestry by construction, the old "path" signal
-collapses to a single sibling-index comparison, and no ancestor walks exist.
-
-Per-element metadata, computed once and cached in a `WeakMap`:
+`align(baseRoot, sideRoot, idOfBase, idOfSide, ignore)` returns
 
 ```
-meta = {
-  sig:   hash(tagName + "|" + sortedClasses + "|" + sortedIncludedAttrs),
-  index: number,      // position among element siblings, 0-based
-  text:  first 64 chars of textContent with whitespace collapsed and trimmed,
-}
+{ map: Map<baseNode, sideNode>, moved: Set<baseEl>, inserted: Set<sideNode>, deleted: Set<baseNode> }
 ```
 
-`sortedIncludedAttrs` covers `href src name type role aria-label alt title`
-and excludes `id` and `class`. `hash` is djb2 XOR as today, base 36.
+Every base node maps to at most one side node and vice versa.
 
-Computing `index` must not walk siblings: `reconcile` and `pairing` iterate
-children with a counter and pass the index into `getMeta`. `getMeta(el, index)`
-stores it on first call.
+Pass 1, identity (global): index both roots by usable id; pair equal ids
+with equal tag.
 
-```
-function scoreCandidates(ctx, oldKids, newKids):
-  // oldKids and newKids: arrays of unpaired, non-ignored element children
-  // Returns array of {newEl, oldEl, score} with score >= 101
-  buckets = Map<sig, Element[]>  over oldKids (document order preserved)
-  byText  = Map<sig, Map<text, Element[]>>  built lazily per bucket
-  out = []
-  for newEl of newKids:
-    m = meta(newEl)
-    bucket = buckets.get(m.sig); if !bucket: continue
-    candidates = bucket.length <= 16 ? bucket : subset(m, bucket, 16)
-    for oldEl of candidates:
-      o = meta(oldEl)
-      s = 100
-      if o.index === m.index: s += 10
-      if m.text && o.text: s += (m.text === o.text) ? 20 : -25
-      else if m.text !== o.text: s -= 25
-      textOk = (m.text === o.text)
-      if bucket.length === 1 && textOk: s += 50
-      s -= min(abs(o.index - m.index), 19)
-      if s >= 101: out.push({newEl, oldEl, score: s})
-  return out
-```
-
-`subset(m, bucket, cap)`: all exact `text` matches from `byText` (up to cap)
-plus a window of `cap` elements of the bucket centered on the position whose
-`index` is closest to `m.index` (binary search on the bucket, which is in
-index order). This is the current `selectCandidateSubset` without the
-per-call `filter`.
-
-Weights and threshold are constants in this module, not options. The old
-`createMatcher(config)` surface is dropped; the tests in `test/hyper-match.js`
-that tune weights must be rewritten to the fixed model or deleted.
-
-## 2.10 Pairing (`pairing.js`)
-
-Builds `ctx.pairing` and `ctx.reverse` for the body subtree before any
-mutation. Runs top-down so a parent's pairing is known when its children are
-paired.
+Pass 2, structure (top-down over paired element pairs, children only):
 
 ```
-function computePairing(ctx, oldBody, newBody):
-  ctx.oldKeys = buildKeyIndex(ctx, oldBody)
-  ctx.newKeys = buildKeyIndex(ctx, newBody)
-  pair(ctx, newBody, oldBody)
-  pairChildren(ctx, oldBody, newBody)
-
-function pair(ctx, newEl, oldEl):
-  ctx.pairing.set(newEl, oldEl); ctx.reverse.set(oldEl, newEl)
-
-function pairChildren(ctx, oldParent, newParent):
-  oldKids = elementChildren(oldParent).filter(e => !ctx.ignored(e) && !ctx.reverse.has(e))
-  newKids = elementChildren(newParent).filter(e => !ctx.ignored(e))
-  // (for <template>, use .content of each side)
-
-  // Step 1: keyed, may reach anywhere in the old body
-  for newEl of newKids:
-    k = ctx.opts.key(newEl)
-    if k == null || k === "" || ctx.newKeys.get(k) !== newEl: continue   // dup on new side
-    oldEl = ctx.oldKeys.get(k)
-    if !oldEl || ctx.reverse.has(oldEl) || oldEl.tagName !== newEl.tagName: continue
-    if oldEl !== oldParent && oldEl.contains(oldParent): continue         // would create a cycle
-    pair(ctx, newEl, oldEl)
-
-  // Step 2: content, same parent only
-  remainingNew = newKids.filter(e => !ctx.pairing.has(e))
-  remainingOld = oldKids.filter(e => !ctx.reverse.has(e) && !hasKey(ctx, e))
-  for {newEl, oldEl} of scoreCandidates(ctx, remainingOld, remainingNew) sorted by score desc, then document order:
-    if ctx.pairing.has(newEl) || ctx.reverse.has(oldEl): continue
-    pair(ctx, newEl, oldEl)
-
-  // Step 3: positional, same parent, same tag, lockstep
-  cursor = 0
-  for newEl of newKids:
-    if ctx.pairing.has(newEl): continue
-    while cursor < oldKids.length:
-      oldEl = oldKids[cursor]; cursor++
-      if ctx.reverse.has(oldEl) || hasKey(ctx, oldEl): continue
-      if oldEl.tagName === newEl.tagName: pair(ctx, newEl, oldEl); break
-
-  // Recurse into every pair whose new side is a child of newParent
-  for newEl of newKids:
-    oldEl = ctx.pairing.get(newEl)
-    if oldEl: pairChildren(ctx, oldEl, newEl)
+alignKids(bKids, sKids):
+  a. exact: nodes whose serialization (outerHTML, or nodeValue for text and
+     comments) is unique on both sides pair.
+  b. signature + text hint, unique on both sides.
+  c. signature + similar text, nearest sibling index. Signature is
+     tag + sorted classes + href/src/name/type/role. Similar means the
+     character edit distance between the two 64-char hints is at most the
+     longer hint's length, or both hints are empty.
+  d. positional: remaining nodes pair in order when node type and tag agree
+     AND (for elements) similar text. A text node pairs with the next
+     unpaired text node.
 ```
 
-`hasKey(ctx, el)` is true when `opts.key(el)` is a non-empty string that is
-unique on its side. A keyed old element is never consumed by content or
-positional pairing (Idiomorph's "don't morph an id'd node into something
-else" rule).
+Pass 3, moves (global): every still-unpaired base element is compared with
+every still-unpaired side element under the same parent-independent rules
+b then c; a unique match is recorded in `moved` and its subtree is aligned
+with pass 2. The pass is skipped when the product of the two unpaired
+counts exceeds 250,000, and those elements stay delete-plus-insert.
 
-The cycle guard in step 1 prevents `moveBefore` from throwing
-`HierarchyRequestError` when a keyed old element is an ancestor of the
-destination parent. Such an element is left unpaired: its incoming counterpart
-is inserted fresh and the old one is removed (with its subtree) during
-reconcile. This is rare (a keyed element moved into its own descendant) and
-documented as a limitation.
+Rule carried from S7: no element pair is ever formed on tag and class alone.
+Similar text or a usable identity is required, or the elements are a delete
+and an insert. Elements with empty text on both sides (icons, spacers,
+inputs) satisfy "similar".
 
-Special element rule: `<script>`, `<style>`, `<textarea>`, `<template>`,
-`<iframe>`, `<object>`, `<embed>`, `<canvas>`, `<video>`, `<audio>` are paired
-by steps 1 and 3 only (no content scoring). Their text hint would be code or
-empty and scoring adds nothing.
+Elements whose text hint is code or data (`script`, `style`, `textarea`,
+`template`, `iframe`, `object`, `canvas`, `video`, `audio`, `svg`) skip
+rules b and c and pair by identity, exact equality, or position only.
 
-Complexity: O(N) metadata, O(sum over parents of newKids × min(bucket, 16))
-scoring, O(N) recursion. No sibling walks.
+Text hints are computed once per node in one top-down pass and cached in
+a WeakMap along with the node's sibling index. No sibling walks.
 
-## 2.11 Reconcile (`reconcile.js`)
+Complexity: O(N) identity and hint passes; per parent O(k) with buckets and
+a 16-candidate window for oversized buckets (the current
+`selectCandidateSubset` without the per-call filter); pass 3 bounded as
+above.
 
-Mutates the old tree to match the new tree using the pairing. Never touches
-nodes outside the current parent except to move a paired old element in.
-
-```
-function reconcileElement(ctx, oldEl, newEl):
-  if ctx.opts.hooks.beforeNodeMorphed(oldEl, newEl) === false: return
-  syncAttributes(ctx, oldEl, newEl)
-  switch specialKind(oldEl):
-    case "textarea": syncTextarea(ctx, oldEl, newEl); break
-    case "script":   reconcileScript(ctx, oldEl, newEl); break
-    case "template": reconcileChildren(ctx, oldEl.content, newEl.content); break
-    default:
-      syncFormState(ctx, oldEl, newEl)
-      reconcileChildren(ctx, oldEl, newEl)
-  ctx.opts.hooks.afterNodeMorphed(oldEl, newEl)
-```
+## 4.7 Text merge (`text-merge.js`)
 
 ```
-function reconcileChildren(ctx, oldParent, newParent):
-  touched = new Set()
-  cursor = firstUsable(oldParent.firstChild)     // skips ignored elements
-
-  for newChild of Array.from(newParent.childNodes):
-    if newChild.nodeType === 1:
-      if ctx.ignored(newChild): continue
-      oldChild = ctx.pairing.get(newChild)
-      if oldChild:
-        if oldChild !== cursor: moveBefore(oldParent, oldChild, cursor)
-        reconcileElement(ctx, oldChild, newChild)
-        touched.add(oldChild)
-        cursor = firstUsable(oldChild.nextSibling)
-      else:
-        inserted = insertClone(ctx, oldParent, newChild, cursor)
-        if inserted: touched.add(inserted)
-    else if newChild.nodeType === 3 || newChild.nodeType === 8:
-      if cursor && cursor.nodeType === newChild.nodeType && !touched.has(cursor) && !ctx.reverse.has(cursor):
-        if cursor.nodeValue !== newChild.nodeValue: cursor.nodeValue = newChild.nodeValue
-        touched.add(cursor)
-        cursor = firstUsable(cursor.nextSibling)
-      else:
-        clone = ctx.doc.importNode(newChild, false)
-        if ctx.opts.hooks.beforeNodeAdded(clone) !== false:
-          oldParent.insertBefore(clone, cursor)
-          ctx.opts.hooks.afterNodeAdded(clone)
-          touched.add(clone)
-    // other node types (doctype, PI, CDATA) are ignored
-
-  // Remove leftovers: anything not touched, not ignored, and not paired
-  // to a new element elsewhere (those are moved out when their new parent
-  // is reconciled, which may happen later in the traversal).
-  for child of Array.from(oldParent.childNodes):
-    if touched.has(child): continue
-    if child.nodeType === 1 && (ctx.ignored(child) || ctx.reverse.has(child)): continue
-    removeNode(ctx, child)
-
-function firstUsable(node):
-  while node && node.nodeType === 1 && ctx.ignored(node): node = node.nextSibling
-  return node
-
-function moveBefore(parent, node, before):
-  if typeof parent.moveBefore === "function":
-    try { parent.moveBefore(node, before); return } catch {}
-  parent.insertBefore(node, before)
-
-function removeNode(ctx, node):
-  if ctx.opts.hooks.beforeNodeRemoved(node) === false: return
-  node.parentNode.removeChild(node)
-  ctx.opts.hooks.afterNodeRemoved(node)
+diff(a, b) -> Hunk[]              Myers O(ND) on UTF-16 code units, hunks as {bs, be, text}
+merge3Text(base, local, remote, policy) -> { text, conflicts: Hunk[], mapLocalOffset: (n) => n }
 ```
 
-Why there is no pantry: an old element paired to a new element in a different
-parent stays where it is until the destination parent is reconciled, at which
-point `moveBefore` pulls it in from anywhere in the document. Leftover removal
-skips it because `ctx.reverse.has(child)` is true. The only ordering
-requirement is that leftover removal must not remove such nodes, which the
-check guarantees. `moveBefore` preserves iframe, video, and focus state where
-the browser supports it; `insertBefore` is the fallback.
+Fast paths: `local === remote` returns local; `local === base` returns
+remote; `remote === base` returns local.
 
-Idiomorph's "block soft match when two future siblings would soft match"
-heuristic is dropped. The prepend and insert-in-middle cases it existed for are
-handled by content pairing (step 2), and the positional fallback is plain
-lockstep.
+Otherwise both hunk lists are walked in base order. Two hunks overlap when
+their base ranges intersect; two pure insertions at the same base offset do
+not overlap and both apply, local first. Non-overlapping hunks apply from
+both sides. Overlapping hunks resolve by policy:
 
-```
-function insertClone(ctx, parent, newEl, before):
-  clone = cloneWithoutIgnored(ctx, newEl)      // deep importNode, skipping ignored descendants
-  if ctx.opts.hooks.beforeNodeAdded(clone) === false: return null
-  parent.insertBefore(clone, before)
-  ctx.opts.hooks.afterNodeAdded(clone)
-  return clone
+- `remote`: remote's hunk applies over the union of the two ranges, local's
+  hunk is dropped and reported.
+- `local`: symmetric.
+- `both`: both replacement texts are emitted, local first, over the union.
 
-function cloneWithoutIgnored(ctx, node):
-  copy = ctx.doc.importNode(node, false)
-  src = node.tagName === "TEMPLATE" ? node.content : node
-  dst = copy.tagName === "TEMPLATE" ? copy.content : copy
-  for child of src.childNodes:
-    if child.nodeType === 1 && ctx.ignored(child): continue
-    dst.appendChild(cloneWithoutIgnored(ctx, child))
-  return copy
-```
+`mapLocalOffset` maps a caret offset in the local text to the merged text:
+offsets before a remote hunk are unchanged, offsets inside a remote hunk
+clamp to the hunk's end in the merged text, offsets after it shift by the
+hunk's length delta. This is what keeps the caret in place in S8.
 
-Inserted scripts are inert by construction. `importNode` of a `<script>` from
-a `DOMParser` document copies the "already started" flag, so the copy never
-executes on insertion (HTML spec, cloning steps for script elements). When
-`incoming` is a caller-built `Document` this is not guaranteed; `parse.js`
-must run `neutralizeScripts(newDoc.body)` (the current `makeInertScript`
-approach using innerHTML) in that case only. Test 2.16 T-S1 pins this.
+Cost bound: for two strings longer than 20,000 code units, or when the
+Myers edit distance exceeds 4,000, fall back to line-granularity diff and
+then to whole-value three-way (last writer wins with a conflict record).
+Paragraph text is the normal case and is far below either limit.
+
+## 4.8 Merge (`merge.js`)
+
+`merge3(baseDoc, localDoc, remoteDoc, opts)` aligns base with local (`L`)
+and base with remote (`R`), then builds a fresh output document. Every
+output node records provenance `{ base, local, remote }` (any may be null).
 
 ### Attributes
 
 ```
-function syncAttributes(ctx, oldEl, newEl):
-  for attr of Array.from(newEl.attributes):
-    if isFormStateAttr(oldEl, attr.name): continue           // value, checked, selected handled below
-    if oldEl.getAttributeNS(attr.namespaceURI, attr.localName) === attr.value: continue
-    if ctx.opts.hooks.beforeAttributeUpdated(attr.name, oldEl, "update") === false: continue
-    oldEl.setAttributeNS(attr.namespaceURI, attr.name, attr.value)
-  for attr of Array.from(oldEl.attributes):                   // snapshot: NamedNodeMap is live
-    if isFormStateAttr(oldEl, attr.name): continue
-    if newEl.hasAttributeNS(attr.namespaceURI, attr.localName): continue
-    if ctx.opts.hooks.beforeAttributeUpdated(attr.name, oldEl, "remove") === false: continue
-    oldEl.removeAttributeNS(attr.namespaceURI, attr.localName)
+for each name in union(base, local, remote):
+  bv, lv, rv (null when absent; a side that lacks the element inherits bv)
+  lv === rv -> lv ; lv === bv -> rv ; rv === bv -> lv ; else policy, record conflict
 ```
 
-Namespaced form (`setAttributeNS` with `attr.namespaceURI`) is required so
-`xlink:href` on inline SVG round-trips. For HTML attributes `namespaceURI` is
-null and the NS methods behave like the plain ones.
+`class` and `style` merge token-wise and declaration-wise before falling
+back to the string rule, so S6's "local added a class, remote changed a
+data attribute" and "local added one class, remote added another" both
+survive.
 
-`isFormStateAttr` is true for `value` on `input`, `checked` on `input`,
-`selected` on `option`. Those are owned by `syncFormState` so the attribute
-and the property are set together and the focus protection can apply.
+### Text and comment nodes
 
-### Form state
+`merge3Text` on `nodeValue`. Adjacent text nodes on each side are coalesced
+into one run before alignment (the live DOM splits text under typing; a
+parsed document does not), and the merged run is emitted as one node.
 
-The incoming document is parsed HTML, so its attributes are the only source of
-truth. The old document is live, so both attribute and property are written.
-
-```
-function syncFormState(ctx, oldEl, newEl):
-  protect = ctx.opts.protectFocusedValue && oldEl === ctx.doc.activeElement
-  if oldEl is INPUT:
-    if type !== "file" && !protect:
-      if newEl.hasAttribute("value"):
-        v = newEl.getAttribute("value")
-        if oldEl.getAttribute("value") !== v: oldEl.setAttribute("value", v)
-        if oldEl.value !== v: oldEl.value = v
-      else:
-        oldEl.removeAttribute("value"); if oldEl.value !== "": oldEl.value = ""
-    syncBoolean(ctx, oldEl, newEl, "checked")
-    syncBoolean(ctx, oldEl, newEl, "disabled")
-  if oldEl is OPTION: syncBoolean(ctx, oldEl, newEl, "selected")
-
-function syncBoolean(ctx, oldEl, newEl, name):
-  want = newEl.hasAttribute(name)
-  if want: oldEl.setAttribute(name, "") else oldEl.removeAttribute(name)
-  if oldEl[name] !== want: oldEl[name] = want
-
-function syncTextarea(ctx, oldEl, newEl):
-  protect = ctx.opts.protectFocusedValue && oldEl === ctx.doc.activeElement
-  v = newEl.textContent
-  if oldEl.textContent !== v: oldEl.textContent = v      // default value
-  if !protect && oldEl.value !== v: oldEl.value = v      // live value
-```
-
-`hooks.beforeAttributeUpdated` is consulted for `value`, `checked`,
-`selected`, and `disabled` with kind `"update"` or `"remove"` exactly as for
-other attributes, so a caller can still veto them.
-
-The current `formStateSync: "property"` mode is dropped. Callers who build
-incoming content in memory must set attributes; serializing to a string and
-back is the supported path.
-
-`indeterminate` is never touched (it has no attribute form).
-
-### Scripts inside reconcile
+### Children
 
 ```
-function reconcileScript(ctx, oldEl, newEl):
-  if ctx.opts.scripts.merge && isJsonType(oldEl) && isJsonType(newEl):
-    merged = ctx.opts.scripts.merge(oldEl, newEl)
-    if typeof merged === "string":
-      if oldEl.textContent !== merged: oldEl.textContent = merged
-      ctx.mergedScripts.add(oldEl)
-      return
-  if oldEl.textContent !== newEl.textContent: oldEl.textContent = newEl.textContent
+mergeChildren(b, l, r):
+  bKids = children of b (text runs coalesced)
+  order side O: remote if remote reordered kept children, else local if local did, else remote
+  for each node in O's children, in order:
+    paired to a base child here      -> emit mergeNode(bk, L.get(bk), R.get(bk)) unless dropped
+    paired to a base child elsewhere -> a move in: emit mergeNode(bk, ...) here, record move
+    unpaired                          -> an insertion: emit a clone, record insert
+    after each base child, emit the other side's insertions anchored after it
+  base children not emitted (O deleted or moved them out):
+    deleted by both                    -> gone
+    deleted by one, untouched by other -> gone
+    deleted by one, edited by other    -> emitted after its nearest surviving preceding base sibling (edits beat deletes)
+    moved out by one side              -> emitted at that side's destination, with the other side's edits merged in
+  both sides inserted a byte-identical node at the same anchor -> emitted once
 ```
 
-Setting `textContent` on an already-started script does not execute it. The
-execute pass decides later, by signature, whether it runs.
+"Edited" means the side's subtree serialization differs from base.
 
-## 2.12 Head (`head.js`)
+A side that moves an element into its own descendant is treated as an
+insertion at the destination and a deletion at the origin (no cycle can be
+created in the output because the output is built fresh).
 
-Head children are matched by signature, walked in incoming order, and updated
-in place when matched. A `<title>` text change is a text update, not a
-remove-and-append.
+### Special elements
+
+- `<head>`: children keyed by head signature (4.9), then the same rules.
+- `<script>` with a JSON type and a merge identity: `mergeScriptText`
+  three-way. Any other `<script>`: whole-text three-way, never character
+  merged (a half-merged program is worse than a lost edit).
+- `<textarea>`: value attribute and text as one value, whole-value three-way.
+- `<template>`: children merge on `.content`.
+- Ignored regions: a local ignored element is copied from local verbatim
+  with provenance, so apply keeps the live node untouched; a remote ignored
+  element is dropped.
+- Form controls: `value`, `checked`, `selected` merge as attributes (the
+  snapshot clone carries live values as attributes). Apply protects the
+  focused control (4.10).
+
+### Change report
+
+Every decision that differs from base on either side is recorded with the
+side that caused it and the output node, so apply can translate it to live
+nodes for `MergeReport.changes`.
+
+## 4.9 Head (`head-merge.js`)
+
+Head children get an identity of their own so they align without ids:
 
 ```
-function headSignature(ctx, el):
-  tag = el.tagName
-  if tag === "TITLE" || tag === "BASE": return tag
-  if tag === "SCRIPT": return scriptSignature(ctx, el)          // see 2.13
-  if tag === "LINK":
-    href = el.getAttribute("href")
-    return href ? "LINK|" + (el.getAttribute("rel") || "") + "|" + absoluteWithoutHash(ctx, href) : el.outerHTML
-  if tag === "META":
-    for name of ["charset", "name", "property", "http-equiv", "itemprop"]:
-      if el.hasAttribute(name): return "META|" + name + "=" + el.getAttribute(name)
-    return el.outerHTML
-  if tag === "STYLE": return "STYLE|" + hash(el.textContent)
-  return el.outerHTML
+TITLE, BASE            -> the tag name (singletons)
+SCRIPT with src        -> "script|src|" + type + "|" + absolute URL without hash
+SCRIPT inline          -> "script|inline|" + type + "|" + hash(text)
+LINK with href         -> "link|" + rel + "|" + absolute URL without hash
+META                   -> "meta|" + first of charset/name/property/http-equiv/itemprop and its value
+STYLE                  -> "style|" + hash(text)
+else                   -> outerHTML
 ```
 
-`absoluteWithoutHash(ctx, url)` resolves against `ctx.doc.baseURI` and drops
-the fragment; the query string is kept (cache busters are significant).
+URLs resolve against the live document's `baseURI`; the query string is
+kept. Duplicate signatures form a multiset. Apply keeps incoming order,
+updates a matched element in place (a title change is a text change), and
+inserts a new stylesheet before removing a replaced one. `awaitLoads`
+awaits `load` or `error` on inserted stylesheets and external scripts.
+
+## 4.10 Apply (`apply.js`)
+
+Input: the live document, the merged document, provenance, `toLive`.
 
 ```
-function mergeHead(ctx, oldHead, newHead):
-  buckets = Map<sig, Element[]>  over oldHead.children that are not ignored, in order
-  cursor = firstUsable(oldHead.firstChild)
-  kept = new Set()
+applyElement(liveEl, mergedEl):
+  syncAttributes (namespaced; hooks consulted; form-state attrs via syncFormState)
+  special: textarea, script (text only; execution decided later), template (content)
+  applyChildren(liveEl, mergedEl)
 
-  for newEl of Array.from(newHead.children):
-    if ctx.ignored(newEl): continue
-    sig = headSignature(ctx, newEl)
-    bucket = buckets.get(sig)
-    oldEl = bucket && bucket.shift()
-    if oldEl:
-      if oldEl !== cursor: moveBefore(oldHead, oldEl, cursor)
-      if ctx.opts.hooks.beforeNodeMorphed(oldEl, newEl) !== false:
-        syncAttributes(ctx, oldEl, newEl)
-        if oldEl.tagName === "SCRIPT": reconcileScript(ctx, oldEl, newEl)
-        else if oldEl.tagName !== "LINK": reconcileChildren(ctx, oldEl, newEl)   // title, style, meta (no children), noscript
-        ctx.opts.hooks.afterNodeMorphed(oldEl, newEl)
-      kept.add(oldEl)
-      cursor = firstUsable(oldEl.nextSibling)
+applyChildren(liveParent, mergedParent):
+  cursor = first live child that is not ignored
+  for mergedChild in mergedParent.childNodes:
+    liveChild = toLive(provenance(mergedChild).local)      // null when inserted from remote
+    if liveChild:
+      if liveChild !== cursor: moveBefore(liveParent, liveChild, cursor)   // from anywhere in the live tree
+      applyNode(liveChild, mergedChild); cursor = next non-ignored after liveChild
+    else if mergedChild is text and cursor is an unclaimed live text node:
+      set nodeValue; claim; advance
     else:
-      fresh = createHeadElement(ctx, newEl)
-      if ctx.opts.hooks.beforeNodeAdded(fresh) === false: continue
-      if ctx.opts.head.awaitLoads && waitsForLoad(fresh): ctx.loads.push(loadPromise(fresh))
-      oldHead.insertBefore(fresh, cursor)
-      ctx.opts.hooks.afterNodeAdded(fresh)
-      kept.add(fresh)
-
-  // Text and comment nodes in <head> are whitespace; leave them alone.
-  for child of Array.from(oldHead.children):
-    if kept.has(child) || ctx.ignored(child) || ctx.opts.head.preserve(child): continue
-    removeNode(ctx, child)
+      insert an inert clone before cursor (importNode from the merged doc; scripts made inert)
+  remove every live child not claimed, not ignored, and not the local twin of a merged node elsewhere
 ```
 
-`createHeadElement` uses `ctx.doc.createElement(tagName)` and copies
-attributes and text, so an inserted `<script>` in the head executes on
-insertion (a fresh element has no "already started" flag). Old head scripts
-that match by signature are never re-run. `waitsForLoad` is true for a script
-with `src` and a `link` whose `rel` list contains `stylesheet` and has `href`;
-`loadPromise` resolves on either `load` or `error`.
+There is no pantry: a live node whose merged counterpart sits under another
+parent stays put until that parent is applied and then `moveBefore` pulls
+it in. Leftover removal skips it because provenance names it.
 
-Scripts in the head are excluded from the body execute pass (2.13) because the
-head handled them.
+`moveBefore` is used when present (Chrome 133+, Firefox 133+) so iframe,
+video, and focus survive; `insertBefore` otherwise.
 
-Dropped: head styles `append`, `morph`, `none`; the `im-preserve` and
-`im-re-append` attributes; `head.block` (replaced by `awaitLoads`);
-`afterHeadMorphed` (use the generic hooks).
+Focus and caret: before applying, capture `activeElement`, its selection
+range, and scroll offsets, from `live`, not the global document. For a
+contenteditable, keep a reference to the text node and offset. After
+applying, if that text node still exists, map the offset through the
+`mapLocalOffset` function the text merge returned for it; if it was
+replaced, place the caret at the same offset in the merged node that took
+its place; if the element was recreated, refocus by identity. The focused
+input or textarea keeps its live value when `protectFocusedValue` is true;
+the merged value is recorded as a conflict so the caller can decide.
 
-## 2.13 Body scripts (`scripts.js`)
+Script execution runs after apply: a body script whose signature (4.9 rule)
+was not present before apply executes once by replacement with a fresh
+element; merged JSON scripts never execute.
 
-```
-function scriptSignature(ctx, el):
-  src = el.getAttribute("src")
-  type = (el.getAttribute("type") || "text/javascript").split(";")[0].trim().toLowerCase()
-  if src: return "SCRIPT|src|" + type + "|" + absoluteWithoutHash(ctx, src)
-  return "SCRIPT|inline|" + type + "|" + hash(el.textContent.trim())
+## 4.11 Baselines and holds
 
-function collectBodyScriptSignatures(ctx, body):
-  out = new Set()
-  for el of body.querySelectorAll("script"):
-    if el.namespaceURI !== HTML_NS || ctx.ignored(el): continue
-    out.add(scriptSignature(ctx, el))
-  return out
+The library takes baselines as the caller holds them. It does not own them.
+What it guarantees:
 
-function executeNewScripts(ctx, body):
-  if !ctx.opts.scripts.execute: return
-  for el of Array.from(body.querySelectorAll("script")):
-    if el.namespaceURI !== HTML_NS || ctx.ignored(el) || ctx.mergedScripts.has(el): continue
-    if ctx.oldScriptSigs.has(scriptSignature(ctx, el)): continue
-    fresh = ctx.doc.createElement("script")
-    for attr of el.attributes: fresh.setAttribute(attr.name, attr.value)
-    fresh.textContent = el.textContent
-    if ctx.opts.hooks.beforeNodeAdded(fresh) === false: continue
-    if fresh.hasAttribute("src"): ctx.loads.push(loadPromise(fresh))
-    el.replaceWith(fresh)
-    ctx.opts.hooks.afterNodeAdded(fresh)
-```
+- With a base, every frame merges. There is no structural hold; a
+  structural impossibility (the two sides cannot both be honored, such as
+  one side deleting a container the other side moved content into) is
+  resolved by policy and reported as a `structure` conflict.
+- With `base = null`, the merge is two-way and remote wins. ClayJS today
+  holds a dirty tab's first frame because `lastHtml` is null until the
+  first send. The recommended fix is in Part 5: seed `lastHtml` from the
+  boot capture so `base` is never null after boot.
 
-Consequences, which the tests must pin:
+---
 
-- A script whose text or `src` did not change never re-executes, even if it
-  moved.
-- A script whose inline text changed executes once with the new text.
-- A script that was merged via `scripts.merge` never executes.
-- Execution happens after the whole body is reconciled, in document order.
-- A script that appears twice with identical text in the incoming document
-  and once in the old document: the second copy has a signature that was
-  present before, so it does not execute. This is the current behavior and is
-  documented as a limitation.
+# Part 5: Integration, tests, phases
 
-The `matchMode: "outerHTML" | "smart"` option is dropped; the signature above
-is the single "smart" definition. `shouldPreserve`, `shouldReAppend`,
-`shouldRemove`, and `afterScriptsHandled` are dropped; vetoes go through
-`hooks.beforeNodeAdded` and `hooks.beforeNodeRemoved`.
+## 5.1 ClayJS changes
 
-## 2.14 Focus (`focus.js`)
-
-```
-function captureFocus(ctx):
-  el = ctx.doc.activeElement
-  if !el || el === ctx.doc.body: return null
-  state = { el, id: el.getAttribute("id"), scrollTop: el.scrollTop, scrollLeft: el.scrollLeft }
-  if el is HTMLInputElement or HTMLTextAreaElement:
-    try { state.selection = [el.selectionStart, el.selectionEnd, el.selectionDirection] } catch {}
-  else if el.isContentEditable:
-    sel = ctx.doc.getSelection()
-    if sel && sel.rangeCount: 
-      r = sel.getRangeAt(0)
-      state.range = { sc: r.startContainer, so: r.startOffset, ec: r.endContainer, eo: r.endOffset }
-  return state
-
-function restoreFocus(ctx, state):
-  if !state: return
-  el = state.el
-  if !el.isConnected && state.id: el = ctx.doc.getElementById(state.id)
-  if !el || !el.isConnected: return
-  if ctx.doc.activeElement !== el: el.focus({ preventScroll: true })
-  el.scrollTop = state.scrollTop; el.scrollLeft = state.scrollLeft
-  if state.selection: try { el.setSelectionRange(...state.selection) } catch {}
-  if state.range && state.range.sc.isConnected && state.range.ec.isConnected:
-    r = ctx.doc.createRange(); r.setStart(sc, min(so, lengthOf(sc))); r.setEnd(ec, min(eo, lengthOf(ec)))
-    sel = ctx.doc.getSelection(); sel.removeAllRanges(); sel.addRange(r)
-```
-
-`lengthOf(node)` is `node.length` for text nodes and `childNodes.length`
-otherwise; offsets are clamped because text may have shortened.
-
-Because node identity is preserved whenever pairing succeeds, and `moveBefore`
-keeps focus on supported browsers, `restoreFocus` is usually a no-op. It is
-the safety net for `insertBefore` fallbacks and for the focused element
-having been recreated.
-
-The old `ignoreActive`, `ignoreActiveValue`, and `restoreFocus` options are
-replaced by `protectFocusedValue` (default true) plus always-on restore.
-
-## 2.15 Hyperclay adapter (lives in the Hyperclay repos, shown for completeness)
+`sync/live-sync.js`, `_doApplyUpdate`:
 
 ```js
-import { morphDocument } from "hyper-morph";
-import { mergeScriptText } from "hyper-morph/json-merge";
-
-const SYNC_IGNORE = '[editor-ui],[clay~="editor-ui"],[save-ignore],[snapshot-remove],[no-snapshot],[no-save],[save-remove],[freeze],[save-freeze],[clay~="no-save"],[clay~="no-snapshot"],[clay~="freeze"]';
-const isExtension = (el) => /^(chrome|moz|safari-web)-extension:/.test(el.getAttribute("src") || el.getAttribute("href") || "");
-
-export function syncMorph(doc, html, { baseHtml }) {
-  const baseTexts = collectMergeTexts(baseHtml);   // Map<merge name, text>
-  return morphDocument(doc, html, {
-    key: (el) => el.getAttribute("data-id") || el.getAttribute("id"),
-    ignore: (el) => el.matches(SYNC_IGNORE) || ((el.tagName === "LINK" || el.tagName === "SCRIPT") && isExtension(el)),
-    scripts: {
-      merge: (oldEl, newEl) => {
-        const name = newEl.getAttribute("merge");
-        if (!name) return undefined;
-        return mergeScriptText(baseTexts.get(name), oldEl.textContent, newEl.textContent).text;
-      },
-    },
-  });
-}
+const clone = captureSnapshot({ flushUndo: false });
+const report = await mergeDocument({
+  live: document,
+  base: this.lastHtml,                       // may be null before first send; see below
+  remote: html,
+  local: { root: clone, toLive: originalSnapshotNode },
+  identity: {
+    base:   (el) => baseIds.get(el)   || el.getAttribute('data-id') || el.getAttribute('id'),
+    local:  (el) => store.idOf(originalSnapshotNode(el)) || el.getAttribute('data-id') || el.getAttribute('id'),
+    remote: (el) => remoteIds.get(el) || el.getAttribute('data-id') || el.getAttribute('id'),
+  },
+  ignore: (el) => el.matches(PEER_SKIP_SELECTOR) || isExtensionNode(el),
+  scripts: { mergeTags: mergeTagRecognizers },
+  hooks: { beforeAttributeUpdated: (name, el) => isTabLocalRootAttr(name, el) ? false : undefined },
+});
+for (const [el, id] of report.identities) store.adopt(el, id);
 ```
 
-The `policy: "history"` and `"raw"` modes become different `ignore`
-predicates supplied by the adapter. `findChangedRoots` and `spliceProtected`
-are imported from `hyper-morph/splice` by the adapter until they move.
+`baseIds` is `importMap(baseDoc, this._lastIdentityMap)`; `remoteIds` is
+`importMap(newDoc, identityMap)`. `protectPeerDoc`, `findChangedRoots`, and
+`spliceProtected` are no longer called. The hold path remains only for
+`base == null`. `lastHtml` stays the raw frame, and the convergence save
+stays: it runs when `report.changes` contains any change with
+`source: "local"` that the frame did not carry, which is exactly "the
+merged state exists only here".
 
-## 2.16 Test plan
+`_doApplyExternal`: the same call with `base: getLastSavedDirty()`, `local`
+from `captureForMerge()`'s compare clone (its `pairMap` gives the save-domain
+twin when a subtree must be imported), and `activateIncomingDoc` applied to
+the parsed remote first.
 
-Test runner stays `@web/test-runner` with Playwright. Every whole-document
-test fixture must include `<!DOCTYPE html>`. Tests are organized per module;
-the existing files are the source of cases to port. Each test below is a
-required acceptance case, not a suggestion.
+`sync/section-notice.js` reads `report.changes` filtered to the region
+instead of comparing `outerHTML` (it can then also say what changed).
+`plugins/source.js` re-pairs only `report.replaced` and `report.moved`.
+`sync/splice-merge.js` is deleted. `sync/merge-tags.js` is unchanged.
 
-### parse.js
+Seed `lastHtml` at boot from the settled baseline capture (the snapshot
+domain serialization of the same clone `save.js` already takes), so a dirty
+tab's first incoming frame has a base and never holds.
 
-- T-P1: string without doctype, target with doctype: target doctype kept.
-- T-P2: string with doctype, target without: doctype inserted before `<html>`.
-- T-P3: differing doctypes: replaced, no throw.
-- T-P4: fragment string (`<p>x</p>`): becomes body content, head empty.
-- T-P5: non-string non-Document incoming throws `TypeError`.
+hypercms keeps calling `morphElement(panel, built, { formState: 'property' })`.
 
-### ignore.js
+## 5.2 Test plan
 
-- T-I1: predicate called at most once per element per morph (count calls).
-- T-I2: descendant of an ignored old element is not removed even if absent
-  from incoming.
-- T-I3: ignored new element and its descendants are not inserted.
-- T-I4: ignored old element keeps its position relative to the preceding
-  kept sibling after inserts and removes around it.
-- T-I5: an ignored element is never a pairing target: incoming element with
-  the same key as an ignored old element is inserted fresh.
+Runner stays `@web/test-runner` for DOM tests; `merge3`, `align`, and
+`text-merge` also run under Node with jsdom so the pure core is tested
+without a browser. Every whole-document fixture includes a doctype.
 
-### identity.js and pairing.js
+Text merge (`text-merge`):
 
-- T-K1: keyed element moved to a different parent is moved, not recreated
-  (same node object).
-- T-K2: duplicate key on the old side disables that key; elements pair by
-  content or position instead.
-- T-K3: duplicate key on the new side likewise.
-- T-K4: key with different tagName is not paired.
-- T-K5: keyed old element that is an ancestor of the destination is not
-  paired (cycle guard); no exception; incoming inserted fresh.
-- T-K6: keyed old element is never consumed positionally by an unkeyed new
-  element.
-- T-C1 to T-C30: port `test/comparison.js` scenarios (prepend, remove from
-  front and middle, reorder, swap) asserting node identity preserved.
-  Scenarios that relied on content-based moves across parents are rewritten
-  to use keys, and listed in the commit message.
-- T-C31: two same-signature siblings with different text, swapped: both
-  nodes preserved and reordered.
-- T-C32: 1000 identical `<li class="row">` with unique text, one edited:
-  every node preserved, one text node updated.
-- T-C33: element with changed class but same position and tag: paired
-  positionally (replaces the old slot-match candidate).
+- T-T1 disjoint edits both apply (S1).
+- T-T2 overlapping edits: remote policy, local policy, both policy; conflict reported.
+- T-T3 two insertions at the same offset: local first, no conflict.
+- T-T4 insertion adjacent to a deletion: both apply.
+- T-T5 one side empties the string, other edits: policy applies, conflict reported.
+- T-T6 `mapLocalOffset` before, inside, and after a remote hunk.
+- T-T7 surrogate pairs are never split.
+- T-T8 size fallback: 30,000-character strings merge at line granularity within 50 ms.
 
-### reconcile.js
+Alignment (`align`):
 
-- T-R1 to T-R11: port `test/ops.js` with the expected operation lists
-  regenerated and reviewed by hand; each list must be explainable by the
-  three-step pairing.
-- T-R12: text node update in place (same node object).
-- T-R13: comment node update in place.
-- T-R14: `xlink:href` on inline SVG updates and removes correctly.
-- T-R15: `<template>` content reconciled, script inside template never runs.
-- T-R16: `hooks.beforeNodeAdded` returning false skips insert and the
-  cursor still advances correctly (subsequent siblings land in order).
-- T-R17: `hooks.beforeNodeRemoved` returning false keeps the node and it is
-  not double-visited.
-- T-R18: `hooks.beforeNodeMorphed` returning false leaves the subtree and
-  attributes untouched.
-- T-R19: custom element whose `attributeChangedCallback` removes another
-  attribute does not break attribute iteration.
-- T-F1 to T-F9: port `test/form-state-sync.js` for the attribute mode only.
-- T-F10: focused `<input>` keeps its value and caret when the incoming value
-  attribute differs and `protectFocusedValue` is true; is overwritten when
-  false.
-- T-F11: `<select>` option `selected` synced from attributes.
-- T-F12: `<textarea>` default value and live value both synced when not
-  focused.
-- T-F13: file input value never touched.
+- T-A1 identity pairs across parents (S3 without content).
+- T-A2 duplicate identity on one side disables that id on that side.
+- T-A3 exact-equality pairing of repeated identical siblings keeps order.
+- T-A4 signature plus similar text pairs a retyped heading.
+- T-A5 tag-and-class alone never pairs dissimilar text (S7 rule).
+- T-A6 move detection pairs an unpaired base element with an unpaired side element under another parent.
+- T-A7 move detection is skipped above the size bound.
+- T-A8 text runs split by typing align with a single parsed text node.
+- T-A9 code-like elements never pair by text rules.
 
-### head.js
+Merge (`merge3`), one test per scenario in Part 3 (S1 to S7, S10 structure)
+plus:
 
-- T-H1 to T-H18: port `test/head.js` with doctypes added.
-- T-H19: `<title>` text change updates the same `<title>` node; no
-  add/remove hook fired.
-- T-H20: incoming head order is applied to existing elements (moved, not
-  recreated).
-- T-H21: new stylesheet inserted before the old one is removed.
-- T-H22: `awaitLoads: true` resolves after a stylesheet `load` and after a
-  404 `error`.
-- T-H23: `head.preserve` keeps an element absent from incoming.
-- T-H24: a head `<script>` with unchanged text is not re-executed; with
-  changed text it executes once (fixture counter).
-- T-H25: two identical `<link rel="preload">` elements are both kept
-  (multiset bucket).
+- T-M1 both sides append the same element: one copy.
+- T-M2 both sides reorder differently: remote order, structure conflict reported.
+- T-M3 class token merge: local adds `a`, remote adds `b`, result has both.
+- T-M4 style declaration merge.
+- T-M5 remote deletes a container local moved content into: content survives at local's destination, conflict reported.
+- T-M6 ignored region on local kept verbatim; on remote dropped.
+- T-M7 JSON merge script three-way; executable script whole-value.
+- T-M8 head: title change is a text change; stylesheet replaced in order; preload duplicates kept.
+- T-M9 provenance covers every output node.
+- T-M10 `base = null` equals a plain two-way morph on the whole existing `core`, `ops`, and `fidelity` suites (ported).
 
-### scripts.js
+Apply (`apply`):
 
-- T-S1: inline body script from a string is not executed on insertion, then
-  executed exactly once by the execute pass (counter reads 1 after morph, not
-  2).
-- T-S2: same script text moved to a new position: not re-executed.
-- T-S3: changed inline text: executed once with the new text.
-- T-S4: `scripts.execute: false`: never executes, markup present.
-- T-S5: external script with `src`: promise resolves after `load`, and after
-  `error` for a 404.
-- T-S6: script merged via `scripts.merge` keeps identity and does not
-  execute.
-- T-S7: `scripts.merge` on a non-JSON type is not called.
-- T-S8: script inside an ignored region is neither executed nor touched.
+- T-P1 every live node with a local twin is the same object after apply (S2, S3 video node).
+- T-P2 leftover removal never removes a node claimed elsewhere.
+- T-P3 focus and selection preserved for input, textarea, contenteditable (ports of `restore-focus` and `preserve-focus`, plus S8 caret mapping).
+- T-P4 focused input value protected and reported.
+- T-P5 inert clones: a new inline script runs exactly once, after apply.
+- T-P6 `moveBefore` fallback to `insertBefore` behaves identically for structure.
+- T-P7 `xlink:href` and other namespaced attributes.
+- T-P8 iframe document: active element read from the right document.
+- T-P9 `MergeReport.changes` matches the DOM mutations observed by a MutationObserver.
 
-### focus.js
+Whole document:
 
-- Port `test/restore-focus.js` and `test/preserve-focus.js`. The four cases
-  failing today must pass; if `moveBefore` loses focus when moving between
-  containers in a given browser, the restore path must recover it, so the
-  assertion is unconditional.
-- T-X1: contenteditable selection restored after a text edit elsewhere in
-  the document.
-- T-X2: focused element recreated (unpaired) is refocused by id and caret
-  restored.
-- T-X3: focus in an iframe document: `morphDocument(iframe.contentDocument,
-  ...)` reads that document's active element, not the top document's.
+- T-D1 doctype present, absent, changed.
+- T-D2 `morphDocument(document, string)` on the test page: body and head identity kept.
+- T-D3 unknown option throws before mutation.
 
-### Whole document (index.js)
+Performance (`perf/`, run in CI):
 
-- T-D1: `morphDocument(document, fullPageStringWithDoctype)` on the test
-  page: no throw, `document.body` identity preserved, `document.head`
-  identity preserved.
-- T-D2: `<html>` attributes synced.
-- T-D3: same call on a `DOMParser` document with no window: works.
-- T-D4: `morphDocument(html.documentElement, ...)` works; a detached `<html>`
-  throws `TypeError`.
-- T-D5: return value is a Promise even with no scripts or stylesheets.
-- T-D6: unknown option key throws before any mutation.
+- 3000-element page, clean tab, one remote text edit: merge plus apply at or under 40 ms, fail above 80 ms.
+- Same page, dirty tab with one local edit elsewhere: at or under 60 ms.
+- Alignment of two 3000-element documents with full synthetic identity: at or under 10 ms.
 
-### Performance
+ClayJS (in the ClayJS repo, after 5.1):
 
-Restore `perf/` with one benchmark script runnable in Chromium via the test
-runner: the 3000-element page with one text edit, median of five runs after
-three warm-ups. Acceptance: at or under 40 ms on the CI Chromium. Print the
-number; fail the test above 80 ms so regressions are caught without flaking.
+- Port `live-sync-peer-protect.test.js` expectations; the "unmergeable keyless edit holds" test flips to "merges".
+- Two-frame burst keeps the local edit with raw `lastHtml`.
+- Convergence save fires only when the merge carried local-only changes.
 
-### Coverage
+## 5.3 Delivery phases
 
-Keep `coverageConfig.include: ["src/**/*"]` and the `ensure-full-coverage`
-check. Target 95 percent lines on `src/` excluding `splice.js`.
+Each phase ends with a green suite and a commit.
 
-## 2.17 Delivery phases
+Phase 0, baseline: CI workflow running `npm run test:ci` in Chromium; fix
+the four focus tests; restore or remove `perf`.
 
-Each phase ends with a green `npm run test:ci` and a commit. Do not start the
-next phase on a red suite.
+Phase 1, pure core: `parse`, `identity`, `similarity`, `align`,
+`text-merge`, `merge3` with the Node test suite. Deliverable: `merge3`
+passes S1 to S7 and the merge tests above. No DOM mutation yet.
 
-### Phase 0: baseline (no new code)
+Phase 2, apply: `apply`, focus and caret, script execution, head.
+`mergeDocument` and `morphDocument` wired. Port `core`, `ops`, `fidelity`,
+`restore-focus`, `preserve-focus`, `head`, `scripts-handle` as the two-way
+case. Delete the old core, keep `legacy-splice.js`.
 
-1. Add `.github/workflows/test.yml` running `npm ci` and `npm run test:ci`
-   on push and pull request, Chromium only.
-2. Fix or quarantine-with-issue the four failing focus tests so main is
-   green. Prefer fixing: the likely cause is the pantry being `hidden`, which
-   blurs a moved focused input; moving directly with `moveBefore` avoids it.
-3. Remove the dangling `perf` script or restore `perf/runner.js`.
+Phase 3, performance: benchmark in CI; profile and fix until targets hold.
 
-### Phase 1: skeleton and parse
+Phase 4, ClayJS cut-over: the changes in 5.1 on a ClayJS branch, tested
+against its unit suite and a two-tab manual session; then delete
+`legacy-splice.js` and release 1.0.
 
-Create `src/index.js`, `src/parse.js`, `src/ignore.js` with T-P and T-I tests.
-`morphDocument` at this point delegates the body to the old
-`HyperMorph.morph` so the whole-document tests T-D1 to T-D6 can pass early
-and the doctype crash is fixed for users on the next release.
-
-### Phase 2: identity, matcher, pairing
-
-`src/identity.js`, `src/matcher.js`, `src/pairing.js`. Unit-test pairing by
-asserting the returned `Map` directly (no DOM mutation yet). T-K, T-C.
-Benchmark `computePairing` alone on the 3000-element page: target under 15 ms.
-
-### Phase 3: reconcile
-
-`src/reconcile.js`. Switch `morphDocument` to the new body path. T-R, T-F.
-Port `test/core.js` and `test/fidelity.js`; every case must pass or be
-consciously rewritten with the reason in the test description.
-
-### Phase 4: head and scripts
-
-`src/head.js`, `src/scripts.js`. T-H, T-S.
-
-### Phase 5: focus
-
-`src/focus.js`. T-X plus the ported focus suites.
-
-### Phase 6: cut over and remove
-
-1. Delete `src/hyper-morph.js`, `src/hyper-morph-matcher.js`,
-   `src/lib/`, `scripts/propagate.js`, `scripts/vendor-format.js`,
-   `packed-contract.json`, and the tests that only covered removed options
-   (`sync-ignore.js`, `key-matching.js` where superseded, `hooks.js` cases
-   for removed head/script hooks).
-2. Move `findChangedRoots` and `spliceProtected` and `test/protected-splice.js`
-   to `src/splice.js` and `test/splice.js` unchanged.
-3. Update `package.json` `exports` to `.`, `./json-merge`, `./json-parse`,
-   `./splice`. Bump to 1.0.0.
-4. Rewrite `README.md` around the one-job statement and the option table in
-   2.3.
-5. Land the Hyperclay adapter (2.15) in the downstream repos and replace the
-   vendored copies with the npm dependency.
-
-### Size budget
+## 5.4 Size
 
 | Module | Lines |
 |---|---|
-| index.js + parse.js + ignore.js | ~200 |
-| identity.js + matcher.js + pairing.js | ~350 |
-| reconcile.js | ~300 |
-| head.js | ~130 |
-| scripts.js | ~90 |
-| focus.js | ~90 |
-| total core | ~1,160 (today: ~4,900 including splice and json) |
+| index, parse, ignore, identity | ~350 |
+| similarity, align | ~400 |
+| text-merge | ~250 |
+| merge, head-merge | ~600 |
+| scripts | ~120 |
+| apply | ~400 |
+| total | ~2,100 (current core plus splice and matcher: ~4,900) |
 
-## 2.18 Behavior changes to announce in the 1.0 changelog
+The core grows relative to the earlier draft of this plan because the
+merge is now the product. What is removed is duplication and guessing, not
+capability.
 
-- Content-based matching no longer moves elements between parents; use
-  `key` for that.
-- Head elements are updated in place and keep incoming order.
-- `morph()` is replaced by `morphDocument()` and always returns a Promise.
-- Removed options: `morphStyle`, `ignoreActive`, `ignoreActiveValue`,
-  `restoreFocus`, `formStateSync`, `policy`, `head.style`, `head.block`,
-  `head.ignore`, `head.shouldPreserve`, `head.shouldReAppend`,
-  `head.shouldRemove`, `head.afterHeadMorphed`, `scripts.handle`,
-  `scripts.matchMode`, `scripts.mergeBase`, `scripts.mergeTags`,
-  `scripts.shouldPreserve`, `scripts.shouldReAppend`, `scripts.shouldRemove`,
-  `scripts.afterScriptsHandled`, `HyperMorph.defaults`.
-- Removed attributes: `im-preserve`, `im-re-append`, `merge`, `merge-key`
-  (the last two move to the adapter's `scripts.merge` implementation).
-- Removed exports: `createMatcher`, `findChangedRoots` and `spliceProtected`
-  from the main entry (now `hyper-morph/splice`), `parseRulesRelaxed` (stays
-  under `hyper-morph/json-parse` only).
+## 5.5 What was not verified
 
-## 2.19 Open questions for the maintainer
-
-1. Should `splice.js` ship in this package at all, or move to ClayJS with
-   its tests? The spec assumes it ships as a subpath for one release.
-2. Is dropping content-based cross-parent moves acceptable for live sync?
-   The current comparison suite should be checked for real cases that
-   depend on it before Phase 2 begins.
-3. Should `protectFocusedValue` also protect a focused `contenteditable`
-   subtree from incoming text changes? The spec says no (selection is
-   restored instead) because collaborative editing needs remote edits to
-   land.
+- The relay server (htmlclay) was not read; the wire shape was inferred
+  from the ClayJS client and its tests.
+- `hyper-undo`'s interaction with applied frames was not read beyond the
+  `Mutation.pause` bridge. Apply runs under the caller's pause exactly as
+  the morph does today, so no change is expected.
+- The prototype in `docs/evidence/` uses an O(n·m) diff and unbounded
+  pairing searches. It is evidence for the merge rules, not a performance
+  measurement.
