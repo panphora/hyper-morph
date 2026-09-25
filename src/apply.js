@@ -41,6 +41,7 @@ export function apply(liveRoot, mergedRoot, result, o) {
   const leftovers = [];
   const identities = [];
   const mergedScriptsLive = new Set();
+  const heldBy = new Map(); // merged text node -> live text node holding its text
 
   const inRoot = (n) =>
     !!n &&
@@ -53,7 +54,10 @@ export function apply(liveRoot, mergedRoot, result, o) {
   // Pre-pass: resolve every merged node's live twin(s) once.
   const liveOf = new Map(); // merged node -> live node (element, or first text node of a run)
   const runOf = new Map(); // merged text node -> live text nodes of its run
-  const liveTextInfo = new Map(); // live text node -> { merged, shift }
+  // live text node -> { merged, shift } for a run merged whole, or a list of
+  // { merged, from, to, flatStart } when an inline merge spread the node's
+  // characters over several output nodes (provenance.caret).
+  const liveTextInfo = new Map();
   (function resolve(m) {
     const p = provenance.get(m);
     if (p) {
@@ -67,6 +71,21 @@ export function apply(liveRoot, mergedRoot, result, o) {
         if (nodes.length) {
           liveOf.set(m, nodes[0]);
           runOf.set(m, nodes);
+        }
+        if (Array.isArray(p.caret)) {
+          for (const c of p.caret) {
+            const n = o.toLive(c.node);
+            if (!n || !inRoot(n) || n.nodeType !== 3) continue;
+            let list = liveTextInfo.get(n);
+            if (!Array.isArray(list)) liveTextInfo.set(n, (list = []));
+            list.push({
+              merged: m,
+              from: c.from,
+              to: c.to,
+              flatStart: c.flatStart,
+            });
+          }
+        } else {
           let shift = 0;
           for (const n of nodes) {
             liveTextInfo.set(n, { merged: m, shift });
@@ -98,7 +117,7 @@ export function apply(liveRoot, mergedRoot, result, o) {
     removeNode(node, parent);
   }
 
-  restoreFocus(doc, focus, liveTextInfo, textMappers, runOf);
+  restoreFocus(doc, focus, liveTextInfo, textMappers, runOf, heldBy);
 
   return { applied, moved, replaced, identities, mergedScriptsLive, liveOf };
 
@@ -171,10 +190,10 @@ export function apply(liveRoot, mergedRoot, result, o) {
         if (lv !== cursor) moveBefore(liveParent, lv, cursor);
         let text = m.nodeValue;
         if (m.nodeType === 3) {
+          // Typing landed after the snapshot: merge it in.
           const snapshotValue = provenanceLocalValue(m);
           const current = run.map((n) => n.nodeValue).join("");
           if (snapshotValue != null && current !== snapshotValue) {
-            // Typing landed after the snapshot: merge it in.
             text = merge3Text(snapshotValue, current, m.nodeValue).text;
           }
         }
@@ -192,6 +211,7 @@ export function apply(liveRoot, mergedRoot, result, o) {
         }
         claimed.add(lv);
         seenHere.add(lv);
+        heldBy.set(m, lv);
         cursor = nextUsable(lv.nextSibling);
         continue;
       }
@@ -213,6 +233,7 @@ export function apply(liveRoot, mergedRoot, result, o) {
           cursor.nodeValue = m.nodeValue;
         }
         claimed.add(cursor);
+        heldBy.set(m, cursor);
         cursor = nextUsable(cursor.nextSibling);
         continue;
       }
@@ -227,11 +248,14 @@ export function apply(liveRoot, mergedRoot, result, o) {
       if (hooks.beforeNodeAdded(clone) === false) continue;
       liveParent.insertBefore(clone, cursor);
       claimed.add(clone);
+      if (clone.nodeType === 3) heldBy.set(m, clone);
       if (clone.nodeType === 1) {
         replaced.push(clone);
         recordIdentities(clone, m);
         if (!isHtmlScript(clone)) graft(clone, m);
       }
+      // The graft may have moved the cursor node into the clone.
+      cursor = nextUsable(clone.nextSibling);
       applied.push({ kind: "insert", node: clone, parent: liveParent });
       hooks.afterNodeAdded(clone);
     }
@@ -281,26 +305,37 @@ export function apply(liveRoot, mergedRoot, result, o) {
     )
       return;
     const walk = (l, r) => {
-      if (l.nodeType !== 1 || r.nodeType !== 1 || l.tagName !== r.tagName)
-        return;
+      if (l.tagName !== r.tagName) return;
       if (l.tagName === "TEXTAREA") syncTextarea(l, r, { remote: r });
       else if (FORM_TAGS.has(l.tagName)) syncFormState(l, r, { remote: r });
-      const lk = l.childNodes,
-        rk = r.childNodes;
-      for (let i = 0; i < lk.length && i < rk.length; i++) walk(lk[i], rk[i]);
+      const lk = mergedChildren(l),
+        rk = mergedChildren(r);
+      if (lk.length !== rk.length) return;
+      for (let i = 0; i < lk.length; i++) walk(lk[i], rk[i]);
     };
     walk(liveEl, remoteEl);
   }
 
   /** Walk a live subtree and its identical remote twin, adopting remote ids. */
   function adoptLockstep(liveEl, remoteEl) {
-    const lk = liveEl.children,
-      rk = remoteEl.children;
-    for (let i = 0; i < lk.length && i < rk.length; i++) {
+    const lk = mergedChildren(liveEl),
+      rk = mergedChildren(remoteEl);
+    if (lk.length !== rk.length) return;
+    for (let i = 0; i < lk.length; i++) {
       const id = result.remoteIdOf(rk[i]);
       if (id) identities.push([lk[i], id]);
       adoptLockstep(lk[i], rk[i]);
     }
+  }
+
+  /**
+   * The element children the merge compared: ignored elements are invisible
+   * to it, and so are text nodes, which the live DOM may hold split. Two
+   * subtrees the merge called identical have these in lockstep.
+   */
+  function mergedChildren(el) {
+    const root = el.tagName === "TEMPLATE" && el.content ? el.content : el;
+    return Array.from(root.children).filter((c) => !o.ignored(c));
   }
 
   function recordIdentities(liveEl, mergedEl) {
@@ -648,7 +683,7 @@ function captureFocus(doc, liveTextInfo) {
   return state;
 }
 
-function restoreFocus(doc, state, liveTextInfo, textMappers, runOf) {
+function restoreFocus(doc, state, liveTextInfo, textMappers, runOf, heldBy) {
   if (!state) return;
   let el = state.el;
   if (!el.isConnected && state.id) el = doc.getElementById(state.id);
@@ -681,9 +716,24 @@ function restoreFocus(doc, state, liveTextInfo, textMappers, runOf) {
   }
   if (!state.range) return;
   const mapPoint = (node, offset) => {
+    const info = liveTextInfo.get(node);
+    if (Array.isArray(info)) {
+      // A text node an inline merge spread over output nodes: the entry
+      // whose local offset range holds the caret names the output node, its
+      // live holder takes the caret, and the flat mapper places it.
+      const entry =
+        info.find((e) => offset >= e.from && offset < e.to) ||
+        info.find((e) => offset === e.to) ||
+        info[info.length - 1];
+      const target = heldBy.get(entry.merged);
+      if (!target || !target.isConnected) return null;
+      const mapper = textMappers.get(entry.merged);
+      const mapped =
+        mapper && mapper.flat ? mapper.flat(entry.flatStart + offset) : offset;
+      return [target, Math.max(0, Math.min(mapped, target.nodeValue.length))];
+    }
     // A text node inside a merged run: map through the run's offset mapper
     // into the run's surviving first member.
-    const info = liveTextInfo.get(node);
     if (info) {
       const survivor = (runOf.get(info.merged) || [node])[0];
       if (!survivor.isConnected) return null;

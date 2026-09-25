@@ -10,7 +10,9 @@ export type IdOf = (el: Element) => string | null | undefined;
  * children only) applied after the side is parsed, with `then` answering
  * for elements the map does not name.
  */
-export type IdentitySpec = IdOf | { map: Record<string, string>; then?: IdOf };
+export type IdentitySpec =
+  | IdOf
+  | { map: Record<string, string>; first?: IdOf; then?: IdOf };
 
 export interface MergeTagRecognizer {
   /** Does this recognizer claim the script? */
@@ -141,11 +143,14 @@ export type StructureDetail =
 export type Conflict =
   | {
       kind: "text";
+      /** The block element for a conflict in its inline content. */
       node: Text | Element | null;
       base: string;
       local: string;
       remote: string;
       resolved: string;
+      /** Inline content: the resolved region in the segment's merged text, atoms one character each. */
+      range?: [number, number];
     }
   | {
       kind: "attr";
@@ -185,13 +190,24 @@ export interface Provenance {
   remote: Node | Node[] | null;
   /** Subtree identical on every side; the output element has no children. */
   unchanged?: true;
+  /** Inline merge: the offsets of each local text node that landed in this output text node. */
+  caret?: Array<{ node: Text; from: number; to: number; flatStart: number }>;
+  /** Inline merge: a local text node claimed here also has characters in another output node. */
+  partial?: boolean;
+}
+
+export interface TextMapper {
+  /** Caret offset in the local run to an offset in this output node. */
+  (localOffset: number): number;
+  /** Inline merge: an offset in the segment's flattened local text to an offset in this node. */
+  flat?: (flatOffset: number) => number;
 }
 
 export interface MergeResult {
   doc: Document;
   root: Element;
   provenance: WeakMap<Node, Provenance>;
-  textMappers: WeakMap<Node, (localOffset: number) => number>;
+  textMappers: WeakMap<Node, TextMapper>;
   decisions: Decision[];
   conflicts: Conflict[];
   localDiverged: boolean;
@@ -246,7 +262,7 @@ export interface TextMergeResult {
   }>;
   /** Caret offset in the local text to the merged text. */
   mapLocalOffset: (localOffset: number) => number;
-  granularity: "char" | "line" | "whole";
+  granularity: "word" | "line" | "whole";
 }
 
 export function merge3Text(
@@ -340,5 +356,16 @@ declare const HyperMorph: {
   morphDocument: typeof morphDocument;
   morphElement: typeof morphElement;
   merge3: typeof merge3;
+  morph: typeof morph;
 };
 export default HyperMorph;
+
+/**
+ * @deprecated The 0.5.x surface, kept for existing callers. Use mergeDocument,
+ * morphDocument or morphElement. See docs/api.md, "Compatibility: morph()".
+ */
+export function morph(
+  oldNode: Element | Document,
+  newContent: string | Element | Document,
+  config?: Record<string, unknown>,
+): Promise<MergeReport>;

@@ -1,47 +1,78 @@
 /**
- * text-merge.js — character-level diff and three-way merge for text.
+ * text-merge.js — word-level diff and three-way merge for text.
  *
- * Pure functions, no DOM. `diff` is Myers' O(ND) algorithm over UTF-16 code
- * units with surrogate pairs kept together. `merge3Text` merges two edits of
- * one base string hunk by hunk and returns a mapper from a caret offset in
- * the LOCAL text to the merged text.
+ * Pure functions, no DOM. Text is tokenized into words, whitespace runs and
+ * punctuation (Intl.Segmenter, so scripts without spaces segment into words;
+ * a regex fast path when all input is ASCII). Myers runs over token keys.
  *
- * Cost bounds: strings longer than MAX_CHARS, or an edit distance above
- * MAX_EDITS, fall back to line granularity, then to whole-value merge.
+ * Rules:
+ *   - hunks that overlap conflict; a text insertion touching the other
+ *     side's change conflicts; two replacements that only touch both land
+ *   - two pure insertions at the same point both land, local first
+ *   - identical hunks on both sides land once
+ *   - nbsp and space compare equal; the raw form follows the side that
+ *     changed it, and the policy side when both did, with no conflict
+ *   - tag tokens (object keys) are supported for inline merging: a conflict
+ *     that swallows one tag of an element swallows every hunk on that side
+ *     that mentions the element
+ *
+ * Cost bounds: over MAX_TOKENS tokens, line granularity; beyond that,
+ * whole-value with one conflict.
  */
-
-export const MAX_CHARS = 20000;
+export const MAX_TOKENS = 20000;
 export const MAX_EDITS = 4000;
 
-/**
- * @typedef {object} Hunk
- * @property {number} bs - start offset in the base (inclusive)
- * @property {number} be - end offset in the base (exclusive)
- * @property {string} text - replacement text for base[bs, be)
- */
+// ---------------------------------------------------------------------
+// Tokenizer
+// ---------------------------------------------------------------------
+const segmenter =
+  typeof Intl !== "undefined" && typeof Intl.Segmenter === "function"
+    ? new Intl.Segmenter(undefined, { granularity: "word" })
+    : null;
 
-function units(s) {
+const NO_SPACE_SCRIPTS =
+  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
+const FALLBACK_WORD = /[\p{L}\p{M}\p{N}_'’]+|\s+|[\s\S]/gu;
+const GRAPHEME = /\P{M}\p{M}*/gu;
+
+export function words(s) {
+  if (s === "") return [];
+  if (segmenter) {
+    const out = [];
+    for (const seg of segmenter.segment(s)) out.push(seg.segment);
+    return out;
+  }
   const out = [];
-  for (let i = 0; i < s.length; i++) {
-    const c = s.charCodeAt(i);
-    if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length) {
-      const d = s.charCodeAt(i + 1);
-      if (d >= 0xdc00 && d <= 0xdfff) {
-        out.push(s.slice(i, i + 2));
-        i++;
-        continue;
-      }
-    }
-    out.push(s[i]);
+  for (const m of s.match(FALLBACK_WORD)) {
+    if (NO_SPACE_SCRIPTS.test(m))
+      for (const g of m.match(GRAPHEME)) out.push(g);
+    else out.push(m);
   }
   return out;
 }
 
-/**
- * Myers diff over two token arrays. Returns [op, aIndex, bIndex] triples with
- * op 0 (equal), -1 (delete a[aIndex]), 1 (insert b[bIndex]); null when the
- * edit distance exceeds maxD.
- */
+const SPACE_LIKE = /^[  ]+$/;
+export const normKey = (w) => (SPACE_LIKE.test(w) ? " ".repeat(w.length) : w);
+export const isSpace = (t) => typeof t.k === "string" && /^\s+$/.test(t.k);
+
+const ASCII = /^[\x00-\x7f\u00A0]*$/;
+const FAST = /[A-Za-z0-9_']+|[ \u00A0]+|\s|./g;
+export function wordsFast(s) {
+  return s === "" ? [] : s.match(FAST);
+}
+/** Tokenize one string; `fast` when every string of the merge is ASCII. */
+export function textTokens(s, fast = false) {
+  return (fast ? wordsFast(s) : words(s)).map((w) => ({
+    k: normKey(w),
+    raw: w,
+    len: w.length,
+  }));
+}
+export const allAscii = (...strs) => strs.every((s) => ASCII.test(s));
+
+// ---------------------------------------------------------------------
+// Myers over token keys (ported from src/text-merge.js, keys compared by ===)
+// ---------------------------------------------------------------------
 function myers(a, b, maxD) {
   const n = a.length,
     m = b.length;
@@ -58,7 +89,7 @@ function myers(a, b, maxD) {
         x = v[offset + k + 1];
       else x = v[offset + k - 1] + 1;
       let y = x - k;
-      while (x < n && y < m && a[x] === b[y]) {
+      while (x < n && y < m && a[x].k === b[y].k) {
         x++;
         y++;
       }
@@ -87,14 +118,12 @@ function myers(a, b, maxD) {
       x--;
       y--;
     }
-    if (d > 0) {
-      if (x === prevX) {
-        ops.push([1, x, y - 1]);
-        y--;
-      } else {
-        ops.push([-1, x - 1, y]);
-        x--;
-      }
+    if (x === prevX) {
+      ops.push([1, x, y - 1]);
+      y--;
+    } else {
+      ops.push([-1, x - 1, y]);
+      x--;
     }
   }
   while (x > 0 && y > 0) {
@@ -106,9 +135,40 @@ function myers(a, b, maxD) {
   return ops;
 }
 
-function opsToHunks(ops, a, b) {
-  const aOff = new Int32Array(a.length + 1);
-  for (let i = 0; i < a.length; i++) aOff[i + 1] = aOff[i] + a[i].length;
+/**
+ * Token hunks transforming B into S. Each hunk: { bs, be, toks, keys }
+ * in B token indices. Cosmetic hunks (equal key, different raw) are returned
+ * separately: { bi, tok }.
+ */
+export function diffTokens(B, S, maxD = MAX_EDITS) {
+  const cosmetic = [];
+  let p = 0;
+  while (p < B.length && p < S.length && B[p].k === S[p].k) {
+    if (B[p].raw !== S[p].raw) cosmetic.push({ bi: p, tok: S[p] });
+    p++;
+  }
+  let s = 0;
+  while (
+    s < B.length - p &&
+    s < S.length - p &&
+    B[B.length - 1 - s].k === S[S.length - 1 - s].k
+  ) {
+    if (B[B.length - 1 - s].raw !== S[S.length - 1 - s].raw)
+      cosmetic.push({ bi: B.length - 1 - s, tok: S[S.length - 1 - s] });
+    s++;
+  }
+  const am = B.slice(p, B.length - s),
+    bm = S.slice(p, S.length - s);
+  // A middle that shares few words is a rewrite: one hunk, no Myers. Also
+  // the answer when Myers exceeds maxD (prefix and suffix are already trimmed).
+  const ops = sharesFew(am, bm) ? null : myers(am, bm, maxD);
+  if (!ops)
+    return {
+      hunks:
+        am.length || bm.length ? [{ bs: p, be: p + am.length, toks: bm }] : [],
+      cosmetic,
+      coarse: true,
+    };
   const hunks = [];
   let cur = null;
   let ai = 0;
@@ -118,273 +178,386 @@ function opsToHunks(ops, a, b) {
         hunks.push(cur);
         cur = null;
       }
+      if (am[ia].raw !== bm[ib].raw) cosmetic.push({ bi: p + ia, tok: bm[ib] });
       ai = ia + 1;
       continue;
     }
-    if (!cur) cur = { bs: aOff[ai], be: aOff[ai], text: "" };
+    if (!cur) cur = { bs: p + ai, be: p + ai, toks: [] };
     if (op === -1) {
-      cur.be = aOff[ia + 1];
+      cur.be = p + ia + 1;
       ai = ia + 1;
-    } else cur.text += b[ib];
+    } else cur.toks.push(bm[ib]);
   }
   if (cur) hunks.push(cur);
-  return hunks;
+  return { hunks, cosmetic };
 }
+
+const REWRITE_MIN = 48,
+  REWRITE_SHARE = 0.3;
+function sharesFew(a, b) {
+  const na = a.filter((t) => !isSpace(t)),
+    nb = b.filter((t) => !isSpace(t));
+  if (Math.min(na.length, nb.length) < REWRITE_MIN) return false;
+  const count = new Map();
+  for (const t of na) count.set(t.k, (count.get(t.k) || 0) + 1);
+  let inter = 0;
+  for (const t of nb) {
+    const c = count.get(t.k);
+    if (c > 0) {
+      inter++;
+      count.set(t.k, c - 1);
+    }
+  }
+  return inter / Math.min(na.length, nb.length) < REWRITE_SHARE;
+}
+
+const keysOf = (h, B) => {
+  const ks = new Set();
+  for (const t of h.toks) if (typeof t.k !== "string") ks.add(t.k.el);
+  for (let i = h.bs; i < h.be; i++)
+    if (typeof B[i].k !== "string") ks.add(B[i].k.el);
+  return ks;
+};
+
+const sameToks = (a, b) =>
+  a.length === b.length && a.every((t, i) => t.k === b[i].k);
 
 /**
- * Character-level hunks that transform `base` into `side`; null when the
- * edit distance exceeds maxD.
- * @param {string} base
- * @param {string} side
- * @param {number} [maxD]
- * @returns {Hunk[] | null}
+ * @returns {{ tokens: Array, segments: Array, conflicts: Array, mapLocalOffset, localHunks }}
+ * Each output token also carries `src`: "base" | "local" | "remote".
  */
-export function diff(base, side, maxD = MAX_EDITS) {
-  if (base === side) return [];
-  const a = units(base),
-    b = units(side);
-  let p = 0;
-  while (p < a.length && p < b.length && a[p] === b[p]) p++;
-  let s = 0;
-  while (
-    s < a.length - p &&
-    s < b.length - p &&
-    a[a.length - 1 - s] === b[b.length - 1 - s]
-  )
-    s++;
-  const am = a.slice(p, a.length - s),
-    bm = b.slice(p, b.length - s);
-  const ops = myers(am, bm, maxD);
-  if (!ops) return null;
-  const prefixLen = a.slice(0, p).join("").length;
-  const hunks = opsToHunks(ops, am, bm);
-  for (const h of hunks) {
-    h.bs += prefixLen;
-    h.be += prefixLen;
-  }
-  return coalesce(hunks, base);
-}
+export function merge3Tokens(B, L, R, policy = "remote") {
+  const dL = diffTokens(B, L),
+    dR = diffTokens(B, R);
+  if (!dL || !dR) return null; // caller falls back (line / whole)
+  const lh = dL.hunks,
+    rh = dR.hunks;
 
-/**
- * Join hunks separated by a short equal run. Myers finds shared letters
- * inside rewritten words ("lazy" -> "sleepy" shares "l" and "y"), which
- * would split one edit into several and let another side's edit interleave
- * with it. A gap of up to COALESCE_GAP characters is absorbed.
- */
-const COALESCE_GAP = 3;
-function coalesce(hunks, base) {
-  if (hunks.length < 2) return hunks;
-  const out = [hunks[0]];
-  for (let i = 1; i < hunks.length; i++) {
-    const cur = out[out.length - 1],
-      next = hunks[i];
-    if (next.bs - cur.be <= COALESCE_GAP) {
-      cur.text += base.slice(cur.be, next.bs) + next.text;
-      cur.be = next.be;
-    } else out.push(next);
-  }
-  return out;
-}
+  const isInsert = (h) => h.bs === h.be;
+  const hasText = (h) => h.toks.some((t) => typeof t.k === "string");
+  const isTagOnly = (h) => isInsert(h) && !hasText(h);
+  const overlap = (h, o) => o.bs < h.be && h.bs < o.be;
+  // a text insertion at the edge of the other side's change conflicts; a
+  // tag-only insertion (a wrap) at that edge does not; two disjoint
+  // replacements do not
+  const edgeConflict = (h, o) =>
+    !overlap(h, o) &&
+    o.bs <= h.be &&
+    h.bs <= o.be &&
+    ((isInsert(h) && hasText(h)) || (isInsert(o) && hasText(o))) &&
+    !(isInsert(h) && isInsert(o));
+  const identical = (l, r) =>
+    l.bs === r.bs && l.be === r.be && sameToks(l.toks, r.toks);
 
-function diffLines(base, side) {
-  const a = base.split("\n"),
-    b = side.split("\n");
-  const aTok = a.map((l, i) => (i < a.length - 1 ? l + "\n" : l));
-  const bTok = b.map((l, i) => (i < b.length - 1 ? l + "\n" : l));
-  const ops = myers(aTok, bTok, MAX_EDITS);
-  if (!ops) return null;
-  return opsToHunks(ops, aTok, bTok);
-}
-
-function hunksFor(base, side) {
-  if (base.length <= MAX_CHARS && side.length <= MAX_CHARS) {
-    const h = diff(base, side);
-    if (h) return { hunks: h, granularity: "char" };
+  // Units: every hunk of either side; identical pairs become one "both" unit.
+  const units = [];
+  const rUsed = new Set();
+  for (const l of lh) {
+    const r = rh.find((x) => !rUsed.has(x) && identical(l, x));
+    if (r) {
+      rUsed.add(r);
+      units.push({ bs: l.bs, be: l.be, side: "both", l, r, toks: l.toks });
+    } else units.push({ bs: l.bs, be: l.be, side: "L", l, toks: l.toks });
   }
-  const l = diffLines(base, side);
-  if (l) return { hunks: l, granularity: "line" };
-  return {
-    hunks: [{ bs: 0, be: base.length, text: side }],
-    granularity: "whole",
+  for (const r of rh)
+    if (!rUsed.has(r))
+      units.push({ bs: r.bs, be: r.be, side: "R", r, toks: r.toks });
+  units.sort((a, b) => a.bs - b.bs || a.be - b.be);
+  let collapsedDelta = 0,
+    samePoint = 0;
+  for (const u of units)
+    if (u.side === "both") collapsedDelta += u.toks.length - (u.be - u.bs);
+
+  // Union-find over units: cross-side overlap or edge conflict; same key on
+  // one side; then closure over each mixed group's base range.
+  const parent = units.map((_, i) => i);
+  const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  const union = (a, b) => {
+    a = find(a);
+    b = find(b);
+    if (a === b) return false;
+    parent[a] = b;
+    return true;
   };
-}
-
-/** Apply hunks (all within [bs, be)) to that slice of base. */
-function applyHunks(base, hunks, bs, be) {
-  let out = "",
-    pos = bs;
-  for (const h of hunks) {
-    out += base.slice(pos, h.bs) + h.text;
-    pos = h.be;
+  const uKeys = units.map((u) =>
+    keysOf({ bs: u.bs, be: u.be, toks: u.toks }, B),
+  );
+  const byKey = { L: new Map(), R: new Map() };
+  units.forEach((u, i) => {
+    const sides = u.side === "both" ? ["L", "R"] : [u.side];
+    for (const s of sides)
+      for (const k of uKeys[i]) {
+        if (!byKey[s].has(k)) byKey[s].set(k, []);
+        byKey[s].get(k).push(i);
+      }
+  });
+  for (const m of [byKey.L, byKey.R])
+    for (const idx of m.values())
+      for (let j = 1; j < idx.length; j++) union(idx[0], idx[j]);
+  for (let i = 0; i < units.length; i++)
+    for (let j = i + 1; j < units.length; j++) {
+      const a = units[i],
+        b = units[j];
+      if (a.side === b.side && a.side !== "both") continue;
+      if (a.bs > b.be) continue;
+      if (overlap(a, b) || edgeConflict(a, b)) union(i, j);
+      else if (a.bs === b.bs && isInsert(a) && isInsert(b)) samePoint++;
+    }
+  // a wrap (tag-only insertion) whose whole content the other side replaced
+  // or removed conflicts with those hunks; a wrap around a partial edit does not
+  const closeIndexOf = (side, key) => {
+    const hs = side === "L" ? lh : rh;
+    for (const h of hs)
+      if (h.toks.some((t) => t.kind === "close" && t.k.el === key.el))
+        return h.bs;
+    for (let i = 0; i < B.length; i++)
+      if (B[i].kind === "close" && B[i].k.el === key.el) return i;
+    return -1;
+  };
+  units.forEach((u, i) => {
+    if (!isTagOnly(u) || u.side === "both") return;
+    for (const t of u.toks) {
+      if (t.kind !== "open") continue;
+      const q = closeIndexOf(u.side, t.k);
+      if (q <= u.bs) continue;
+      const covered = new Uint8Array(q - u.bs);
+      const others = [];
+      units.forEach((o, j) => {
+        if (o.side === u.side || isInsert(o)) return;
+        if (o.bs < q && o.be > u.bs) {
+          others.push(j);
+          for (let x = Math.max(o.bs, u.bs); x < Math.min(o.be, q); x++)
+            covered[x - u.bs] = 1;
+        }
+      });
+      if (others.length && covered.every((c) => c === 1))
+        for (const j of others) union(i, j);
+    }
+  });
+  // closure: a mixed group's range swallows every unit inside or touching it
+  let grew = true;
+  while (grew) {
+    grew = false;
+    const groups = new Map();
+    units.forEach((u, i) => {
+      const g = find(i);
+      const info = groups.get(g) || { bs: u.bs, be: u.be, L: false, R: false };
+      info.bs = Math.min(info.bs, u.bs);
+      info.be = Math.max(info.be, u.be);
+      if (u.side !== "R") info.L = true;
+      if (u.side !== "L") info.R = true;
+      groups.set(g, info);
+    });
+    units.forEach((u, i) => {
+      for (const [og, info] of groups) {
+        if (find(i) === find(og) || !(info.L && info.R)) continue;
+        const inside = u.bs < info.be && u.be > info.bs;
+        const textInsertAtEdge =
+          isInsert(u) && hasText(u) && (u.bs === info.be || u.bs === info.bs);
+        if ((inside || textInsertAtEdge) && union(i, og)) grew = true;
+      }
+    });
   }
-  return out + base.slice(pos, be);
-}
 
-/**
- * @typedef {object} Segment  One piece of the merged text, in base order.
- * @property {number} bs - base range start
- * @property {number} be - base range end
- * @property {string} text - the merged text for this range
- * @property {"base" | "local" | "remote" | "conflict"} source
- * @property {Hunk[]} [localHunks] - the local hunks this segment absorbed
- */
-
-/**
- * @typedef {object} TextMergeResult
- * @property {string} text
- * @property {Array<{ bs: number, be: number, local: string, remote: string, resolved: string }>} conflicts
- * @property {function(number): number} mapLocalOffset - caret offset in LOCAL -> merged
- * @property {"char" | "line" | "whole"} granularity
- */
-
-/**
- * Three-way merge of two edits of `base`.
- * @param {string} base
- * @param {string} local
- * @param {string} remote
- * @param {"remote" | "local" | "both"} [policy]
- * @returns {TextMergeResult}
- */
-export function merge3Text(base, local, remote, policy = "remote") {
-  if (local === remote || remote === base) {
-    return {
-      text: local,
-      conflicts: [],
-      mapLocalOffset: (n) => Math.min(n, local.length),
-      granularity: "char",
-    };
+  // Emit in base order.
+  const groupOf = new Map();
+  units.forEach((u, i) => {
+    const g = find(i);
+    if (!groupOf.has(g)) groupOf.set(g, []);
+    groupOf.get(g).push(u);
+  });
+  const emitUnits = [];
+  for (const members of groupOf.values()) {
+    const L_ = members.some((u) => u.side === "L"),
+      R_ = members.some((u) => u.side === "R");
+    if (L_ && R_) {
+      const bs = Math.min(...members.map((u) => u.bs)),
+        be = Math.max(...members.map((u) => u.be));
+      const localHunks = members
+          .filter((u) => u.side !== "R")
+          .map((u) => u.l)
+          .sort((a, b) => a.bs - b.bs),
+        remoteHunks = members
+          .filter((u) => u.side !== "L")
+          .map((u) => u.r)
+          .sort((a, b) => a.bs - b.bs);
+      emitUnits.push({ bs, be, kind: "conflict", localHunks, remoteHunks });
+    } else
+      for (const u of members)
+        emitUnits.push({ bs: u.bs, be: u.be, kind: u.side, u });
   }
-  const L =
-    local === base ? { hunks: [], granularity: "char" } : hunksFor(base, local);
-  const R = hunksFor(base, remote);
-  const granularity = [L.granularity, R.granularity].includes("whole")
-    ? "whole"
-    : [L.granularity, R.granularity].includes("line")
-      ? "line"
-      : "char";
-  const lh = L.hunks,
-    rh = R.hunks;
+  // same-point insertions nest: the open whose close comes later goes first;
+  // the close whose open came earlier goes last; otherwise local first
+  const closeAt = (side, key) => {
+    const hs = side === "L" ? lh : rh;
+    for (const h of hs)
+      if (h.toks.some((t) => t.kind === "close" && t.k.el === key.el))
+        return h.bs + 0.5;
+    for (let i = 0; i < B.length; i++)
+      if (B[i].kind === "close" && B[i].k.el === key.el) return i;
+    return Infinity;
+  };
+  const openAt = (side, key) => {
+    const hs = side === "L" ? lh : rh;
+    for (const h of hs)
+      if (h.toks.some((t) => t.kind === "open" && t.k.el === key.el))
+        return h.bs - 0.5;
+    for (let i = 0; i < B.length; i++)
+      if (B[i].kind === "open" && B[i].k.el === key.el) return i;
+    return -Infinity;
+  };
+  const sideOf = (e) => (e.kind === "R" ? "R" : "L");
+  const rank = (e) => (e.kind === "R" ? 1 : 0);
+  emitUnits.sort((a, b) => {
+    if (a.bs !== b.bs) return a.bs - b.bs;
+    const ai = a.bs === a.be,
+      bi = b.bs === b.be;
+    if (ai !== bi) return ai ? -1 : 1;
+    if (ai && bi && a.kind !== "conflict" && b.kind !== "conflict") {
+      const at = a.u.toks,
+        bt = b.u.toks;
+      const allOpen = (t) => t.length && t.every((x) => x.kind === "open");
+      const allClose = (t) => t.length && t.every((x) => x.kind === "close");
+      if (allOpen(at) && allOpen(bt)) {
+        const ca = Math.max(...at.map((x) => closeAt(sideOf(a), x.k))),
+          cb = Math.max(...bt.map((x) => closeAt(sideOf(b), x.k)));
+        if (ca !== cb) return cb - ca; // later close opens first
+      }
+      if (allClose(at) && allClose(bt)) {
+        const oa = Math.min(...at.map((x) => openAt(sideOf(a), x.k))),
+          ob = Math.min(...bt.map((x) => openAt(sideOf(b), x.k)));
+        if (oa !== ob) return ob - oa; // later open closes first
+        return rank(b) - rank(a); // equal: remote's close first (local's open went first)
+      }
+    }
+    return rank(a) - rank(b) || a.be - b.be;
+  });
 
-  /** @type {Segment[]} */
   const segments = [];
   const conflicts = [];
-  let pos = 0,
-    li = 0,
-    ri = 0;
+  let pos = 0;
   const pushBase = (to) => {
     if (to > pos) {
       segments.push({
         bs: pos,
         be: to,
-        text: base.slice(pos, to),
+        toks: B.slice(pos, to),
         source: "base",
       });
       pos = to;
     }
   };
-
-  while (li < lh.length || ri < rh.length) {
-    const l = lh[li],
-      r = rh[ri];
-    const takeL = !!l && (!r || l.bs < r.bs || (l.bs === r.bs && l.be <= r.be));
-    const h = takeL ? l : r;
-    const other = takeL ? r : l;
-    const overlaps = other && other.bs < h.be && h.bs < other.be;
-    if (overlaps) {
-      let bs = Math.min(h.bs, other.bs),
-        be = Math.max(h.be, other.be);
-      let lEnd = li,
-        rEnd = ri,
-        grew = true;
-      while (grew) {
-        grew = false;
-        while (lEnd < lh.length && lh[lEnd].bs < be && lh[lEnd].be > bs) {
-          be = Math.max(be, lh[lEnd].be);
-          bs = Math.min(bs, lh[lEnd].bs);
-          lEnd++;
-          grew = true;
-        }
-        while (rEnd < rh.length && rh[rEnd].bs < be && rh[rEnd].be > bs) {
-          be = Math.max(be, rh[rEnd].be);
-          bs = Math.min(bs, rh[rEnd].bs);
-          rEnd++;
-          grew = true;
-        }
-      }
-      const localHunks = lh.slice(li, lEnd);
-      const localText = applyHunks(base, localHunks, bs, be);
-      const remoteText = applyHunks(base, rh.slice(ri, rEnd), bs, be);
-      const resolved =
+  for (const e of emitUnits) {
+    pushBase(e.bs);
+    if (e.kind === "conflict") {
+      const localToks = applyTok(B, e.localHunks, e.bs, e.be),
+        remoteToks = applyTok(B, e.remoteHunks, e.bs, e.be);
+      const resolvedToks =
         policy === "local"
-          ? localText
+          ? localToks
           : policy === "both"
-            ? localText + remoteText
-            : remoteText;
+            ? localToks.concat(remoteToks)
+            : remoteToks;
       conflicts.push({
-        bs,
-        be,
-        local: localText,
-        remote: remoteText,
-        resolved,
+        bs: e.bs,
+        be: e.be,
+        base: B.slice(e.bs, e.be),
+        local: localToks,
+        remote: remoteToks,
+        resolved: resolvedToks,
       });
-      pushBase(bs);
       segments.push({
-        bs,
-        be,
-        text: resolved,
+        bs: e.bs,
+        be: e.be,
+        toks: resolvedToks,
         source: "conflict",
-        localHunks,
-        localText,
+        localHunks: e.localHunks,
+        localToks,
         keepsLocal: policy !== "remote",
       });
-      pos = be;
-      li = lEnd;
-      ri = rEnd;
-      continue;
+    } else {
+      segments.push({
+        bs: e.bs,
+        be: e.be,
+        toks: e.u.toks,
+        source: e.kind === "R" ? "remote" : "local",
+        localHunks: e.kind === "R" ? [] : [e.u.l],
+      });
     }
-    pushBase(h.bs);
-    segments.push({
-      bs: h.bs,
-      be: h.be,
-      text: h.text,
-      source: takeL ? "local" : "remote",
-      localHunks: takeL ? [h] : [],
-    });
-    pos = h.be;
-    if (takeL) li++;
-    else ri++;
+    pos = Math.max(pos, e.be);
   }
-  pushBase(base.length);
+  pushBase(B.length);
 
-  const text = segments.map((s) => s.text).join("");
+  // cosmetic (nbsp/space) forms on base tokens: three-way per token, no conflict
+  const cosL = new Map(dL.cosmetic.map((c) => [c.bi, c.tok])),
+    cosR = new Map(dR.cosmetic.map((c) => [c.bi, c.tok]));
+  const tokens = [];
+  for (const seg of segments) {
+    if (seg.source === "base") {
+      seg.toks = seg.toks.map((t, i) => {
+        const bi = seg.bs + i;
+        const lt = cosL.get(bi),
+          rt = cosR.get(bi);
+        const pick = lt && rt ? (policy === "remote" ? rt : lt) : lt || rt || t;
+        return pick === t ? t : { ...pick, cosmetic: true };
+      });
+    }
+    for (const t of seg.toks) tokens.push({ ...t, src: seg.source });
+  }
   return {
-    text,
+    tokens,
+    segments,
     conflicts,
-    mapLocalOffset: makeMapper(base, lh, segments),
-    granularity,
+    localHunks: lh,
+    remoteHunks: rh,
+    collapsedDelta,
+    samePoint,
+    mapLocalOffset: makeMapper(B, lh, segments),
   };
 }
 
+function applyTok(B, hunks, bs, be) {
+  let out = [],
+    p = bs;
+  for (const h of hunks) {
+    out = out.concat(B.slice(p, h.bs), h.toks);
+    p = h.be;
+  }
+  return out.concat(B.slice(p, be));
+}
+
+const lenOf = (toks) => toks.reduce((n, t) => n + t.len, 0);
+
 /**
- * Local offset -> merged offset.
- *
- * Step 1 walks the local hunks to express the local offset as a base offset,
- * or as (hunk, inner) when the caret sits inside locally inserted text.
- * Step 2 walks the merged segments: a base offset lands at the same relative
- * position inside a base segment, at the start of a remote segment covering
- * it, or, for a caret inside a local hunk, at the corresponding position of
- * that hunk's text within the segment that absorbed it (clamped to the
- * segment end when the local text was dropped by a remote-wins conflict).
+ * Char-space mapper, same shape as the shipped makeMapper: local offset ->
+ * base offset via the local hunks, then base offset -> merged via segments.
  */
-function makeMapper(base, localHunks, segments) {
+function makeMapper(B, localHunks, segments) {
+  const bOff = new Int32Array(B.length + 1);
+  for (let i = 0; i < B.length; i++) bOff[i + 1] = bOff[i] + B[i].len;
+  const ch = localHunks.map((h) => ({
+    bs: bOff[h.bs],
+    be: bOff[h.be],
+    text: h.toks.map((t) => t.raw).join(""),
+    ref: h,
+  }));
+  const cs = segments.map((s) => ({
+    bs: bOff[s.bs],
+    be: bOff[s.be],
+    len: lenOf(s.toks),
+    source: s.source,
+    localHunks: s.localHunks || [],
+    localLen: s.localToks ? lenOf(s.localToks) : 0,
+    keepsLocal: s.keepsLocal,
+    ref: s,
+  }));
   return (localOffset) => {
-    // Step 1: local -> base
     let baseOff = null,
       inHunk = null,
       inner = 0;
     let lPos = 0,
       bPos = 0;
-    for (const h of localHunks) {
+    for (const h of ch) {
       const eq = h.bs - bPos;
       if (localOffset <= lPos + eq) {
         baseOff = bPos + (localOffset - lPos);
@@ -402,34 +575,103 @@ function makeMapper(base, localHunks, segments) {
       bPos = h.be;
     }
     if (baseOff === null) baseOff = bPos + (localOffset - lPos);
-
-    // Step 2: base -> merged
     let mergedPos = 0;
-    for (const seg of segments) {
-      // A caret exactly at a segment's start stays before that segment,
-      // including before text another side inserted at the caret.
+    for (const seg of cs) {
       if (!inHunk && baseOff <= seg.bs) return mergedPos;
       const covers = inHunk
-        ? seg.localHunks && seg.localHunks.includes(inHunk)
+        ? seg.localHunks.includes(inHunk.ref)
         : baseOff < seg.be;
       if (!covers) {
-        mergedPos += seg.text.length;
+        mergedPos += seg.len;
         continue;
       }
       if (seg.source === "base") return mergedPos + (baseOff - seg.bs);
-      if (seg.source === "remote") return mergedPos + seg.text.length; // clamp after remote's replacement
-      if (seg.source === "local")
-        return mergedPos + Math.min(inner, seg.text.length);
-      // conflict
-      if (!seg.keepsLocal || !inHunk) return mergedPos + seg.text.length;
-      const before = applyHunks(
-        base,
-        seg.localHunks.slice(0, seg.localHunks.indexOf(inHunk)),
-        seg.bs,
-        inHunk.bs,
+      if (seg.source === "remote") return mergedPos + seg.len;
+      if (seg.source === "local") return mergedPos + Math.min(inner, seg.len);
+      if (!seg.keepsLocal || !inHunk) return mergedPos + seg.len;
+      const idx = seg.localHunks.indexOf(inHunk.ref);
+      const before = lenOf(
+        applyTok(B, seg.localHunks.slice(0, idx), seg.ref.bs, inHunk.ref.bs),
       );
-      return mergedPos + Math.min(before.length + inner, seg.localText.length);
+      return mergedPos + Math.min(before + inner, seg.localLen);
     }
     return mergedPos;
   };
+}
+
+// ---------------------------------------------------------------------
+// String wrapper: drop-in for merge3Text(base, local, remote, policy)
+// ---------------------------------------------------------------------
+export function merge3Text(base, local, remote, policy = "remote") {
+  if (local === remote || remote === base)
+    return {
+      text: local,
+      conflicts: [],
+      mapLocalOffset: (n) => Math.min(n, local.length),
+      granularity: "word",
+    };
+  const fast = allAscii(base, local, remote);
+  const B = textTokens(base, fast),
+    L = textTokens(local, fast),
+    R = textTokens(remote, fast);
+  let res =
+    B.length <= MAX_TOKENS && L.length <= MAX_TOKENS && R.length <= MAX_TOKENS
+      ? merge3Tokens(B, L, R, policy)
+      : null;
+  let granularity = "word";
+  let baseToks = B;
+  if (!res) {
+    const lines = (s) =>
+      s.split(/(?<=\n)/).map((w) => ({ k: w, raw: w, len: w.length }));
+    baseToks = lines(base);
+    res = merge3Tokens(baseToks, lines(local), lines(remote), policy);
+    granularity = "line";
+  }
+  if (!res) {
+    const text = policy === "local" ? local : remote;
+    return {
+      text,
+      conflicts: [{ bs: 0, be: base.length, local, remote, resolved: text }],
+      mapLocalOffset: (n) => Math.min(n, text.length),
+      granularity: "whole",
+    };
+  }
+  const join = (toks) => toks.map((t) => t.raw).join("");
+  const off = [0];
+  for (const t of baseToks) off.push(off[off.length - 1] + t.len);
+  return {
+    text: join(res.tokens),
+    conflicts: res.conflicts.map((c) => ({
+      bs: off[c.bs],
+      be: off[c.be],
+      base: join(c.base),
+      local: join(c.local),
+      remote: join(c.remote),
+      resolved: join(c.resolved),
+    })),
+    mapLocalOffset: res.mapLocalOffset,
+    granularity,
+  };
+}
+
+/**
+ * Word-level hunks that transform `base` into `side`, in character offsets.
+ * @param {string} base
+ * @param {string} side
+ * @param {number} [maxD]
+ * @returns {Array<{ bs: number, be: number, text: string }>}
+ */
+export function diff(base, side, maxD = MAX_EDITS) {
+  if (base === side) return [];
+  const fast = allAscii(base, side);
+  const B = textTokens(base, fast),
+    S = textTokens(side, fast);
+  const d = diffTokens(B, S, maxD);
+  const off = [0];
+  for (const t of B) off.push(off[off.length - 1] + t.len);
+  return d.hunks.map((h) => ({
+    bs: off[h.bs],
+    be: off[h.be],
+    text: h.toks.map((t) => t.raw).join(""),
+  }));
 }

@@ -1,6 +1,6 @@
 {
   "name": "hyper-morph",
-  "description": "Three-way merge of HTML documents applied to a live DOM: character-level text merging, identity without ids, and a report of every decision",
+  "description": "Three-way merge of HTML documents applied to a live DOM: word-level text merging, identity without ids, and a report of every decision",
   "keywords": [
     "HTML",
     "DOM",
@@ -23,8 +23,14 @@
     "THIRD-PARTY-NOTICES.md",
     "src",
     "types",
-    "dist/*.js"
+    "dist/*.js",
+    "scripts/propagate.js",
+    "scripts/vendor-format.js"
   ],
+  "hyper": {
+    "kind": "lib",
+    "status": "active"
+  },
   "main": "src/index.js",
   "module": "src/index.js",
   "types": "types/index.d.ts",
@@ -41,6 +47,8 @@
   },
   "scripts": {
     "build": "esbuild src/index.js --bundle --minify --format=iife --global-name=HyperMorph --outfile=dist/hyper-morph.min.js",
+    "prepublishOnly": "npm run build",
+    "copy-to-clayjs": "npm run build && node scripts/propagate.js --only clayjs",
     "dev": "http-server . -p 5692 -o demo/index.html",
     "test": "npm run test:node && npm run test:chrome",
     "test:node": "node --test \"test/node/**/*.test.js\"",

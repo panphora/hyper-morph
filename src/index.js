@@ -32,6 +32,8 @@ export {
 } from "./hyper-morph-json-parse.js";
 export { createParseCache } from "./parse.js";
 export { findChangedRoots, spliceProtected } from "./legacy-splice.js";
+export { morph } from "./compat.js";
+import { morph } from "./compat.js";
 
 const KNOWN = new Set([
   "live",
@@ -104,6 +106,10 @@ function resolveIdentity(spec, root) {
   if (spec && typeof spec === "object" && spec.map) {
     const imported = importMap(root, spec.map);
     const then = typeof spec.then === "function" ? spec.then : defaultIdentity;
+    if (typeof spec.first === "function") {
+      const first = spec.first;
+      return (el) => first(el) || imported.get(el) || then(el);
+    }
     return (el) => imported.get(el) || then(el);
   }
   return defaultIdentity;
@@ -323,8 +329,11 @@ function contentOf(content, doc) {
     t.content.appendChild(inDoc ? doc.importNode(content, true) : content);
     return { root: t, first: content };
   }
-  if (content.nodeType === 11)
-    return { root: content, first: content.firstElementChild };
+  if (content.nodeType === 11) {
+    const t = doc.createElement("template");
+    t.content.appendChild(content);
+    return { root: t, first: t.content.firstElementChild };
+  }
   const t = doc.createElement("template");
   for (const n of Array.from(content))
     t.content.appendChild(n.parentNode ? doc.importNode(n, true) : n);
@@ -432,4 +441,4 @@ export function morphElement(oldEl, newContent, options = {}) {
   return Promise.all(loads).then(() => report);
 }
 
-export default { mergeDocument, morphDocument, morphElement, merge3 };
+export default { mergeDocument, morphDocument, morphElement, merge3, morph };

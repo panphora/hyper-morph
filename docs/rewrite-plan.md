@@ -11,7 +11,7 @@ Decisions taken with the maintainer before this revision:
    moved out.
 2. The library must work on ordinary HTML with no ids the author has to add,
    and must never write identity into the user's DOM or file.
-3. Text merges at character granularity, inside the core.
+3. Text merges at word granularity, with formatting merged per character, inside the core.
 
 This document has five parts:
 
@@ -692,22 +692,24 @@ move pass; they pair by identity, hash, or position.
 
 ## 4.7 Text merge (`text-merge.js`)
 
-Implemented and tested (12 cases). `diff` is Myers over code units with
-surrogate pairs intact, with common prefix and suffix trimmed and hunks
-separated by three or fewer equal characters coalesced (Myers finds shared
-letters inside rewritten words and would otherwise split one edit into
-several). `merge3Text(base, local, remote, policy)` returns
+Implemented and tested. Text is tokenized into words, whitespace runs and
+punctuation (`Intl.Segmenter`, so scripts without spaces still segment
+into words; a regex fast path when the input is ASCII), and `diff` is
+Myers over token keys, so a retyped word is one hunk and hunks start and
+end on token boundaries. `merge3Text(base, local, remote, policy)` returns
 `{ text, conflicts, mapLocalOffset, granularity }`.
 
-Overlapping hunks resolve by policy over the union of their ranges; two
-insertions at the same offset are not a conflict and apply local first.
+Hunks that overlap conflict, as do a pure insertion touching the other
+side's change; two replacements that only touch both land; identical hunks
+on both sides land once; two pure insertions at the same point both land,
+local first. A conflict resolves by policy over the union of the ranges.
 `mapLocalOffset` maps a caret offset in the local text to the merged text
 by first expressing it in base coordinates through the local hunks, then
 walking the merged segments [I5]. A caret exactly at a segment start stays
 before that segment, so a remote insertion at the caret lands after it.
 
-Bounds: over 20,000 characters or 4,000 edits, line granularity; beyond
-that, whole-value with a conflict record.
+Bounds: over 20,000 tokens or 4,000 edits, line granularity; beyond that,
+whole-value with a conflict record.
 
 ## 4.8 Merge (`merge.js`)
 
@@ -735,11 +737,39 @@ falls back to the string rule.
 
 ### Text
 
-Runs merge with `merge3Text` and the run's `mapLocalOffset` is stored on
-the output node's provenance. A text run with no base counterpart on both
-sides (both inserted text under the same parent at the same anchor) merges
-with an empty base and records an `insert-collision` conflict when both
-are non-empty [I18].
+Inside a block, the text nodes, formatting elements (`MARK_TAGS`: `a`,
+`b`, `i`, `em`, `strong`, `span`, `code` and the other phrasing tags) and
+atoms (`ATOM_TAGS`: `br`, `wbr`, `img`) between two block-level units form
+an inline segment, and `mergeChildren` hands each base segment with its
+side counterparts (found through the twin of the block unit that precedes
+the segment) to `mergeInline` (`inline-merge.js`). A segment whose units
+are identical on both sides, or whose formatting element pairs with a unit
+outside the segment (a cross-block move), stays on the per-unit path.
+
+`mergeInline` flattens each side to one character sequence: an atom is
+U+FFFC, a formatting element is a mark over a range, and a mark's stack is
+recorded per character. Text merges by the `text-merge.js` hunk rules over
+the flattened strings; marks merge per character as sets with the rule
+class tokens use, so formatting never conflicts with formatting, a text
+edit strictly inside a range the other side formatted inherits the mark,
+and one that crosses the range's edge conflicts. Atoms pair by position,
+overridden by the alignment for a swap (an unequal twin at a kept position)
+or a move (an inserted atom whose base place the side deleted); deleting or
+replacing an atom the other side changed conflicts. The output nodes are
+rebuilt from the merged sequence. Provenance claims each local text node
+for the output node holding its first surviving character, and records per
+local text node which offsets landed in which output node (`caret`), so
+apply can follow a caret into a re-wrapped node. A text conflict here
+carries the block as `node` and `range`, the resolved region in the merged
+sequence. The segment's `localDiverged` is a comparison of the merged
+sequence with remote's, so a local edit remote already carries does not
+count.
+
+A run outside a segment merges with `merge3Text` and the run's
+`mapLocalOffset` is stored on the output node's provenance. A text run
+with no base counterpart on both sides (both inserted text under the same
+parent at the same anchor) merges with an empty base and records an
+`insert-collision` conflict when both are non-empty [I18].
 
 ### Children
 
@@ -808,8 +838,8 @@ delete-at-origin for the side whose move is applied second, and a
 
 Every attribute, text, insertion, removal, and move that differs from
 base is recorded with its side. `localDiverged` is true when any decision
-has source `local` or `both`, or when a conflict resolved in local's
-favor [C4].
+has source `local` or `both`, when a conflict resolved in local's favor,
+or when a merged inline segment differs from remote's [C4].
 
 ## 4.9 Head (`head-merge.js`)
 

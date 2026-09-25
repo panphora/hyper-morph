@@ -14,13 +14,21 @@
  *   - insertions anchor on the nearest preceding sibling that produced output
  *   - a local insertion echoed back by remote under the same identity pairs
  *     with it and takes local's version
- *   - text merges character-wise; attributes merge per name, with class and
- *     style merged as sets; executable script text is never character merged
+ *   - a block's inline content (text, formatting elements, br and img between
+ *     block children) merges as one sequence (inline-merge.js): text by word,
+ *     formatting per character as sets; attributes merge per name, with class
+ *     and style merged as sets; executable script text is never merged by word
  */
 
 import { createAnalyzer } from "./similarity.js";
 import { align } from "./align.js";
 import { merge3Text } from "./text-merge.js";
+import {
+  mergeInline,
+  isInlineUnit,
+  ATOM_TAGS,
+  MARK_TAGS,
+} from "./inline-merge.js";
 import { indexByIdentity, defaultIdentity } from "./identity.js";
 import { headSignature } from "./head-merge.js";
 import { isHtmlScript, mergeIdentityOf } from "./scripts.js";
@@ -124,6 +132,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   const mergedScripts = new Set();
   const emitted = new Set(); // base units and side units that produced output
   const building = new Set(); // base elements whose output is under construction
+  const inlineCache = new WeakMap(); // element -> its subtree is inline-only
   let localDiverged = false;
 
   const policy = o.conflicts || "remote";
@@ -247,7 +256,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         "text",
       );
     } else {
-      const kids = mergeChildren(b, l, r, asBase);
+      const kids = mergeChildren(b, l, r, asBase, el);
       const target = tag === "TEMPLATE" && el.content ? el.content : el;
       for (const k of kids) target.appendChild(k);
     }
@@ -346,7 +355,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           });
         }
         decisions.push({ kind: "attr", el, name, source: "both" });
-        localDiverged = true;
+        if (v !== rv) localDiverged = true;
       }
       if (v != null) {
         if (sample.namespaceURI)
@@ -441,17 +450,18 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     if (lRun) emitted.add(lRun);
     if (rRun) emitted.add(rRun);
     const res = merge3Text(bv, lv, rv, policy);
-    if (res.text === "") return null;
-    const node = out.createTextNode(res.text);
-    provenance.set(node, {
-      base: bRun.nodes,
-      local: lRun ? lRun.nodes : null,
-      remote: rRun ? rRun.nodes : null,
-    });
-    textMappers.set(node, res.mapLocalOffset);
+    const node = res.text === "" ? null : out.createTextNode(res.text);
+    if (node) {
+      provenance.set(node, {
+        base: bRun.nodes,
+        local: lRun ? lRun.nodes : null,
+        remote: rRun ? rRun.nodes : null,
+      });
+      textMappers.set(node, res.mapLocalOffset);
+    }
     if (lv !== bv && rv !== bv) {
       decisions.push({ kind: "text", node, source: "both" });
-      localDiverged = true;
+      if (res.text !== rv) localDiverged = true;
     } else if (lv !== bv)
       localDecision({ kind: "text", node, source: "local" });
     else if (rv !== bv)
@@ -566,7 +576,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   // ---------------------------------------------------------------------
   // Children
   // ---------------------------------------------------------------------
-  function mergeChildren(b, l, r, localAsBase) {
+  function mergeChildren(b, l, r, localAsBase, el) {
     if (!localAsBase && l && L.identical.has(b)) L.pairIdenticalChildren(b);
     if (r && R.identical.has(b)) R.pairIdenticalChildren(b);
     const Lv = view(L, l, b, localAsBase);
@@ -576,10 +586,25 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     const bPos = new Map();
     for (let i = 0; i < bUnits.length; i++) bPos.set(bUnits[i], i);
 
+    // Output list with bookkeeping for anchors.
+    const result = [];
+    const inResult = new Set();
+    const outputOfUnit = new Map(); // side/base unit -> output node
+    const oInserted = new Set(); // output nodes that are O-side insertions
+
+    // Inline segments: maximal runs of text, marks and atoms between block
+    // units. A segment changed on either side merges as one flat sequence;
+    // its output is one fragment that the walks below place like any other
+    // unit, and every unit of the three segments anchors on it.
+    const segUnits = new Set();
+    const segFrags = [];
+    mergeSegments();
+
     // Kept children on each side, in that side's order, as base indices.
     const keptOrder = (V) => {
       const idx = [];
       for (const su of V.units) {
+        if (segUnits.has(su)) continue;
         const bk = V.baseOf(su);
         if (bk && bSet.has(bk)) idx.push(bPos.get(bk));
       }
@@ -624,8 +649,12 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       remoteDecision({ kind: "move", el: null, source: "remote", base: b });
 
     // Step 1: pair insertions across sides (echoes), by identity then hash.
-    const lIns = Lv.asBase ? [] : Lv.units.filter((u) => !Lv.baseOf(u));
-    const rIns = Rv.asBase ? [] : Rv.units.filter((u) => !Rv.baseOf(u));
+    const lIns = Lv.asBase
+      ? []
+      : Lv.units.filter((u) => !Lv.baseOf(u) && !segUnits.has(u));
+    const rIns = Rv.asBase
+      ? []
+      : Rv.units.filter((u) => !Rv.baseOf(u) && !segUnits.has(u));
     const echo = new Map(); // remote unit -> local unit (and reverse)
     if (lIns.length && rIns.length) {
       const rById = new Map(),
@@ -682,12 +711,6 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         }
       }
     }
-
-    // Output list with bookkeeping for anchors.
-    const result = [];
-    const inResult = new Set();
-    const outputOfUnit = new Map(); // side/base unit -> output node
-    const oInserted = new Set(); // output nodes that are O-side insertions
 
     const emitBaseKid = (bk) => {
       if (emitted.has(bk)) return outputOfUnit.get(bk) || null;
@@ -885,8 +908,17 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       if (node && !inResult.has(node)) {
         result.push(node);
         inResult.add(node);
-        if (!O.V.baseOf(su) && !echo.has(su)) oInserted.add(node);
+        if (!O.V.baseOf(su) && !echo.has(su) && !segUnits.has(su))
+          oInserted.add(node);
       }
+    }
+
+    // A segment the order side emptied still has output when the other side
+    // edited it: it goes after the nearest preceding base unit with output.
+    for (const s of segFrags) {
+      if (inResult.has(s.frag)) continue;
+      result.splice(afterBase(s.at), 0, s.frag);
+      inResult.add(s.frag);
     }
 
     // Other side's insertions and move-ins, anchored on the nearest preceding
@@ -941,21 +973,128 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       if (emitted.has(bk)) continue;
       const node = emitBaseKid(bk);
       if (!node) continue;
-      let pos = 0;
+      result.splice(afterBase(i), 0, node);
+    }
+
+    return result;
+
+    // The position after the output of the nearest base unit before index i.
+    function afterBase(i) {
       for (let j = i - 1; j >= 0; j--) {
         const prev = outputOfUnit.get(bUnits[j]);
         if (prev) {
           const k = result.indexOf(prev);
-          if (k >= 0) {
-            pos = k + 1;
-            break;
-          }
+          if (k >= 0) return k + 1;
         }
       }
-      result.splice(pos, 0, node);
+      return 0;
     }
 
-    return result;
+    function mergeSegments() {
+      if (
+        (Lv.asBase || L.identical.has(b)) &&
+        (Rv.asBase || R.identical.has(b))
+      )
+        return;
+      const inlineOpts = { ignored, remoteWins: o.remoteWins, inlineCache };
+      const isInline = (u) =>
+        isEl(u)
+          ? ATOM_TAGS.has(u.tagName) ||
+            (MARK_TAGS.has(u.tagName) && isInlineUnit(u, inlineOpts))
+          : u.kind === "text";
+      const segmentsOf = (units) => {
+        const segs = [];
+        let cur = null,
+          anchor = null;
+        for (const u of units) {
+          if (isInline(u)) {
+            if (!cur) segs.push((cur = { units: [], anchor }));
+            cur.units.push(u);
+          } else {
+            cur = null;
+            anchor = u;
+          }
+        }
+        return segs;
+      };
+      const bSegs = segmentsOf(bUnits);
+      if (!bSegs.length) return;
+      const byAnchor = (V) => {
+        const m = new Map();
+        for (const s of segmentsOf(V.units)) m.set(s.anchor, s.units);
+        return m;
+      };
+      const lSegs = Lv.asBase ? null : byAnchor(Lv);
+      const rSegs = Rv.asBase ? null : byAnchor(Rv);
+      // The side segment paired with a base segment follows the twin of the
+      // base segment's anchor. No twin here, or a side read as base: null.
+      const sideOf = (seg, V, segs) => {
+        if (!segs) return null;
+        const twin = seg.anchor === null ? null : V.twin(seg.anchor);
+        if (seg.anchor !== null && (!twin || !V.here(twin))) return null;
+        return segs.get(twin) || [];
+      };
+      const sameUnits = (a, s) =>
+        a.length === s.length &&
+        a.every((u, i) => analyzer.unitHash(u) === analyzer.unitHash(s[i]));
+      // A twin outside the segment pair is a cross-block move: the per-unit
+      // path keeps handling those.
+      const crosses = (seg, sideUnits, V) => {
+        if (!sideUnits) return false;
+        const inSide = new Set(sideUnits),
+          inBase = new Set(seg.units);
+        for (const u of seg.units) {
+          const t = V.twin(u);
+          if (t && !inSide.has(t)) return true;
+        }
+        for (const su of sideUnits) {
+          const bk = V.baseOf(su);
+          if (bk && !inBase.has(bk)) return true;
+        }
+        return false;
+      };
+      const nodesOf = (units) =>
+        units.flatMap((u) => (isEl(u) ? [u] : u.nodes));
+      for (const seg of bSegs) {
+        const lu = sideOf(seg, Lv, lSegs),
+          ru = sideOf(seg, Rv, rSegs);
+        if (
+          (!lu || sameUnits(seg.units, lu)) &&
+          (!ru || sameUnits(seg.units, ru))
+        )
+          continue;
+        if (crosses(seg, lu, Lv) || crosses(seg, ru, Rv)) continue;
+        const res = mergeInline({
+          base: nodesOf(seg.units),
+          local: nodesOf(lu || seg.units),
+          remote: nodesOf(ru || seg.units),
+          out,
+          policy,
+          L: lu ? L : identityAlignment(),
+          R: ru ? R : identityAlignment(),
+          idOf: { local: idLocal, remote: idRemote },
+          ignored,
+          remoteWins: o.remoteWins,
+          mergeElement: (bk, lk, rk) => mergeElement(bk, lk, rk, false),
+          cloneUnit,
+          mergeAttrs,
+          provenance,
+          textMappers,
+          conflicts,
+          decisions,
+          node: el,
+        });
+        const frag = out.createDocumentFragment();
+        for (const n of res.nodes) frag.appendChild(n);
+        for (const u of [...seg.units, ...(lu || []), ...(ru || [])]) {
+          emitted.add(u);
+          segUnits.add(u);
+          outputOfUnit.set(u, frag);
+        }
+        if (res.localDiverged) localDiverged = true;
+        segFrags.push({ frag, at: bPos.get(seg.units[0]) });
+      }
+    }
   }
 
   function mergeComment(bRun, lRun, rRun) {

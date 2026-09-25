@@ -29,9 +29,19 @@ test("diff round-trips arbitrary edits", () => {
 });
 
 test("diff never splits a surrogate pair", () => {
-  const h = diff("a😀b", "ab");
+  const h = diff("x 😀 y", "x y");
   assert.equal(h.length, 1);
-  assert.equal(h[0].be - h[0].bs, 2);
+  const base = "x 😀 y";
+  for (const i of [h[0].bs, h[0].be]) {
+    const c = base.charCodeAt(i);
+    assert.ok(!(c >= 0xdc00 && c <= 0xdfff), `offset ${i} splits a pair`);
+  }
+});
+
+test("text conflicts carry base offsets of the contested region", () => {
+  const base = "the lazy dog";
+  const c = merge3Text(base, "the LAZY dog", "the sleepy dog").conflicts[0];
+  assert.equal(base.slice(c.bs, c.be), "lazy");
 });
 
 test("T-T1 disjoint edits both apply", () => {
@@ -63,16 +73,22 @@ test("T-T2 overlapping edits by policy", () => {
   );
 });
 
-test("T-T3 two insertions at the same offset: local first, no conflict", () => {
-  const r = merge3Text("ab", "aXb", "aYb");
-  assert.equal(r.text, "aXYb");
+test("T-T3 two insertions at the same point: local first, no conflict", () => {
+  const r = merge3Text("a b", "a X b", "a Y b");
+  assert.equal(r.text, "a X Y b");
   assert.equal(r.conflicts.length, 0);
 });
 
-test("T-T4 insertion adjacent to a deletion both apply", () => {
+test("T-T3b two edits inside one word conflict", () => {
+  const r = merge3Text("ab", "aXb", "aYb");
+  assert.equal(r.text, "aYb");
+  assert.equal(r.conflicts.length, 1);
+});
+
+test("T-T4 insertion touching a deletion inside one word conflicts", () => {
   const r = merge3Text("abcd", "abXcd", "abd");
-  assert.equal(r.text, "abXd");
-  assert.equal(r.conflicts.length, 0);
+  assert.equal(r.text, "abd");
+  assert.equal(r.conflicts.length, 1);
 });
 
 test("T-T5 one side empties the string", () => {
@@ -94,19 +110,17 @@ test("T-T6 mapLocalOffset before, inside, after a remote hunk", () => {
   const r = merge3Text(base, local, remote);
   assert.equal(r.text, "The sleepy dog sleeps!");
   assert.equal(r.mapLocalOffset(2), 2); // before
-  // inside the remote hunk -> after it; the trailing "y" is shared base text,
-  // so the hunk is [4,7) "sleep" and the caret lands after "sleep"
-  assert.equal(r.mapLocalOffset(6), 9);
+  // inside the word remote replaced ("lazy" -> "sleepy") -> after "sleepy"
+  assert.equal(r.mapLocalOffset(6), 10);
   assert.equal(r.mapLocalOffset(13), 15); // after: shifted by +2
   assert.equal(r.mapLocalOffset(local.length), r.text.length);
 });
 
 test("mapLocalOffset inside a local insertion", () => {
-  const base = "ab";
-  const r = merge3Text(base, "aXYZb", "ab!");
-  assert.equal(r.text, "aXYZb!");
-  assert.equal(r.mapLocalOffset(3), 3); // between X and Y... offset 3 in local is after "aXY"
-  assert.equal(r.mapLocalOffset(5), 5); // end of local
+  const r = merge3Text("a b", "a XYZ b", "a b!");
+  assert.equal(r.text, "a XYZ b!");
+  assert.equal(r.mapLocalOffset(4), 4);
+  assert.equal(r.mapLocalOffset(7), 7);
 });
 
 test("mapLocalOffset when the local hunk lost a conflict clamps after the remote text", () => {
@@ -123,4 +137,49 @@ test("T-T8 large input falls back within bounds", () => {
   const r = merge3Text(base, local, remote);
   assert.ok(performance.now() - t0 < 200);
   assert.equal(r.text, "remote\n" + base + "\nlocal");
+});
+
+test("same-word edits conflict instead of inventing words", () => {
+  const cases = [
+    ["cat", "cut", "cap", "cap"],
+    [
+      "the colr is red",
+      "the color is red",
+      "the colour is red",
+      "the colour is red",
+    ],
+    [
+      "The meeting is on Monday at noon.",
+      "The meeting is on Tuesday at noon.",
+      "The meeting is on Mondy at noon.",
+      "The meeting is on Mondy at noon.",
+    ],
+    [
+      "We will ship it soon.",
+      "We plan to release it next week.",
+      "We will ship it very soon.",
+      "We plan to release it very soon.",
+    ],
+  ];
+  for (const [b, l, r, want] of cases) {
+    const m = merge3Text(b, l, r);
+    assert.equal(m.text, want, `${l} / ${r}`);
+    assert.equal(m.conflicts.length, 1, `${l} / ${r}`);
+  }
+});
+
+test("edits to adjacent words both land", () => {
+  const r = merge3Text(
+    "the quick brown fox",
+    "the fast brown fox",
+    "the quick red fox",
+  );
+  assert.equal(r.text, "the fast red fox");
+  assert.equal(r.conflicts.length, 0);
+});
+
+test("scripts without spaces merge by word", () => {
+  const r = merge3Text("我们今天去公园", "我们明天去公园", "我们今天去海边");
+  assert.equal(r.text, "我们明天去海边");
+  assert.equal(r.conflicts.length, 0);
 });

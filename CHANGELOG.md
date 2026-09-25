@@ -8,11 +8,20 @@ the review, the scenarios, and the specification.
 
 ### Added
 
+- `morph(oldNode, newContent, config)`: the 0.5.x surface as a deprecated
+  compatibility export, mapped onto the new API (see `docs/api.md`).
+
 - `mergeDocument({ live, base, remote, local?, ... })`: three-way merge of
   whole documents. `morphDocument(live, remote)` is the two-way form;
   `morphElement(el, content, { children?, base? })` works on one element.
-- Character-level text merging (`merge3Text`, `diff`) with caret mapping for
+- Word-level text merging (`merge3Text`, `diff`) with caret mapping for
   the focused element.
+- Inline merging inside a block: text, formatting elements and `<br>`,
+  `<wbr>`, `<img>` merge as one sequence, so edits to different words land
+  side by side, formatting one side applied survives the other side's
+  typing, and a caret inside a re-wrapped word stays where it was. A
+  conflict in that content reports the block as `node` and a `range` into
+  its merged text.
 - Alignment that pairs elements without ids: identical subtrees, unique
   signatures, signature plus similar text, position, then cross-parent
   moves. Never on tag and class alone.

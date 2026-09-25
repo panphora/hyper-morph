@@ -332,3 +332,442 @@ test("text run split on the local side merges as one run", () => {
   })();
   assert.equal(res.doc.body.innerHTML, `<p>Hello there world</p>`);
 });
+
+test("both sides made the same text edit: the result is the remote, not diverged", () => {
+  const { html, res } = mergeBodies(`<p>a0</p>`, `<p>a1</p>`, `<p>a1</p>`);
+  assert.equal(html, `<p>a1</p>`);
+  assert.equal(res.localDiverged, false);
+});
+
+test("a both-sides conflict the remote won is not diverged; one local kept is", () => {
+  const same = mergeBodies(
+    `<p>the lazy dog</p>`,
+    `<p>the LAZY dog</p>`,
+    `<p>the sleepy dog</p>`,
+  );
+  assert.equal(same.html, `<p>the sleepy dog</p>`);
+  assert.equal(same.res.localDiverged, false);
+
+  const attr = mergeBodies(
+    `<p title="a">x</p>`,
+    `<p title="b">x</p>`,
+    `<p title="c">x</p>`,
+  );
+  assert.equal(attr.html, `<p title="c">x</p>`);
+  assert.equal(attr.res.localDiverged, false);
+
+  const kept = mergeBodies(
+    `<p>one two</p>`,
+    `<p>ONE two</p>`,
+    `<p>one TWO</p>`,
+  );
+  assert.equal(kept.html, `<p>ONE TWO</p>`);
+  assert.equal(kept.res.localDiverged, true);
+});
+
+// Inline defect table (CHARMERGE, seat A section 4.2 and seat B section 3.1):
+// the rows the per-run text merge got wrong. Each row merges through merge3
+// and pins the block-level inline merge.
+const FOX = "The quick brown fox jumps over the lazy dog.";
+const P = (s) => `<p>${s}</p>`;
+const BOLD = P("The <b>quick</b> brown fox jumps over the lazy dog.");
+const inlineRows = [
+  [
+    "I1 local bolds, remote edits the same paragraph",
+    P(FOX),
+    BOLD,
+    P("The quick brown fox jumps over the sleepy dog."),
+    P("The <b>quick</b> brown fox jumps over the sleepy dog."),
+    0,
+  ],
+  [
+    "I2 local links, remote edits",
+    P("See the docs for details."),
+    P('See the <a href="/d">docs</a> for details.'),
+    P("See the docs for more details."),
+    P('See the <a href="/d">docs</a> for more details.'),
+    0,
+  ],
+  [
+    "I3 both format different words",
+    P(FOX),
+    BOLD,
+    P("The quick brown fox jumps over the <i>lazy</i> dog."),
+    P("The <b>quick</b> brown fox jumps over the <i>lazy</i> dog."),
+    0,
+  ],
+  [
+    "I4 both wrap the same word with different tags",
+    P(FOX),
+    BOLD,
+    P("The <i>quick</i> brown fox jumps over the lazy dog."),
+    P("The <b><i>quick</i></b> brown fox jumps over the lazy dog."),
+    0,
+  ],
+  [
+    "I5 local unbolds, remote edits elsewhere",
+    BOLD,
+    P(FOX),
+    P("The <b>quick</b> brown fox jumps over the sleepy dog."),
+    P("The quick brown fox jumps over the sleepy dog."),
+    0,
+  ],
+  [
+    "I6 local unbolds, remote edits the bold word",
+    BOLD,
+    P(FOX),
+    P("The <b>fast</b> brown fox jumps over the lazy dog."),
+    P("The fast brown fox jumps over the lazy dog."),
+    0,
+  ],
+  [
+    "I7 local extends the bold over a word remote edits",
+    P("The <b>quick</b> brown fox"),
+    P("The <b>quick brown</b> fox"),
+    P("The <b>quick</b> red fox"),
+    P("The <b>quick red</b> fox"),
+    0,
+  ],
+  [
+    "I8 local splits with a br, remote edits",
+    P(FOX),
+    P("The quick brown fox<br>jumps over the lazy dog."),
+    P("The quick brown fox jumps over the sleepy dog."),
+    P("The quick brown fox<br>jumps over the sleepy dog."),
+    0,
+  ],
+  [
+    "I9 span litter wrap vs edit inside",
+    P(FOX),
+    P(
+      'The <span style="color: red;">quick brown</span> fox jumps over the lazy dog.',
+    ),
+    P("The quick red fox jumps over the lazy dog."),
+    P(
+      'The <span style="color: red;">quick red</span> fox jumps over the lazy dog.',
+    ),
+    0,
+  ],
+  [
+    "I10 local deletes the bold word and its tags, remote edits it",
+    P("The <b>quick</b> brown fox"),
+    P("The brown fox"),
+    P("The <b>fast</b> brown fox"),
+    P("The <b>fast</b> brown fox"),
+    1,
+  ],
+  [
+    "I11 remote rewrites the paragraph, local bolds a word",
+    P(FOX),
+    BOLD,
+    P("Something else entirely."),
+    P("Something <b>else</b> entirely."),
+    0,
+  ],
+  [
+    "I12 remote deletes the paragraph text, local bolds",
+    P(FOX),
+    BOLD,
+    P(""),
+    P(""),
+    1,
+  ],
+  [
+    "I13 local wraps, remote wraps a superset",
+    P(FOX),
+    BOLD,
+    P("The <i>quick brown</i> fox jumps over the lazy dog."),
+    P("The <i><b>quick</b> brown</i> fox jumps over the lazy dog."),
+    0,
+  ],
+  [
+    "I14 local bolds a phrase, remote edits inside it",
+    P(FOX),
+    P("The <b>quick brown fox</b> jumps over the lazy dog."),
+    P("The quick red fox jumps over the lazy dog."),
+    P("The <b>quick red fox</b> jumps over the lazy dog."),
+    0,
+  ],
+  [
+    "I15 remote bolds, local prepends",
+    P(FOX),
+    P("Note: " + FOX),
+    BOLD,
+    P("Note: The <b>quick</b> brown fox jumps over the lazy dog."),
+    0,
+  ],
+  [
+    "I16 both edit inside different inline elements",
+    P("<b>one</b> and <i>two</i>"),
+    P("<b>ONE</b> and <i>two</i>"),
+    P("<b>one</b> and <i>TWO</i>"),
+    P("<b>ONE</b> and <i>TWO</i>"),
+    0,
+  ],
+];
+
+for (const [name, base, local, remote, want, count] of inlineRows)
+  test(name, () => {
+    const { html, res } = mergeBodies(base, local, remote);
+    assert.equal(html, want);
+    assert.equal(res.conflicts.length, count, JSON.stringify(res.conflicts));
+  });
+
+test("I-C a block-level text conflict names the block and its merged range", () => {
+  const { res } = mergeBodies(
+    P("the lazy dog"),
+    P("the <b>LAZY</b> dog"),
+    P("the sleepy dog"),
+  );
+  assert.equal(res.conflicts.length, 1);
+  const c = res.conflicts[0];
+  assert.equal(c.kind, "text");
+  assert.equal(c.node, res.doc.querySelector("p"));
+  assert.deepEqual(
+    [c.base, c.local, c.remote, c.resolved, c.range],
+    ["lazy", "<b>LAZY</b>", "sleepy", "sleepy", [4, 10]],
+  );
+  assert.equal(res.localDiverged, false);
+});
+
+test("I-D localDiverged is the canonical comparison with remote", () => {
+  const bold = mergeBodies(
+    P(FOX),
+    BOLD,
+    P("The quick brown fox jumps over the sleepy dog."),
+  );
+  assert.equal(bold.res.localDiverged, true);
+  const same = mergeBodies(P(FOX), BOLD, BOLD);
+  assert.equal(same.res.localDiverged, false);
+  const local = mergeBodies(
+    P("the lazy dog"),
+    P("the <b>LAZY</b> dog"),
+    P("the sleepy dog"),
+    { conflicts: "local" },
+  );
+  assert.equal(local.html, P("the <b>LAZY</b> dog"));
+  assert.equal(local.res.localDiverged, true);
+});
+
+test("I-E provenance covers every node of a merged segment and marks reuse local elements", () => {
+  const { res, l } = mergeBodies(
+    `<div><p>Read <b>the <i>fine</i> print</b> now</p></div>`,
+    `<div><p>Read <b>the <i>fine</i> print</b> now!</p></div>`,
+    `<div><p>Read <a href="/p"><b>the <i>fine</i> print</b></a> now</p></div>`,
+  );
+  assert.equal(
+    res.doc.body.innerHTML,
+    `<div><p>Read <a href="/p"><b>the <i>fine</i> print</b></a> now!</p></div>`,
+  );
+  const walk = (n) => {
+    for (const c of n.childNodes) {
+      assert.ok(res.provenance.has(c), c.nodeName);
+      walk(c);
+    }
+  };
+  walk(res.doc.body);
+  assert.equal(
+    res.provenance.get(res.doc.querySelector("b")).local,
+    l.querySelector("b"),
+  );
+  assert.equal(
+    res.provenance.get(res.doc.querySelector("i")).local,
+    l.querySelector("i"),
+  );
+  const text = res.doc.querySelector("p").lastChild;
+  assert.deepEqual(res.provenance.get(text).local, [
+    l.querySelector("p").lastChild,
+  ]);
+  assert.equal(res.textMappers.get(text)(2), 2);
+});
+
+test("I-F segments pair by anchor in a mixed container", () => {
+  const { html, res } = mergeBodies(
+    `<div>intro <b>x</b> here<p>para</p>tail text</div>`,
+    `<div>intro <b>x</b> here!<p>para</p><h2>New</h2>tail text</div>`,
+    `<div>intro <b>X</b> here<p>para</p>tail TEXT</div>`,
+  );
+  assert.equal(
+    html,
+    `<div>intro <b>X</b> here!<p>para</p><h2>New</h2>tail TEXT</div>`,
+  );
+  assert.equal(res.conflicts.length, 0);
+});
+
+test("I-G a mark moved to another block keeps the per-unit path", () => {
+  const { html, res } = mergeBodies(
+    `<div><p id="a">one <b>two</b> three</p><p id="b">four</p></div>`,
+    `<div><p id="a">one three</p><p id="b">four <b>two</b></p></div>`,
+    `<div><p id="a">one <b>two</b> three!</p><p id="b">four</p></div>`,
+  );
+  assert.ok(html.includes("<b>two</b>"), html);
+  assert.equal((html.match(/two/g) || []).length, 1, html);
+  assert.ok(
+    res.decisions.some((d) => d.kind === "move"),
+    JSON.stringify(res.decisions),
+  );
+});
+
+test("I-H two-way mode takes remote's inline content whole", () => {
+  const { html, res } = mergeBodies(
+    P("a <b>b</b> c"),
+    P("a <b>b</b> c"),
+    P("a <i>b</i> c!"),
+    { localIsBase: true },
+  );
+  assert.equal(html, P("a <i>b</i> c!"));
+  assert.equal(res.localDiverged, false);
+});
+
+test("I-I a remoteWins block takes remote's inline content and ignores local formatting", () => {
+  const remoteWins = (el) => el.hasAttribute("no-dirty");
+  const { html, res } = mergeBodies(
+    `<div no-dirty><p>a b c</p></div>`,
+    `<div no-dirty><p>a <b>b</b> c</p></div>`,
+    `<div no-dirty><p>a b c!</p></div>`,
+    { remoteWins },
+  );
+  assert.equal(html, `<div no-dirty=""><p>a b c!</p></div>`);
+  assert.equal(res.localDiverged, false);
+});
+
+test("I-J an ignored element inside a segment stays out of the output", () => {
+  const ignore = (el) => el.hasAttribute("no-save");
+  const { html } = mergeBodies(
+    P("a b"),
+    P("a <span no-save>x</span>b"),
+    P("a <b>b</b>"),
+    { ignore },
+  );
+  assert.equal(html, P("a <b>b</b>"));
+});
+
+test("I-K an unchanged segment beside a changed block never runs the inline merge", () => {
+  const { html, res } = mergeBodies(
+    `<div>keep <b>this</b><p>a</p></div>`,
+    `<div>keep <b>this</b><p>a local</p></div>`,
+    `<div>keep <b>this</b><p>a</p></div>`,
+  );
+  assert.equal(html, `<div>keep <b>this</b><p>a local</p></div>`);
+  assert.deepEqual(
+    res.decisions.map((d) => d.kind + ":" + d.source),
+    ["text:local"],
+  );
+});
+
+test("I-L a two-way morph keeps swapped images by identity", () => {
+  const { res, b } = mergeBodies(
+    `<div><img src="a.png"><img src="b.png"></div>`,
+    `<div><img src="a.png"><img src="b.png"></div>`,
+    `<div><img src="b.png"><img src="a.png"></div>`,
+    { localIsBase: true },
+  );
+  const imgs = res.doc.querySelectorAll("img");
+  assert.equal(
+    res.doc.body.innerHTML,
+    `<div><img src="b.png"><img src="a.png"></div>`,
+  );
+  assert.equal(res.provenance.get(imgs[0]).local, b.querySelectorAll("img")[1]);
+  assert.equal(res.provenance.get(imgs[1]).local, b.querySelectorAll("img")[0]);
+});
+
+test("I-M a dropped mark's text is not claimed by the text that replaced it", () => {
+  const { res, l } = mergeBodies(
+    `<div><a>A</a><b>B</b><c>C</c></div>`,
+    `<div><a>A</a><b>B</b><c>C</c></div>`,
+    `<div><b>B</b></div>`,
+    { localIsBase: true },
+  );
+  assert.equal(res.doc.body.innerHTML, `<div><b>B</b></div>`);
+  const t = res.doc.querySelector("b").firstChild;
+  assert.deepEqual(res.provenance.get(t).local, [
+    l.querySelector("b").firstChild,
+  ]);
+});
+
+test("identity `first` outranks the map, so an authored id pairs a moved element", async () => {
+  const { JSDOM } = await import("jsdom");
+  const { mergeDocument } = await import("../../src/index.js");
+  const page = (b) =>
+    `<!DOCTYPE html><html><head></head><body>${b}</body></html>`;
+  const card = (t, body) =>
+    `<div data-id="c2"><h3>${t}</h3><p>${body}</p></div>`;
+  const authored = (el) =>
+    el.getAttribute("data-id") || el.getAttribute("id") || null;
+  const live = new JSDOM(
+    page(
+      `<div id="A">${card("two (local)", "alpha beta gamma delta")}</div><div id="B"></div>`,
+    ),
+  ).window.document;
+  const report = await mergeDocument({
+    live,
+    base: page(
+      `<div id="A">${card("two", "alpha beta gamma delta")}</div><div id="B"></div>`,
+    ),
+    remote: page(
+      `<div id="A"></div><div id="B">${card("two", "completely rewritten by the agent now")}</div>`,
+    ),
+    identity: {
+      // A synthetic map names the card in base, as a tab's last frame would.
+      base: { map: { "1.0.0": "syn:1" }, first: authored, then: authored },
+      local: authored,
+      remote: authored,
+    },
+    scripts: { execute: false },
+  });
+  assert.equal(
+    live.body.innerHTML,
+    `<div id="A"></div><div id="B">${card("two (local)", "completely rewritten by the agent now")}</div>`,
+  );
+  assert.equal(report.conflicts.length, 0);
+});
+
+test("H6 a literal U+FFFC in text is text, not an atom", () => {
+  const O = "￼";
+  const a = mergeBodies(
+    `<p>see ${O} here now</p>`,
+    `<p>see ${O} here now</p>`,
+    `<p>see ${O} here later</p>`,
+  );
+  assert.equal(a.html, `<p>see ${O} here later</p>`);
+  assert.equal(a.res.conflicts.length, 0);
+  const b = mergeBodies(
+    `<p>see ${O} here now</p>`,
+    `<p>please see ${O} here now</p>`,
+    `<p>see ${O} here later</p>`,
+  );
+  assert.equal(b.html, `<p>please see ${O} here later</p>`);
+  assert.equal(b.res.conflicts.length, 0);
+  const c = mergeBodies(
+    `<p>a ${O} b<br>c</p>`,
+    `<p>a ${O} b<br>c!</p>`,
+    `<p>a ${O} B<br>c</p>`,
+  );
+  assert.equal(c.html, `<p>a ${O} B<br>c!</p>`);
+  assert.equal(c.res.conflicts.length, 0);
+});
+
+test("H17 a run that merges to nothing still records its conflict", () => {
+  const { html, res } = mergeBodies(
+    `<div>hello world<p>X</p></div>`,
+    `<div><p>new</p>hello big world<p>X</p></div>`,
+    `<div><p>X</p></div>`,
+  );
+  assert.equal(html, `<div><p>new</p><p>X</p></div>`);
+  const text = res.conflicts.filter((c) => c.kind === "text");
+  assert.equal(text.length, 1);
+  assert.equal(text[0].local, "hello big world");
+  assert.equal(text[0].remote, "");
+  assert.equal(text[0].node, null);
+  assert.ok(
+    res.decisions.some((d) => d.kind === "text" && d.source === "both"),
+  );
+  assert.equal(res.localDiverged, true);
+  const local = mergeBodies(
+    `<div>hello world<p>X</p></div>`,
+    `<div><p>new</p>hello big world<p>X</p></div>`,
+    `<div><p>X</p></div>`,
+    { conflicts: "local" },
+  );
+  assert.equal(local.html, `<div><p>new</p>hello big world<p>X</p></div>`);
+});

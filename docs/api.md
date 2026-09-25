@@ -162,14 +162,18 @@ Per side, an `IdentitySpec`:
 
 ```ts
 type IdOf = (el: Element) => string | null | undefined;
-type IdentitySpec = IdOf | { map: Record<string, string>; then?: IdOf };
+type IdentitySpec =
+  | IdOf
+  | { map: Record<string, string>; first?: IdOf; then?: IdOf };
 ```
 
 A function returns the element's identity or nothing. A map object is a
 path-keyed id map (`"" ` for the root, `"0.2.1"` for root → child 0 →
 child 2 → child 1, counting element children only) applied after the side
 is parsed; `then` (default: the default identity) answers for elements the
-map does not name.
+map does not name. `first`, when given, is asked before the map, so an
+identity the page authored (a `data-id`) can outrank a synthetic one the map
+assigns.
 
 The default identity is `data-id`, then `id`. Identities are used only when
 they are unique on their side: an id on two elements of one side identifies
@@ -209,7 +213,7 @@ purpose.
 
 Resolution when both sides changed the same thing.
 
-- Text (character hunks that overlap): `"remote"` keeps the remote hunk,
+- Text (word hunks that overlap, or a text insertion touching the other side's edit): `"remote"` keeps the remote hunk,
   `"local"` the local one, `"both"` concatenates local then remote.
 - Attributes: `"remote"` or `"local"`; `"both"` behaves as `"remote"`. For
   `class` the conflict is per token and for `style` per declaration, so
@@ -399,6 +403,7 @@ type Conflict =
       local: string;
       remote: string;
       resolved: string;
+      range?: [number, number]; // inline content: the resolved region in the segment's merged text
     }
   | {
       kind: "attr";
@@ -426,14 +431,24 @@ type StructureDetail =
 For `class` an attribute conflict reports the whole attribute values with
 the merged token set as `resolved`; likewise `style` with declarations.
 
+A text conflict inside a block's inline content (see [Text](#text)) carries
+the live block element as `node`, the three versions of the region as HTML
+(formatting elements and `<br>` included), and `range`: the start and end
+offsets of the resolved region in the segment's merged text, where a `<br>`,
+`<wbr>` or `<img>` counts as one character. A conflict in a text run merged
+whole (a code-like element, a comment) has no `range`, and its `node` is the
+live text node or `null`.
+
 ### `localDiverged`
 
 True when the merged document differs from the remote document outside
-ignored regions and ignored attributes: any decision with `source` `local`
-or `both`, or any recorded conflict under `conflicts: "local"` or
-`"both"`. The merged state then exists only in this DOM and must be
-relayed or saved to reach anyone else. False for a clean tab, whatever the
-remote changed.
+ignored regions and ignored attributes: any decision on an element or
+attribute with `source` `local` or `both`, any recorded conflict under
+`conflicts: "local"` or `"both"`, or a block whose merged inline content
+(text, formatting and atoms) is not what remote holds. The merged state
+then exists only in this DOM and must be relayed or saved to reach anyone
+else. False for a clean tab, whatever the remote changed, and false for a
+local edit that remote already carries.
 
 ### `identities`
 
@@ -536,18 +551,39 @@ other side moved out is not re-emitted at its base position.
 
 ### Text
 
-Adjacent text nodes are one run. A run paired on both sides merges its
-string with `merge3Text`: character-level Myers diff of each side against
-base, hunks applied where they do not overlap, overlaps resolved by policy.
-Strings over 20,000 characters or edits over 4,000 fall back to line
-granularity, then whole-value. Two insertions at the same offset land local
-first and record `insert-collision`.
+Inside a block, the text nodes, the formatting elements (`a`, `b`, `i`,
+`em`, `strong`, `span`, `code`, `mark` and the other phrasing tags) and the
+`<br>`, `<wbr>` and `<img>` between two block-level children form one
+inline segment. A segment merges as one character sequence: an atom
+(`<br>`, `<wbr>`, `<img>`) is one character, a formatting element is a
+range over the sequence, and the output is rebuilt from the merged
+sequence, so a `<b>` remote wrapped around a word local was typing in
+lands around the merged word.
+
+Text merges at word granularity: a word-level Myers diff of each side
+against base, hunks applied where they do not overlap. Two edits to the
+same word, or an insertion touching the other side's edit, conflict and
+resolve by policy; two replacements that only touch both land; identical
+edits land once; two insertions at the same point both land, local first.
+Formatting merges per character as a set, with the rule class tokens use,
+and never conflicts with formatting. A text edit strictly inside a range
+the other side formatted takes that formatting; one that crosses the
+range's edge conflicts. Atoms pair by position, or by the alignment when a
+side swapped or moved one; deleting or replacing an atom the other side
+changed conflicts. A segment over 20,000 word tokens on any side merges by
+line.
+
+A text run outside a segment (its block had no inline content in base, or
+a formatting element in it moved across blocks) merges with `merge3Text`
+under the same word rules. A run with no base counterpart on both sides
+(text both sides inserted at the same anchor) merges with an empty base,
+lands local first and records `insert-collision`.
 
 Whole-value merge (side that differs from base wins; both differing
 resolves by policy and records a conflict) applies to executable script
 text, `textarea` text, and comments. Every other text run, `<style>` text
-included, merges character-wise; code-like elements only refuse to _pair_
-by text.
+included, merges by the word rules; code-like elements only refuse to
+_pair_ by text.
 
 ### Special elements
 
@@ -628,6 +664,13 @@ Before apply the active element, its selection (input/textarea) or range
 - a caret in a text run is placed in the surviving member at the offset
   mapped through that run's `mapLocalOffset`, so remote edits earlier in
   the same text shift the caret rather than displace it;
+- a caret in a block's inline content follows its characters: the merge
+  records, per local text node, which of its offsets landed in which
+  output text node, and the caret goes to the live node that now holds the
+  text on either side of it, at the mapped offset. A word remote wrapped in
+  a `<b>` keeps the caret inside the word, and typing that happened after
+  the snapshot is re-merged into the re-wrapped node rather than lost; a
+  caret in a word remote deleted lands where the word was;
 - input/textarea selection is restored only when the browser lost it;
 - scroll offsets are restored.
 
@@ -658,15 +701,17 @@ merge3Text(base: string, local: string, remote: string, policy?: "remote" | "loc
   text: string;
   conflicts: Array<{ bs: number; be: number; local: string; remote: string; resolved: string }>; // base offsets
   mapLocalOffset: (localOffset: number) => number; // caret offset in local -> merged
-  granularity: "char" | "line" | "whole";
+  granularity: "word" | "line" | "whole";
 };
 diff(base: string, side: string, maxEdits?: number): Array<{ bs: number; be: number; text: string }>;
 ```
 
-`diff` never splits a surrogate pair. Hunks whose gap is 3 characters or
-less are coalesced before merging, so a retyped word is one hunk.
+`diff` never splits a surrogate pair, and hunks always start and end on
+word, whitespace or punctuation boundaries, so a retyped word is one hunk.
 `mapLocalOffset` maps an offset inside a local hunk that lost a conflict to
-just after the remote text that replaced it.
+just after the remote text that replaced it. The inline merge that
+`mergeDocument` runs on a block's content uses the same diff and the same
+hunk rules over the flattened sequence; it is not exported.
 
 ## JSON merge
 
@@ -733,9 +778,29 @@ ten after five warm-ups:
 `test/merge-document.js` fails the clean case above 80 ms. The parse of the
 remote string is included; the parse of the base string is cached.
 
-Cost bounds: text merge falls back beyond 20,000 characters or 4,000
-edits; the cross-parent move pass is bounded at 2,000 similarity
+Cost bounds: text merge, per text run or inline segment, falls back to
+line granularity beyond 20,000 tokens or 4,000 edits; the cross-parent move pass is bounded at 2,000 similarity
 evaluations per side; the ignore predicate runs at most once per element
 per call. Setting `globalThis.__hyperMorphProfile = {}` before a call
 accumulates per-phase timings (`meta`, `align`, `alignTotal`, `build`,
 `apply`) into that object.
+
+## Compatibility: `morph()`
+
+Deprecated. `morph(oldNode, newContent, config)` keeps 0.5.x callers working and maps the old options onto the new API:
+
+| 0.5.x option                           | 1.0 equivalent                                                              |
+| -------------------------------------- | --------------------------------------------------------------------------- |
+| `policy: "sync" \| "history" \| "raw"` | `ignore` (the old sync and history ignore selectors; `raw` ignores nothing) |
+| `callbacks`                            | `hooks`                                                                     |
+| `ignoreActiveValue: true`              | `protectFocusedValue: true`                                                 |
+| `formStateSync`                        | `formState`                                                                 |
+| `scripts.handle`                       | `scripts.execute`                                                           |
+| `scripts.merge`, `scripts.mergeTags`   | same names under `scripts`                                                  |
+| `scripts.mergeBase`                    | `base`                                                                      |
+| `head.block`                           | `head.awaitLoads`                                                           |
+| `head.shouldPreserve`                  | `head.preserve`                                                             |
+| `key`                                  | `identity` on all three sides                                               |
+| `morphStyle: "innerHTML"`              | `children: true`                                                            |
+
+A `Document` or `<html>` target goes through `mergeDocument`; any other element goes through `morphElement`. New code should call those directly.
