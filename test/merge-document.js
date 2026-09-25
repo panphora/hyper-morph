@@ -230,6 +230,26 @@ describe("mergeDocument / morphDocument / morphElement", function () {
       .textContent.should.equal("Hello there world, typed");
   });
 
+  it("head.preserve keeps a live head child the remote dropped, and still updates one it kept", async function () {
+    const live = parseHTML(
+      page(
+        "<p>a</p>",
+        `<title>t</title><meta name="keep" content="1"><meta name="drop" content="1">`,
+      ),
+    );
+    const keep = live.querySelector('meta[name="keep"]');
+    await HyperMorph.morphDocument(
+      live,
+      page("<p>a</p>", `<title>t</title><meta name="keep" content="2">`),
+      { head: { preserve: (el) => el.tagName === "META" } },
+    );
+    keep.getAttribute("content").should.equal("2");
+    keep.should.equal(live.querySelector('meta[name="keep"]'));
+    should.exist(live.querySelector('meta[name="drop"]'));
+    await HyperMorph.morphDocument(live, page("<p>a</p>", `<title>t</title>`));
+    should.not.exist(live.querySelector("meta"));
+  });
+
   it("perf: 3000-element page, one remote edit, under budget", async function () {
     this.timeout(20000);
     let items = "";

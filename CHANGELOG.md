@@ -23,6 +23,10 @@ the review, the scenarios, and the specification.
   `beforeApply`.
 - `createIdentityStore`, `importMap`, `tieredIdentity` for synthetic
   identities; `createParseCache`.
+- `head.preserve(el)`: a live head child the predicate approves is never
+  removed, only updated in place.
+- Type declarations in `types/index.d.ts`, and a full contract in
+  `docs/api.md`.
 - Node test suite (jsdom) under `test/node`; `npm run perf` profiles a
   3000-element page in Chromium.
 

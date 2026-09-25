@@ -1,10 +1,10 @@
 /**
  * hyper-morph-json-merge.js — three-way JSON merge for mergeable script tags.
  *
- * Pure functions, no DOM access, no dependencies. hyper-morph.js uses
- * mergeScriptText to merge the text of script tags opted into merging (see
- * scripts.mergeBase / scripts.mergeTags); both functions are also exported
- * standalone (HyperMorph.mergeJson / HyperMorph.mergeScriptText).
+ * Pure functions, no DOM access, no dependencies. merge.js uses
+ * mergeScriptText to merge the text of JSON script tags a recognizer claims
+ * (see scripts.merge / scripts.mergeTags in docs/api.md); both functions
+ * are also exported standalone from the package root and hyper-morph/json-merge.
  *
  * Semantics: three-way merge of base → local and base → remote. Different
  * keys both survive; genuine same-key conflicts resolve remote-wins. Arrays

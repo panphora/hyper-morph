@@ -22,13 +22,18 @@
     "CHANGELOG.md",
     "THIRD-PARTY-NOTICES.md",
     "src",
+    "types",
     "dist/*.js"
   ],
   "main": "src/index.js",
   "module": "src/index.js",
+  "types": "types/index.d.ts",
   "type": "module",
   "exports": {
-    ".": "./src/index.js",
+    ".": {
+      "types": "./types/index.d.ts",
+      "default": "./src/index.js"
+    },
     "./json-merge": "./src/hyper-morph-json-merge.js",
     "./json-parse": "./src/hyper-morph-json-parse.js",
     "./splice": "./src/legacy-splice.js",

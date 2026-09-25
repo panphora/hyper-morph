@@ -989,40 +989,66 @@ Pure modules run under Node with jsdom (`npm run test:node`); DOM behavior
 runs in Chromium (`npm run test:chrome`). Every whole-document fixture
 includes a doctype.
 
-Implemented so far: `text-merge` (T-T1 to T-T8, mapper cases), `parse`
-(T-P1 to T-P5), `ignore` (T-I1), `identity` (store, maps, index, T-A2).
+Status after implementation. Ids in **bold** are present as labeled tests
+(grep the id under `test/`); the others are covered by the inherited
+behavioral suites named in the right-hand column, which run through the
+compat shim (`test/README.md`), or are listed as gaps.
 
-Alignment: T-A1 identity across parents; T-A3 identical siblings keep
-order; T-A4 retyped heading pairs; T-A5 tag and class alone never pair;
-T-A6 move detection; T-A7 move bound; T-A8 split text runs pair with one
-parsed node; T-A9 code-like elements; T-A10 identical subtrees are skipped.
+Pure modules (Node): `text-merge` **T-T1** to **T-T6**, **T-T8**, mapper
+cases (T-T7, the line-granularity fallback, is exercised by T-T8 but not
+labeled); `parse` **T-P1** to **T-P5**; `ignore` **T-I1**; `identity`
+(store, maps, index, **T-A2**).
 
-Merge: S1 to S7 and S10; T-M1 both insert the same element (one copy);
-T-M2 both reorder (remote, conflict); T-M3 class tokens; T-M4 style
-declarations; T-M5 remote deletes a container local moved content into;
-T-M6 ignored regions; T-M7 JSON and executable scripts; T-M8 head; T-M9
-provenance covers every node; T-M10 `base = null` equals two-way; T-M11
-insertion after a deleted anchor survives [I1]; T-M12 mutual moves
-terminate with a conflict [I2]; T-M13 echoed insertion pairs by identity
-and keeps later local typing [I4]; T-M14 `remoteWins` region takes remote;
-T-M15 `ignoreAttribute` names never appear in decisions; T-M16
-`localDiverged` false for a clean tab and true for each local decision kind.
+Alignment (Node): **T-A1** identity across parents; **T-A3** identical
+siblings keep order; **T-A4** retyped heading pairs; **T-A5** tag and class
+alone never pair; **T-A6** move detection; **T-A8** split text runs pair
+with one parsed node; **T-A9** code-like elements; **T-A10** identical
+subtrees are skipped. Gap: T-A7 (the 2000-evaluation move bound) has no
+test; the bound is asserted by reading `MOVE_BUDGET` in `align.js`.
 
-Apply: T-P1 node identity kept; T-P2 leftovers claimed elsewhere survive
-until moved [I8]; T-P3 focus and selection (ports of the two focus suites
-plus S8 caret mapping through a run); T-P4 protected focused value; T-P5
-new inline script runs once; T-P6 `insertBefore` fallback; T-P7
-namespaced attributes; T-P8 iframe document; T-P9 `applied` equals the
-MutationObserver record; T-P10 typing between snapshot and apply survives
-[I11]; T-P11 head two-phase order; T-P12 property mode reads the original
-node.
+Merge (Node): **S1**, **S1b**, **S2** to **S7**, **S10**; **T-M1** both
+insert the same element (one copy); **T-M2** both reorder (remote,
+conflict); **T-M3** class tokens; **T-M4** style declarations; **T-M5**
+remote deletes a container local moved content into; **T-M6** ignored
+regions; **T-M7** JSON and executable scripts; **T-M8** head; **T-M9**
+provenance covers every node; **T-M10** `base = null` equals two-way;
+**T-M11** insertion after a deleted anchor survives [I1]; **T-M12** mutual
+moves terminate with a conflict [I2]; **T-M13** echoed insertion pairs by
+identity and keeps later local typing [I4]; **T-M14** `remoteWins` region
+takes remote; **T-M15** `ignoreAttribute` names never appear in decisions;
+**T-M16** `localDiverged` false for a clean tab and true for each local
+decision kind.
 
-Whole document: T-D1 doctype cases; T-D2 the test page; T-D3 unknown
-option throws.
+Apply (Chromium). The apply ids below share the `T-P` prefix with the
+parse ids above; they are distinguished by the file they live in.
+T-P1 node identity kept: `core.js`, `hyper-match.js`, `key-matching.js`;
+T-P2 leftovers claimed elsewhere survive until moved [I8]:
+`retain-hidden-state.js` (moves between containers and levels); T-P3 focus
+and selection: `preserve-focus.js`, `restore-focus.js`, plus **S8** caret
+mapping through a run in `merge-document.js`; T-P4 protected focused
+value: `core.js` (ignoreActiveValue cases) and `merge-document.js`; T-P5
+new inline script runs once: `scripts-handle.js` and `merge-document.js`;
+T-P6 `insertBefore` fallback: `restore-focus.js` ("moveBefore disabled"
+blocks); T-P7 namespaced attributes: `core.js` (svg cases); **T-P10**
+typing between snapshot and apply survives [I11]; T-P11 head order:
+`head.js`; T-P12 property mode reads the original node:
+`form-state-sync.js`. Gaps: T-P8 (a merge whose live document is an
+iframe's document) has no test, only iframes as elements that survive a
+merge in `hyper-match.js`; T-P9 (`applied` equals the MutationObserver
+record) has no test, `applied` is asserted per case instead.
 
-Performance, in CI: 3000-element page, clean tab, one remote edit, at or
-under 40 ms (fail at 80); dirty tab with one local edit, at or under 60 ms;
-alignment of two identical 3000-element documents at or under 10 ms.
+Whole document (Chromium, `merge-document.js`): **T-D1**, **T-D1b**
+doctype cases; **T-D3** unknown option throws; **T-D5** always a Promise;
+`head.preserve`; `remoteWins`; `ignoreAttribute`; `identities`;
+`protectFocusedValue`; **S1** and **S3** through the public API. Gap: T-D2
+(the test page itself as a fixture) was not written; `document-level.js`
+covers whole-document morphs of synthetic pages.
+
+Performance: `merge-document.js` runs the clean-tab case (3000 elements,
+one remote edit) on every Chromium run and fails above 80 ms; the target
+of 40 ms is met at ~10 ms. The dirty-tab case (target 60 ms, measured
+~12 ms) and the identical-documents alignment case are measured by
+`npm run perf`, not gated in CI.
 
 ## 5.3 Delivery phases
 

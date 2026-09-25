@@ -196,6 +196,7 @@ function run({
     ignoreAttribute: o.ignoreAttribute,
     formState: o.formState,
     protectFocusedValue: o.protectFocusedValue,
+    preserve: o.head.preserve,
     hooks: o.hooks,
     childrenOnly,
   });

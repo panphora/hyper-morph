@@ -1,4 +1,10 @@
-// Real-world collaboration scenarios run against the CURRENT library.
+// Real-world collaboration scenarios run against the 0.5.x library, the
+// measurements recorded in docs/rewrite-plan.md Part 3. `HyperMorph.morph`
+// here is the OLD morph: to reproduce, check out commit d0b3fad (the last
+// one with src/hyper-morph.js) and run
+//   npx web-test-runner --playwright --browsers chromium --files docs/evidence/scenarios-current-library.js
+// On the current tree the test page loads the new library behind a compat
+// shim, so the numbers would describe 1.x, not 0.5.x.
 // Pipeline mirrors hyperclay live-sync: live doc, base = last synced HTML,
 // remote = incoming HTML. "splice" = findChangedRoots + spliceProtected + morph.
 function syncSplice(live, baseHtml, remoteHtml) {

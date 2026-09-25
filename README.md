@@ -98,7 +98,10 @@ await mergeDocument({
   conflicts: "remote", // "remote" | "local" | "both" (text only)
   protectFocusedValue: true, // keep the focused input's value
   formState: "attribute", // or "property" for script-built content
-  head: { awaitLoads: false, preserve: (el) => false },
+  head: {
+    awaitLoads: false, // resolve after inserted stylesheets load
+    preserve: (el) => false, // a live head child this approves is never removed
+  },
   scripts: {
     execute: true, // run scripts new to the page after apply
     merge: true, // three-way merge of <script type=application/json merge=…>
@@ -206,8 +209,19 @@ npm run perf        # CPU profile of a 3000-element page, clean and dirty tab
 npm run build       # dist/hyper-morph.min.js
 ```
 
-The design, the scenarios it was built against, and the ClayJS integration
-notes are in [docs/rewrite-plan.md](docs/rewrite-plan.md).
+## Documentation
+
+- [docs/api.md](docs/api.md): the contract. Every option, every report
+  field, the merge and apply rules, errors, and the performance budget.
+- [types/index.d.ts](types/index.d.ts): type declarations, shipped with
+  the package.
+- [docs/rewrite-plan.md](docs/rewrite-plan.md): the design record. The
+  review of 0.5.x, how ClayJS uses the library, the ten scenarios the
+  merge was built against, the specification, the ClayJS integration
+  plan, and where the implementation refined the spec.
+- [test/README.md](test/README.md): the test suites, the compat shim the
+  inherited suites run through, and the perf harness.
+- [CHANGELOG.md](CHANGELOG.md), [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

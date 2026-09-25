@@ -94,7 +94,7 @@ export function apply(liveRoot, mergedRoot, result, o) {
   // Final pass: remove what nothing claimed.
   for (const { node, parent } of leftovers) {
     if (claimed.has(node) || !node.parentNode) continue;
-    if (node.nodeType === 1 && o.ignored(node)) continue;
+    if (node.nodeType === 1 && (o.ignored(node) || preserved(node))) continue;
     removeNode(node, parent);
   }
 
@@ -237,13 +237,28 @@ export function apply(liveRoot, mergedRoot, result, o) {
     }
     for (const child of Array.from(liveParent.childNodes)) {
       if (claimed.has(child) || seenHere.has(child)) continue;
-      if (child.nodeType === 1 && o.ignored(child)) continue;
+      if (child.nodeType === 1 && (o.ignored(child) || preserved(child)))
+        continue;
       // A leftover with a merged twin elsewhere is moved out when that parent
       // is applied; anything else can go now, so hooks see settled state.
       if (liveTwins.has(child))
         leftovers.push({ node: child, parent: liveParent });
       else removeNode(child, liveParent);
     }
+  }
+
+  /**
+   * A head child the caller asked to keep (`head.preserve`) is never removed
+   * by the merge, only ever updated in place when the remote carries it.
+   */
+  function preserved(el) {
+    return (
+      o.preserve &&
+      el.parentNode &&
+      el.parentNode.nodeType === 1 &&
+      el.parentNode.tagName === "HEAD" &&
+      o.preserve(el) === true
+    );
   }
 
   function provenanceLocalValue(m) {

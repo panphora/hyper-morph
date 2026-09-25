@@ -1,5 +1,11 @@
 # DOM Morphing: The Matching Problem
 
+> **Historical.** This report describes the 0.5.x approach (an Idiomorph
+> fork with a scoring matcher) and the options considered at the time. It
+> is kept as the record of why content-based pairing was chosen. The
+> current design is `docs/rewrite-plan.md`; the current contract is
+> `docs/api.md`.
+
 A comprehensive report on element matching strategies for DOM morphing, specifically for Hyperclay's live-sync system.
 
 ---
