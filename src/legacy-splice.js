@@ -225,7 +225,7 @@ function findChangedRoots(localRoot, baseRoot, options = {}) {
     let out = "";
     for (const node of kids) {
       if (node.nodeType === 3 && node.nodeValue.trim() !== "")
-        out += " " + node.nodeValue;
+        out += "\0" + node.nodeValue;
       else if (node.nodeType === 8) out += "" + node.nodeValue;
     }
     return out;

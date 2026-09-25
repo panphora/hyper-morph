@@ -1029,29 +1029,34 @@ alignment of two identical 3000-element documents at or under 10 ms.
 Phase 0 (done): CI workflow, jsdom, `text-merge`, `parse`, `ignore`,
 `identity`.
 
-Phase 1: `similarity`, `align`, `merge`, `head-merge` with the Node suite.
-Exit: S1 to S7 pass through `merge3`.
+Phase 1 (done): `similarity`, `align`, `merge`, `head-merge` with the Node
+suite. Exit: S1 to S10 pass through `merge3`.
 
-Phase 2: `scripts`, `apply`, `index`. Port the two-way suites. Delete the
-old core, keep `legacy-splice.js`. Exit: `test:node` and `test:chrome`
-green.
+Phase 2 (done): `scripts`, `apply`, `index`. The two-way suites run through
+`test/lib/compat.js`, a shim that maps the old `Idiomorph.morph` surface to
+the new API. Old core deleted, `legacy-splice.js` kept. Exit: `test:node`
+(56) and `test:chrome` (587) green.
 
-Phase 3: benchmark in CI, profile to target.
+Phase 3 (done): `perf/` profiler and a perf gate in `test/merge-document.js`;
+see 5.6 for the numbers.
 
 Phase 4: ClayJS cut-over per 5.1 on a ClayJS branch; then delete
 `legacy-splice.js`; release 1.0.
 
 ## 5.4 Size
 
-| Module                         | Lines                                                 |
-| ------------------------------ | ----------------------------------------------------- |
-| index, parse, ignore, identity | ~400                                                  |
-| similarity, align              | ~450                                                  |
-| text-merge                     | ~300                                                  |
-| merge, head-merge              | ~750                                                  |
-| scripts                        | ~120                                                  |
-| apply                          | ~500                                                  |
-| total                          | ~2,500 (current core plus splice and matcher: ~4,900) |
+Estimated before implementation, then measured after (formatted lines,
+comments included).
+
+| Module                         | Estimate | Actual                                           |
+| ------------------------------ | -------- | ------------------------------------------------ |
+| index, parse, ignore, identity | ~400     | 703                                              |
+| similarity, align              | ~450     | 602                                              |
+| text-merge                     | ~300     | 435                                              |
+| merge, head-merge              | ~750     | 1,125                                            |
+| scripts                        | ~120     | 172                                              |
+| apply                          | ~500     | 704                                              |
+| total                          | ~2,500   | 3,741 (old core plus splice and matcher: ~4,900) |
 
 ## 5.5 What was not verified
 
@@ -1062,3 +1067,84 @@ Phase 4: ClayJS cut-over per 5.1 on a ClayJS branch; then delete
 - The prototype in `docs/evidence/` evidences the merge rules for S1 to
   S7 only; it has one conflict policy, no offset mapper, no class token
   merge, and unbounded searches [I22].
+
+## 5.6 Implementation notes: where the code deviates from 4.x
+
+Everything in Part 4 was implemented. These are the places where the
+implementation refined the spec, each forced by a test or a profile.
+
+**Alignment (4.6).**
+
+- A pass 0 runs before hashing: children at the same index whose subtrees
+  are equal by the native `isEqualNode` pair in lockstep. On an ordinary
+  edit this pairs nearly everything, so hashing only touches the remainder.
+- Identical pairs are not descended eagerly. `pairIdenticalChildren(b)`
+  pairs one level on demand when the merge needs to descend (hooks present,
+  or a children-only morph). A merge that skips the subtree never pays.
+- An unambiguous rule runs before the hash passes: a lone unpaired element
+  of a tag on one side pairs with the lone unpaired element of that tag on
+  the other side when both sit at the same index. This is the only place
+  tag alone decides, and only because there is nothing to disambiguate.
+- Text runs pair by the element that precedes them, not by content, so
+  whitespace runs do not churn after a reorder.
+- Similarity is an overlap coefficient (shared tokens over the smaller
+  set), not Jaccard, so a container that gained content still pairs with
+  its earlier self.
+- The identity index uses a selector (`[id],[data-id],script,head>*`) when
+  the default identity is in use, and reads template content explicitly,
+  since `querySelectorAll` never enters it.
+- Structural singletons: under `<html>`, `<head>` pairs with `<head>` and
+  `<body>` with `<body>` whatever their content.
+
+**Merge (4.8).**
+
+- An `unchanged` flag: when no per-node morph hook is set and a base
+  element's subtree is identical on both sides, the output carries the
+  element alone, flagged, with no children. Apply leaves the live subtree
+  untouched except for form-control properties and identities. With
+  `beforeNodeMorphed` or `afterNodeMorphed` set the fast path is off, since
+  the hook contract fires per matched node.
+- Insertion clones merge their paired descendants (`cloneUnit`): a new
+  wrapper around existing content, or a tag change, keeps the live nodes
+  inside it.
+- Mutual moves (A into B's place and B into A's) are detected as a cycle
+  and emitted once, with a `both-moved` conflict when the sides disagree.
+- Echoed insertions (both sides inserted the same thing) take the local
+  version, with provenance covering both.
+- Checkbox and radio `value` is data, merged as an attribute, not form
+  state.
+
+**Apply (4.10).**
+
+- A pre-pass resolves every merged node's live twin once, so apply never
+  searches. Text runs reuse the first live member of the run; when typing
+  landed after the snapshot was taken, the run is re-merged against the
+  current live text so the keystrokes survive (T-P10).
+- Insertions are deep inert clones followed by `graft`: live twins found
+  inside the merged subtree replace their cloned stand-ins once the copy is
+  connected, so `moveBefore` keeps their state.
+- Leftovers with no twin elsewhere are removed immediately; only nodes
+  another parent will claim wait for the final pass. Hooks therefore see
+  settled state.
+- In `formState: "property"` mode a built remote node's property overrides
+  the merged attribute only when the node also carries the attribute; an
+  absent attribute still clears the value.
+- Selection is restored only when the browser lost it (`moveBefore` keeps
+  it in Chromium).
+- Scripts execute once after apply, chosen by signature against the set
+  collected before the merge; head scripts are included.
+
+**Performance (S10).** A 3000-element page in Chromium, `perf/profile.mjs`,
+median of five after warm-up:
+
+| Case                              | Old library | Now     |
+| --------------------------------- | ----------- | ------- |
+| clean tab, one remote edit        | ~142 ms     | 11.1 ms |
+| dirty tab, one local + one remote | n/a         | 13.0 ms |
+
+`test/merge-document.js` gates the clean case at 80 ms. Timers are
+compiled in but inert unless `globalThis.__hyperMorphProfile` is an object.
+
+**Not done here.** Phase 4 (the ClayJS cut-over in 5.1) is ClayJS work on a
+ClayJS branch; `legacy-splice.js` stays exported as `hyper-morph/splice`
+until then.
