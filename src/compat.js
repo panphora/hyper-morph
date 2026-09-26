@@ -9,6 +9,8 @@ const SYNC_IGNORE =
   '[editor-ui],[clay~="editor-ui"],[save-ignore],[snapshot-remove],[no-snapshot],[no-save],[save-remove],[freeze],[save-freeze],[clay~="no-save"],[clay~="no-snapshot"],[clay~="freeze"]';
 const HISTORY_IGNORE =
   '[editor-ui],[clay~="editor-ui"],[no-undo],[clay~="no-undo"]';
+const HISTORY_ROOT_MORPHED =
+  '[no-undo]:not([editor-ui]):not([clay~="editor-ui"]),[clay~="no-undo"]:not([editor-ui]):not([clay~="editor-ui"])';
 
 function isExtensionNode(el) {
   if (el.tagName !== "LINK" && el.tagName !== "SCRIPT") return false;
@@ -33,17 +35,23 @@ function baseFor(oldEl, mergeBase) {
 export function morph(oldNode, newContent, config = {}) {
   const cfg = config || {};
   const policy = cfg.policy || "sync";
+  // As 0.5.4: the history policy morphs a no-undo root (only its no-undo
+  // descendants are exempt), unless that root is editor UI.
   const ignore =
     policy === "raw"
       ? undefined
-      : (el) =>
-          el.matches(policy === "history" ? HISTORY_IGNORE : SYNC_IGNORE) ||
-          isExtensionNode(el);
+      : (el, isRoot) =>
+          isExtensionNode(el) ||
+          (policy === "history"
+            ? !(isRoot && el.matches(HISTORY_ROOT_MORPHED)) &&
+              el.matches(HISTORY_IGNORE)
+            : el.matches(SYNC_IGNORE));
   const hooks = cfg.callbacks || {};
   const options = {
     ignore,
     hooks,
-    protectFocusedValue: cfg.ignoreActiveValue === true,
+    protectFocusedValue: cfg.ignoreActiveValue === true ? "subtree" : false,
+    restoreFocus: cfg.restoreFocus !== false,
     formState: cfg.formStateSync || "attribute",
     scripts: {
       execute: cfg.scripts?.handle !== false,

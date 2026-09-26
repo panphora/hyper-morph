@@ -9,10 +9,14 @@
  * holds, so the same logical element carries the same id everywhere after
  * one round trip.
  *
- * The walkers abort a subtree when child counts diverge between the two
- * trees they pair, because a path is only meaningful while both sides agree
- * on the shape.
+ * A path is only meaningful while both sides agree on the shape, so the map
+ * carries the sender's element child counts in preorder under the reserved
+ * key "~". Where the receiver's count differs (the parser reshaped the
+ * markup, or the frame and the map are from different snapshots) that
+ * element keeps its own id and nothing below it is imported, on either side.
+ * A map without "~" (an older sender) imports by path alone.
  */
+export const SHAPE_KEY = "~";
 
 /**
  * @typedef {object} IdentityStore
@@ -43,14 +47,17 @@ export function createIdentityStore(clientId) {
   };
   const exportMap = (cloneRoot, toLive) => {
     const map = {};
+    const counts = [];
     const visit = (clone, path) => {
       const live = toLive(clone);
       if (live) map[path] = ensure(live);
       const kids = clone.children;
+      counts.push(kids.length);
       for (let i = 0; i < kids.length; i++)
         visit(kids[i], path === "" ? String(i) : `${path}.${i}`);
     };
     visit(cloneRoot, "");
+    map[SHAPE_KEY] = counts.join(",");
     return map;
   };
   return { idOf, ensure, adopt, exportMap };
@@ -66,10 +73,25 @@ export function importMap(root, map) {
   const out = new WeakMap();
   if (!root || !map || typeof map !== "object" || Array.isArray(map))
     return out;
+  const shape = map[SHAPE_KEY];
+  const counts =
+    typeof shape === "string" ? shape.split(",").map(Number) : null;
+  let at = 0;
+  // Advance past the sender's subtree of a node with n children.
+  const skipSender = (n) => {
+    for (let k = 0; k < n; k++) skipSender(counts[at++]);
+  };
   const visit = (el, path) => {
     const id = map[path];
     if (typeof id === "string" && id) out.set(el, id);
     const kids = el.children;
+    if (counts) {
+      const sent = counts[at++];
+      if (sent !== kids.length) {
+        skipSender(sent);
+        return;
+      }
+    }
     for (let i = 0; i < kids.length; i++)
       visit(kids[i], path === "" ? String(i) : `${path}.${i}`);
   };

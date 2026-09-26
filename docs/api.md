@@ -121,7 +121,8 @@ an object.
 | `remoteWins`          | `(el: Element) => boolean`                                                 | `() => false`          | all                                              |
 | `ignoreAttribute`     | `(el: Element, name: string) => boolean`                                   | `() => false`          | all                                              |
 | `conflicts`           | `"remote" \| "local" \| "both"`                                            | `"remote"`             | all                                              |
-| `protectFocusedValue` | `boolean`                                                                  | `true`                 | applying calls                                   |
+| `protectFocusedValue` | `boolean \| "subtree"`                                                     | `true`                 | applying calls                                   |
+| `restoreFocus`        | `boolean`                                                                  | `true`                 | applying calls                                   |
 | `formState`           | `"attribute" \| "property"`                                                | `"attribute"`          | applying calls                                   |
 | `head`                | `{ awaitLoads?: boolean; preserve?: (el: Element) => boolean }`            | `false`, `() => false` | applying calls                                   |
 | `scripts`             | `{ execute?: boolean; merge?: boolean; mergeTags?: MergeTagRecognizer[] }` | `true`, `true`, `[]`   | all (`execute` applying only)                    |
@@ -171,7 +172,11 @@ A function returns the element's identity or nothing. A map object is a
 path-keyed id map (`"" ` for the root, `"0.2.1"` for root → child 0 →
 child 2 → child 1, counting element children only) applied after the side
 is parsed; `then` (default: the default identity) answers for elements the
-map does not name. `first`, when given, is asked before the map, so an
+map does not name. A map may carry the sender's element child counts under
+the reserved key `"~"` (`exportMap` writes it); where the receiver's count
+differs the paths below that element name nothing, so that element keeps
+its own id and nothing below it is imported. `first`, when given, is asked
+before the map, so an
 identity the page authored (a `data-id`) can outrank a synthetic one the map
 assigns.
 
@@ -191,7 +196,9 @@ A region the merge leaves alone on every side: never touched in the live
 DOM, never read from the remote, never indexed for identity. The predicate
 is called at most once per element per call and is ancestor-aware: a
 descendant of an ignored element is ignored. The walk stops at the merge
-root, so a marker above the root does not exempt the root itself. Ignored
+root, so a marker above the root does not exempt the root itself. The
+predicate's second argument is `true` for a merge root, so a caller can
+treat a marker on the root itself differently from one below it. Ignored
 live elements are never moved; the cursor skips over them so insertions
 land around them.
 
@@ -221,16 +228,29 @@ Resolution when both sides changed the same thing.
 - Structure: policy does not apply; the rules in
   [Merge semantics](#merge-semantics) decide and a conflict is recorded.
 
-Every conflict is recorded in `report.conflicts` whatever the policy. With
-`"local"` or `"both"`, a recorded conflict also sets `localDiverged`.
+Every conflict is recorded in `report.conflicts` whatever the policy.
+`localDiverged` is set when the resolution left the output different from
+remote.
 
 ### `protectFocusedValue`
 
 When true, the focused `<input>` keeps its live `value` (property and
 attribute) and the focused `<textarea>` keeps both its text and its value,
-whatever the merge decided. `checked`, `selected` and `disabled` are not
+whatever the merge decided. `"subtree"` protects the value the same way and
+also leaves the focused element's children as they are (its attributes
+still sync), for an editor whose content the page manages itself; `<body>`
+is never treated as focused. `checked`, `selected` and `disabled` are not
 protected. A protected value is not reported as a conflict unless the
 merged value differs from the live value.
+
+### `restoreFocus`
+
+When true, the focused element, its scroll position and its selection or
+caret are captured before the apply and put back after it, mapped through
+the merge when the caret sat in text the merge changed. `false` skips both
+steps: focus lands wherever the apply's own operations leave it. In either
+mode a same-parent reorder never moves the element holding focus; its
+unplaced siblings move past it instead.
 
 ### `formState`
 
@@ -441,14 +461,16 @@ live text node or `null`.
 
 ### `localDiverged`
 
-True when the merged document differs from the remote document outside
-ignored regions and ignored attributes: any decision on an element or
-attribute with `source` `local` or `both`, any recorded conflict under
-`conflicts: "local"` or `"both"`, or a block whose merged inline content
-(text, formatting and atoms) is not what remote holds. The merged state
-then exists only in this DOM and must be relayed or saved to reach anyone
-else. False for a clean tab, whatever the remote changed, and false for a
-local edit that remote already carries.
+True exactly when the merged document differs from the remote document,
+compared directly after the merge: same elements, same attributes, same
+text, same comments, in the same order. Regions the merge ignores are left
+out of the comparison on both sides, as are ignored attributes. The merged
+state then exists only in this DOM and must be relayed or saved to reach
+anyone else. False for a clean tab, whatever the remote changed; false for
+a local edit that remote already carries (an echoed insert, both sides
+making the same change or reordering to the same order, a conflict remote
+won); true for any local change remote lacks, whether or not a decision
+records it (a comment edit, say).
 
 ### `identities`
 
@@ -793,18 +815,19 @@ accumulates per-phase timings (`meta`, `align`, `alignTotal`, `build`,
 
 Deprecated. `morph(oldNode, newContent, config)` keeps 0.5.x callers working and maps the old options onto the new API:
 
-| 0.5.x option                           | 1.0 equivalent                                                              |
-| -------------------------------------- | --------------------------------------------------------------------------- |
-| `policy: "sync" \| "history" \| "raw"` | `ignore` (the old sync and history ignore selectors; `raw` ignores nothing) |
-| `callbacks`                            | `hooks`                                                                     |
-| `ignoreActiveValue: true`              | `protectFocusedValue: true`                                                 |
-| `formStateSync`                        | `formState`                                                                 |
-| `scripts.handle`                       | `scripts.execute`                                                           |
-| `scripts.merge`, `scripts.mergeTags`   | same names under `scripts`                                                  |
-| `scripts.mergeBase`                    | `base`                                                                      |
-| `head.block`                           | `head.awaitLoads`                                                           |
-| `head.shouldPreserve`                  | `head.preserve`                                                             |
-| `key`                                  | `identity` on all three sides                                               |
-| `morphStyle: "innerHTML"`              | `children: true`                                                            |
+| 0.5.x option                           | 1.0 equivalent                                                                                                                                           |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `policy: "sync" \| "history" \| "raw"` | `ignore` (the old sync and history ignore selectors; `raw` ignores nothing; `history` morphs a `[no-undo]` root that is not `[editor-ui]`, as 0.5.x did) |
+| `callbacks`                            | `hooks`                                                                                                                                                  |
+| `ignoreActiveValue: true`              | `protectFocusedValue: "subtree"`                                                                                                                         |
+| `restoreFocus`                         | same name                                                                                                                                                |
+| `formStateSync`                        | `formState`                                                                                                                                              |
+| `scripts.handle`                       | `scripts.execute`                                                                                                                                        |
+| `scripts.merge`, `scripts.mergeTags`   | same names under `scripts`                                                                                                                               |
+| `scripts.mergeBase`                    | `base`                                                                                                                                                   |
+| `head.block`                           | `head.awaitLoads`                                                                                                                                        |
+| `head.shouldPreserve`                  | `head.preserve`                                                                                                                                          |
+| `key`                                  | `identity` on all three sides                                                                                                                            |
+| `morphStyle: "innerHTML"`              | `children: true`                                                                                                                                         |
 
 A `Document` or `<html>` target goes through `mergeDocument`; any other element goes through `morphElement`. New code should call those directly.

@@ -108,3 +108,53 @@ test("T-A2 duplicate ids on a side are dropped from the index; ignored subtrees 
   assert.equal(idx.get("b").id, "b");
   assert.equal(idx.has("c"), false);
 });
+
+test("H19a a parse that reshaped the tree imports no ids below the divergence", () => {
+  const live = parse(doc("")).documentElement;
+  const body = live.querySelector("body");
+  const p = body.ownerDocument.createElement("p");
+  p.id = "P";
+  const inner = body.ownerDocument.createElement("div");
+  inner.id = "INNER";
+  inner.textContent = "x";
+  p.appendChild(inner);
+  const after = body.ownerDocument.createElement("section");
+  after.id = "AFTER";
+  body.append(p, after);
+  const store = createIdentityStore("tabA");
+  const map = store.exportMap(live, (n) => n);
+  const received = parse("<!DOCTYPE html>" + live.outerHTML);
+  assert.equal(received.body.children.length, 4); // <p></p><div>x</div><p></p><section>
+  const imported = importMap(received.documentElement, map);
+  assert.equal(imported.get(received.documentElement), store.idOf(live));
+  assert.equal(imported.get(received.body), store.idOf(body));
+  for (const el of received.body.querySelectorAll("*"))
+    assert.equal(imported.get(el), undefined, el.outerHTML);
+  const same = parse(
+    "<!DOCTYPE html>" +
+      live.outerHTML.replace("<p", "<div").replace("</p>", "</div>"),
+  );
+  const ok = importMap(same.documentElement, map);
+  assert.equal(ok.get(same.querySelector("#INNER")), store.idOf(inner));
+  assert.equal(ok.get(same.querySelector("#AFTER")), store.idOf(after));
+});
+
+test("H11 makeIgnore tells the predicate which element is a merge root", () => {
+  const d = parse(doc("<div no-undo><p no-undo>x</p><p>y</p></div>"));
+  const root = d.querySelector("div");
+  const seen = [];
+  const ignored = makeIgnore(
+    (el, isRoot) => {
+      seen.push([el.tagName, isRoot]);
+      return el.hasAttribute("no-undo") && !isRoot;
+    },
+    [root],
+  );
+  assert.equal(ignored(root), false);
+  assert.equal(ignored(d.querySelector("p[no-undo]")), true);
+  assert.equal(ignored(d.querySelectorAll("p")[1]), false);
+  assert.deepEqual(
+    seen.filter(([t]) => t === "DIV"),
+    [["DIV", true]],
+  );
+});

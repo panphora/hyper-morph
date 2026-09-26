@@ -148,3 +148,84 @@ test("H7 an ignored element keeps its place when the text around it changes", as
     assert.equal(live.querySelector("[data-ignore]"), ui);
   }
 });
+
+const caretIn = (root, text, offset) => {
+  root.focus();
+  const sel = document.getSelection();
+  const r = document.createRange();
+  r.setStart(text, offset);
+  r.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(r);
+};
+const caret = () => {
+  const s = document.getSelection();
+  return [s.anchorNode, s.anchorOffset];
+};
+
+test("H9 the caret follows its text into a mark remote inserted around it", async () => {
+  for (const [remoteInner, mark] of [
+    [`<p><b>hello</b> world</p>`, "hello"],
+    [`<p><b>hello world</b></p>`, "hello world"],
+  ]) {
+    const ed = document.createElement("div");
+    ed.setAttribute("contenteditable", "true");
+    ed.innerHTML = "<p>hello world</p>";
+    document.body.appendChild(ed);
+    caretIn(ed, ed.querySelector("p").firstChild, 3);
+    await morphElement(ed, `<div contenteditable="true">${remoteInner}</div>`, {
+      base: `<div contenteditable="true"><p>hello world</p></div>`,
+    });
+    assert.equal(ed.innerHTML, remoteInner);
+    const [node, offset] = caret();
+    assert.equal(node, ed.querySelector("b").firstChild, remoteInner);
+    assert.equal(node.nodeValue, mark);
+    assert.equal(offset, 3, remoteInner);
+    ed.remove();
+  }
+});
+
+test("H12 restoreFocus: false leaves focus where the apply left it", async () => {
+  for (const [opts, expectRestored] of [
+    [{}, true],
+    [{ restoreFocus: false }, false],
+  ]) {
+    const host = document.createElement("div");
+    host.innerHTML = `<input id="f" value="1"><p>x</p>`;
+    document.body.appendChild(host);
+    host.querySelector("#f").focus();
+    await morphElement(host, `<textarea id="f">1</textarea><p>x</p>`, {
+      children: true,
+      ...opts,
+    });
+    assert.equal(host.innerHTML, `<textarea id="f">1</textarea><p>x</p>`);
+    assert.equal(
+      document.activeElement === host.querySelector("#f"),
+      expectRestored,
+      JSON.stringify(opts),
+    );
+    host.remove();
+  }
+});
+
+test("H12 protectFocusedValue subtree leaves the focused element's children alone", async () => {
+  for (const [opts, expectKept] of [
+    [{}, false],
+    [{ protectFocusedValue: "subtree" }, true],
+  ]) {
+    const host = document.createElement("div");
+    host.innerHTML = `<div id="ed" contenteditable="true"><p>mine</p></div><p id="o">x</p>`;
+    document.body.appendChild(host);
+    const ed = host.querySelector("#ed");
+    ed.focus();
+    await morphElement(
+      host,
+      `<div id="ed" contenteditable="true" class="k"><p>theirs</p></div><p id="o">y</p>`,
+      { children: true, ...opts },
+    );
+    assert.equal(ed.className, "k", "attributes still sync");
+    assert.equal(ed.innerHTML, expectKept ? `<p>mine</p>` : `<p>theirs</p>`);
+    assert.equal(host.querySelector("#o").textContent, "y");
+    host.remove();
+  }
+});

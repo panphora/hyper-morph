@@ -5,10 +5,12 @@
  * ancestor-aware and memoizes it, so it is evaluated at most once per element
  * per merge across all trees it is used on. The walk stops at a boundary
  * root: a marker above what the caller asked to merge does not exempt it.
+ * The predicate is told when the element it sees is a boundary root, so a
+ * caller can treat a marker on the root differently from one below it.
  */
 
 /**
- * @param {(el: Element) => boolean} [pred]
+ * @param {(el: Element, isRoot: boolean) => boolean} [pred]
  * @param {Iterable<Node>} [boundaries] - roots at which the ancestor walk stops (inclusive)
  * @returns {(node: Node | null | undefined) => boolean}
  */
@@ -30,7 +32,7 @@ export function makeIgnore(pred, boundaries = []) {
         break;
       }
       chain.push(el);
-      if (pred(el)) {
+      if (pred(el, stops.has(el))) {
         result = true;
         break;
       }

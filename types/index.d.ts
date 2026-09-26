@@ -8,7 +8,8 @@ export type IdOf = (el: Element) => string | null | undefined;
  * A function returning an element's identity, or a path-keyed id map
  * ("" for the root, "0.2.1" for root > child 0 > child 2 > child 1, element
  * children only) applied after the side is parsed, with `then` answering
- * for elements the map does not name.
+ * for elements the map does not name. The reserved key "~" carries the
+ * sender's element child counts; below a count mismatch nothing is imported.
  */
 export type IdentitySpec =
   | IdOf
@@ -43,16 +44,18 @@ export interface CommonOptions {
     local?: IdentitySpec;
     remote?: IdentitySpec;
   };
-  /** Regions never touched, never read, never indexed. Ancestor-aware. */
-  ignore?: (el: Element) => boolean;
+  /** Regions never touched, never read, never indexed. Ancestor-aware; isRoot is true for a merge root. */
+  ignore?: (el: Element, isRoot: boolean) => boolean;
   /** Regions where local edits do not count; remote lands unchanged. */
-  remoteWins?: (el: Element) => boolean;
+  remoteWins?: (el: Element, isRoot: boolean) => boolean;
   /** Attributes left out of the merge and of every report. */
   ignoreAttribute?: (el: Element, name: string) => boolean;
   /** Resolution for overlapping edits. "both" is text only. Default "remote". */
   conflicts?: "remote" | "local" | "both";
-  /** Keep the focused input's or textarea's value. Default true. */
-  protectFocusedValue?: boolean;
+  /** Keep the focused input's or textarea's value; "subtree" also leaves the focused element's children alone. Default true. */
+  protectFocusedValue?: boolean | "subtree";
+  /** Capture focus, scroll and selection before the apply and restore them after. Default true. */
+  restoreFocus?: boolean;
   /** How form control state is synced. Default "attribute". */
   formState?: "attribute" | "property";
   head?: {
@@ -174,7 +177,7 @@ export interface MergeReport {
   /** Every merge decision that differs from base, with the side that caused it. */
   decisions: Decision[];
   conflicts: Conflict[];
-  /** The merged document differs from the remote one: relay or save it. */
+  /** The merged document differs from the remote one (compared directly, ignored regions and attributes aside): relay or save it. */
   localDiverged: boolean;
   /** Live elements paired with an identified remote element. */
   identities: Array<[Element, string]>;

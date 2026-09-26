@@ -19,7 +19,8 @@ const FORM_TAGS = new Set(["INPUT", "OPTION", "TEXTAREA"]);
  * @property {(n: Node) => Node | null} toLive
  * @property {(n: Node) => boolean} ignored
  * @property {"attribute" | "property"} formState
- * @property {boolean} protectFocusedValue
+ * @property {boolean | "subtree"} protectFocusedValue
+ * @property {boolean} [restoreFocus]
  * @property {object} hooks
  * @property {boolean} [childrenOnly]
  */
@@ -105,7 +106,8 @@ export function apply(liveRoot, mergedRoot, result, o) {
   for (const lv of liveOf.values()) liveTwins.add(lv);
   for (const nodes of runOf.values()) for (const n of nodes) liveTwins.add(n);
 
-  const focus = captureFocus(doc, liveTextInfo);
+  const focus =
+    o.restoreFocus === false ? null : captureFocus(doc, liveTextInfo);
 
   if (o.childrenOnly) applyChildren(liveRoot, mergedRoot);
   else applyElement(liveRoot, mergedRoot);
@@ -159,9 +161,24 @@ export function apply(liveRoot, mergedRoot, result, o) {
       const lt = tag === "TEMPLATE" && liveEl.content ? liveEl.content : liveEl;
       const mt =
         tag === "TEMPLATE" && mergedEl.content ? mergedEl.content : mergedEl;
-      applyChildren(lt, mt);
+      if (
+        o.protectFocusedValue === "subtree" &&
+        isFocused(liveEl) &&
+        liveEl !== doc.body
+      )
+        claimSubtree(lt);
+      else applyChildren(lt, mt);
     }
     hooks.afterNodeMorphed(liveEl, mergedEl);
+  }
+
+  // The focused element's children are left as they are: claimed, so no
+  // other parent pulls one out and the final pass removes none.
+  function claimSubtree(parent) {
+    for (let c = parent.firstChild; c; c = c.nextSibling) {
+      claimed.add(c);
+      if (c.nodeType === 1) claimSubtree(c);
+    }
   }
 
   function applyChildren(liveParent, mergedParent) {
@@ -188,10 +205,23 @@ export function apply(liveRoot, mergedRoot, result, o) {
       if (lv && lv.nodeType === 1) {
         if (lv !== cursor) {
           const from = lv.parentNode;
-          moveBefore(liveParent, lv, cursor);
-          if (from !== liveParent) {
-            moved.push(lv);
-            applied.push({ kind: "move", el: lv, from, to: liveParent });
+          if (from === liveParent && cursor && holdsFocus(lv)) {
+            // A same-parent reorder of the node holding focus: moving it
+            // drops the selection (moveBefore) or the focus itself
+            // (insertBefore), so the unplaced siblings before it step past
+            // it instead. Same final order, focus untouched.
+            const after = lv.nextSibling;
+            for (let n = cursor; n && n !== lv; ) {
+              const next = n.nextSibling;
+              moveBefore(liveParent, n, after);
+              n = next;
+            }
+          } else {
+            moveBefore(liveParent, lv, cursor);
+            if (from !== liveParent) {
+              moved.push(lv);
+              applied.push({ kind: "move", el: lv, from, to: liveParent });
+            }
           }
         }
         seenHere.add(lv);
@@ -432,6 +462,7 @@ export function apply(liveRoot, mergedRoot, result, o) {
           applyElement(lv, mc);
         } else {
           claimed.add(lv);
+          heldBy.set(mc, lv);
           if (lv.nodeValue !== mc.nodeValue) {
             applied.push({
               kind: "text",
@@ -445,6 +476,7 @@ export function apply(liveRoot, mergedRoot, result, o) {
         continue;
       }
       claimed.add(cc);
+      if (cc.nodeType === 3) heldBy.set(mc, cc);
       if (mc.nodeType === 1 && !isHtmlScript(mc)) graft(cc, mc);
     }
   }
@@ -509,6 +541,11 @@ export function apply(liveRoot, mergedRoot, result, o) {
 
   function isFocused(el) {
     return el === doc.activeElement;
+  }
+
+  function holdsFocus(el) {
+    const active = doc.activeElement;
+    return !!active && active !== doc.body && el.contains(active);
   }
 
   /**

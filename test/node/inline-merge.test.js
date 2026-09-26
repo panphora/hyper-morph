@@ -1133,3 +1133,26 @@ test("H2 a whitespace anchor does not duplicate a mark beside a conflict", () =>
     assert.equal(x.conflicts[0].kind, "text");
   }
 });
+
+test("H14 the inline localDiverged ignores ignored attributes", () => {
+  const ignoreAttribute = (el, n) => n === "data-x";
+  const mergeAttrs = (b, l, r, el) => {
+    for (const a of (r || l || b).attributes)
+      if (!ignoreAttribute(el, a.name)) el.setAttribute(a.name, a.value);
+  };
+  const x = mergeBlocks(
+    P(`one <b data-x="1">two</b> three`),
+    P(`one <b data-x="1">two</b> three`),
+    P(`one <b data-x="1">two</b> four`),
+    { inline: { ignoreAttribute, mergeAttrs } },
+  );
+  assert.equal(x.html, P(`one <b>two</b> four`));
+  assert.equal(x.res.localDiverged, false);
+  const y = mergeBlocks(
+    P(`one <b data-x="1">two</b> three`),
+    P(`one <b data-x="1">TWO</b> three`),
+    P(`one <b data-x="1">two</b> four`),
+    { inline: { ignoreAttribute, mergeAttrs } },
+  );
+  assert.equal(y.res.localDiverged, true);
+});

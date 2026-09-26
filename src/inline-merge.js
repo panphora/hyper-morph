@@ -207,21 +207,40 @@ export function sliceHtml(f, from, to) {
   return out;
 }
 
-function markSig(m) {
+function markSig(m, ignoreAttribute) {
   const attrs = [...m.el.attributes]
+    .filter((a) => !ignoreAttribute(m.el, a.name))
     .map((a) => a.name + "=" + a.value)
     .sort()
     .join("\u0001");
   return m.tag + "|" + attrs;
 }
 
-/** Canonical form of a flat model: text, atoms and per-character mark sets. */
-export function flatSig(f) {
+function atomSig(el, ignoreAttribute) {
+  const attrs = [...el.attributes]
+    .filter((a) => !ignoreAttribute(el, a.name))
+    .map((a) => a.name + "=" + a.value)
+    .sort()
+    .join("\u0001");
+  return el.tagName + "|" + attrs + "|" + el.innerHTML;
+}
+
+/**
+ * Canonical form of a flat model: text, atoms and per-character mark sets.
+ * Attributes the caller ignores are left out, as the merge leaves them out.
+ */
+export function flatSig(f, ignoreAttribute = () => false) {
   const sigOf = new Map();
   const stackSig = (stack) => {
     let s = sigOf.get(stack);
     if (s === undefined) {
-      s = "{" + stack.map(markSig).sort().join(",") + "}";
+      s =
+        "{" +
+        stack
+          .map((m) => markSig(m, ignoreAttribute))
+          .sort()
+          .join(",") +
+        "}";
       sigOf.set(stack, s);
     }
     return s;
@@ -230,7 +249,7 @@ export function flatSig(f) {
   for (let i = 0; i < f.text.length; i++) {
     const atom = f.atomAt.get(i);
     out +=
-      (atom ? "[" + atom.el.outerHTML + "]" : f.text[i]) +
+      (atom ? "[" + atomSig(atom.el, ignoreAttribute) + "]" : f.text[i]) +
       stackSig(f.stackAt[i]);
   }
   if (f.text.length === 0 && f.placeholder) out += "[br]";
@@ -357,6 +376,7 @@ function setEq(a, b) {
  * @param {object} [o.R] - base-to-remote alignment
  * @param {{ local: Function, remote: Function }} [o.idOf] - identity of a side element, for echo pairing
  * @param {(n: Node) => boolean} [o.ignored]
+ * @param {(el: Element, name: string) => boolean} [o.ignoreAttribute] - left out of localDiverged
  * @param {(el: Element) => boolean} [o.remoteWins]
  * @param {(b: Element, l: Element, r: Element) => Element} [o.mergeElement] - merges an atom kept by both sides
  * @param {(el: Element, side: string) => Element} [o.cloneUnit] - clones a one-sided atom
@@ -1404,7 +1424,9 @@ export function mergeInline(o) {
     ...o,
     ignored: (n) => pinNodes.has(n) || (o.ignored ? o.ignored(n) : false),
   };
-  const localDiverged = flatSig(flatten(nodes, outOpts)) !== flatSig(fr);
+  const ia = o.ignoreAttribute || (() => false);
+  const localDiverged =
+    flatSig(flatten(nodes, outOpts), ia) !== flatSig(fr, ia);
   return {
     nodes,
     text,

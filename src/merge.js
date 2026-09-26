@@ -128,18 +128,11 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   const emitted = new Set(); // base units and side units that produced output
   const building = new Set(); // base elements whose output is under construction
   const inlineCache = new WeakMap(); // element -> its subtree is inline-only
-  let localDiverged = false;
 
   const policy = o.conflicts || "remote";
-  const localDecision = (d) => {
-    decisions.push(d);
-    if (d.source === "local" || d.source === "both") localDiverged = true;
-  };
+  const localDecision = (d) => decisions.push(d);
   const remoteDecision = (d) => decisions.push(d);
-  const conflict = (c) => {
-    conflicts.push(c);
-    if (policy !== "remote") localDiverged = true;
-  };
+  const conflict = (c) => conflicts.push(c);
 
   const html = mergeElement(
     bRoot,
@@ -151,6 +144,9 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   if (html.tagName === "HTML") out.replaceChild(html, out.documentElement);
   else out.body.appendChild(html);
   if (prof) prof.build = (prof.build || 0) + (performance.now() - t0);
+  const localDiverged = o.childrenOnly
+    ? !sameChildren(html, rRoot)
+    : !sameElement(html, rRoot);
 
   return {
     doc: out,
@@ -350,7 +346,6 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           });
         }
         decisions.push({ kind: "attr", el, name, source: "both" });
-        if (v !== rv) localDiverged = true;
       }
       if (v != null) {
         if (sample.namespaceURI)
@@ -456,7 +451,6 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     }
     if (lv !== bv && rv !== bv) {
       decisions.push({ kind: "text", node, source: "both" });
-      if (res.text !== rv) localDiverged = true;
     } else if (lv !== bv)
       localDecision({ kind: "text", node, source: "local" });
     else if (rv !== bv)
@@ -1124,6 +1118,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           R: ru ? R : identityAlignment(),
           idOf: { local: idLocal, remote: idRemote },
           ignored,
+          ignoreAttribute: o.ignoreAttribute,
           remoteWins: o.remoteWins,
           mergeElement: (bk, lk, rk) => mergeElement(bk, lk, rk, false),
           cloneUnit,
@@ -1141,10 +1136,80 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           segUnits.add(u);
           outputOfUnit.set(u, frag);
         }
-        if (res.localDiverged) localDiverged = true;
         segFrags.push({ frag, at: bPos.get(seg.units[0]) });
       }
     }
+  }
+
+  // -------------------------------------------------------------------
+  // localDiverged: does the output differ from remote? Compared directly,
+  // so it is exact by definition: a decision the remote side already
+  // carries (an echoed insert, a collision remote won, both sides
+  // reordering to the same order) does not count, and one that no decision
+  // records (a comment edit) does. What the merge ignores is left out on
+  // both sides: ignored remote elements, the pins standing in for them in
+  // the output, and ignored attributes.
+  function sameElement(a, r) {
+    const p = provenance.get(a);
+    if (p && p.unchanged) return true;
+    if (a.tagName !== r.tagName) return false;
+    if (!sameAttrs(a, r)) return false;
+    const ac = a.tagName === "TEMPLATE" && a.content ? a.content : a;
+    const rc = r.tagName === "TEMPLATE" && r.content ? r.content : r;
+    return sameChildren(ac, rc);
+  }
+
+  function sameAttrs(a, r) {
+    let n = 0;
+    for (const attr of a.attributes) {
+      if (o.ignoreAttribute(a, attr.name)) continue;
+      n++;
+      if (r.getAttribute(attr.name) !== attr.value) return false;
+    }
+    for (const attr of r.attributes) if (!o.ignoreAttribute(r, attr.name)) n--;
+    return n === 0;
+  }
+
+  function sameChildren(a, r) {
+    const A = childItems(a, (el) => {
+      const p = provenance.get(el);
+      return !!(p && p.pinned);
+    });
+    const Rr = childItems(r, ignored);
+    if (A.length !== Rr.length) return false;
+    for (let i = 0; i < A.length; i++) {
+      const x = A[i],
+        y = Rr[i];
+      if (typeof x === "string" || typeof y === "string") {
+        if (x !== y) return false;
+      } else if (x.nodeType !== y.nodeType) return false;
+      else if (x.nodeType === 1) {
+        if (!sameElement(x, y)) return false;
+      } else if (x.nodeValue !== y.nodeValue) return false;
+    }
+    return true;
+  }
+
+  // Child nodes as items: adjacent text nodes fold into one string so a
+  // split the merge made does not read as a difference; skipped elements
+  // vanish; comments and elements stand as they are.
+  function childItems(parent, skip) {
+    const items = [];
+    let text = null;
+    for (let c = parent.firstChild; c; c = c.nextSibling) {
+      if (c.nodeType === 3) {
+        text = text === null ? c.nodeValue : text + c.nodeValue;
+        continue;
+      }
+      if (text !== null) {
+        if (text !== "") items.push(text);
+        text = null;
+      }
+      if (c.nodeType === 1 && skip(c)) continue;
+      items.push(c);
+    }
+    if (text !== null && text !== "") items.push(text);
+    return items;
   }
 
   function mergeComment(bRun, lRun, rRun) {

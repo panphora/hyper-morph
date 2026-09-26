@@ -883,3 +883,125 @@ test("H5 a non-mark inline element is an atom, not a segment boundary", () => {
   );
   assert.equal(e.html, `<p>a</p><div>BLOCK</div>b!<p></p>`);
 });
+
+test("H14 localDiverged is true exactly when the output differs from remote", () => {
+  const cases = [
+    [
+      "a comment edit is a divergence",
+      `<div><!-- a --><p>x</p></div>`,
+      `<div><!-- b --><p>x</p></div>`,
+      `<div><!-- a --><p>x</p></div>`,
+      `<div><!-- b --><p>x</p></div>`,
+      true,
+    ],
+    [
+      "a comment edit beside a remote edit",
+      `<div><!-- a --><p>x</p></div><p>y</p>`,
+      `<div><!-- b --><p>x</p></div><p>y</p>`,
+      `<div><!-- a --><p>x</p></div><p>y2</p>`,
+      `<div><!-- b --><p>x</p></div><p>y2</p>`,
+      true,
+    ],
+    [
+      "an insert collision remote won",
+      `<div><p>A</p></div>`,
+      `<div><p>A</p>foo</div>`,
+      `<div><p>A</p>bar</div>`,
+      `<div><p>A</p>bar</div>`,
+      false,
+    ],
+    [
+      "an echoed element insertion",
+      `<ul><li>a</li></ul>`,
+      `<ul><li>a</li><li>b</li></ul>`,
+      `<ul><li>a</li><li>b</li></ul>`,
+      `<ul><li>a</li><li>b</li></ul>`,
+      false,
+    ],
+    [
+      "both reordered, remote order landed",
+      `<ul><li>a</li><li>b</li><li>c</li></ul>`,
+      `<ul><li>c</li><li>a</li><li>b</li></ul>`,
+      `<ul><li>b</li><li>c</li><li>a</li></ul>`,
+      `<ul><li>b</li><li>c</li><li>a</li></ul>`,
+      false,
+    ],
+    [
+      "a local edit remote already carries, beside a remote edit",
+      `<p>alpha zero</p><p>beta zero</p>`,
+      `<p>alpha one</p><p>beta zero</p>`,
+      `<p>alpha one</p><p>beta one</p>`,
+      `<p>alpha one</p><p>beta one</p>`,
+      false,
+    ],
+  ];
+  for (const [label, b, l, r, want, diverged] of cases) {
+    const { html, res } = mergeBodies(b, l, r);
+    assert.equal(html, want, label);
+    assert.equal(res.localDiverged, diverged, label);
+  }
+  const both = mergeBodies(
+    `<p title="a">x</p>`,
+    `<p title="b">x</p>`,
+    `<p title="c">x</p>`,
+    { conflicts: "both" },
+  );
+  assert.equal(both.html, `<p title="c">x</p>`);
+  assert.equal(both.res.localDiverged, false);
+  const local = mergeBodies(
+    `<p title="a">x</p>`,
+    `<p title="b">x</p>`,
+    `<p title="c">x</p>`,
+    { conflicts: "local" },
+  );
+  assert.equal(local.html, `<p title="b">x</p>`);
+  assert.equal(local.res.localDiverged, true);
+});
+
+test("H14 localDiverged ignores what the merge ignores", () => {
+  const ia = { ignoreAttribute: (el, n) => n === "data-x" };
+  const mark = mergeBodies(
+    `<p>one <b data-x="1">two</b> three</p>`,
+    `<p>one <b data-x="1">two</b> three</p>`,
+    `<p>one <b data-x="1">two</b> four</p>`,
+    ia,
+  );
+  assert.equal(mark.html, `<p>one <b>two</b> four</p>`);
+  assert.equal(mark.res.localDiverged, false);
+  const atom = mergeBodies(
+    `<p>one <img src="a" data-x="1"> three</p>`,
+    `<p>one <img src="a" data-x="1"> three</p>`,
+    `<p>one <img src="a" data-x="1"> four</p>`,
+    ia,
+  );
+  assert.equal(atom.res.localDiverged, false);
+  const block = mergeBodies(
+    `<p data-x="1">a</p>`,
+    `<p data-x="2">a</p>`,
+    `<p data-x="1">b</p>`,
+    ia,
+  );
+  assert.equal(block.res.localDiverged, false);
+  const ig = { ignore: (el) => el.hasAttribute("data-ignore") };
+  const region = mergeBodies(
+    `<p>one <span data-ignore>X</span> two</p>`,
+    `<p>one <span data-ignore>Y</span> two</p>`,
+    `<p>one <span data-ignore>X</span> three</p>`,
+    ig,
+  );
+  assert.equal(region.res.localDiverged, false);
+  const blockRegion = mergeBodies(
+    `<div><p data-ignore>X</p><p>two</p></div>`,
+    `<div><p data-ignore>Y</p><p>two</p></div>`,
+    `<div><p data-ignore>X</p><p>three</p></div>`,
+    ig,
+  );
+  assert.equal(blockRegion.res.localDiverged, false);
+  const edited = mergeBodies(
+    `<div><p data-ignore>X</p><p>two</p></div>`,
+    `<div><p data-ignore>Y</p><p>TWO</p></div>`,
+    `<div><p data-ignore>X</p><p>two</p></div>`,
+    ig,
+  );
+  assert.equal(edited.res.localDiverged, true);
+});

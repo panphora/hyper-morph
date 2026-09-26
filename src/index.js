@@ -46,6 +46,7 @@ const KNOWN = new Set([
   "ignoreAttribute",
   "conflicts",
   "protectFocusedValue",
+  "restoreFocus",
   "head",
   "scripts",
   "formState",
@@ -78,13 +79,21 @@ function normalize(o, roots = []) {
   const formState = o.formState || "attribute";
   if (!["attribute", "property"].includes(formState))
     throw new TypeError(`formState must be attribute or property`);
+  const protect = o.protectFocusedValue;
+  if (
+    protect !== undefined &&
+    typeof protect !== "boolean" &&
+    protect !== "subtree"
+  )
+    throw new TypeError(`protectFocusedValue must be a boolean or "subtree"`);
   return {
     ignored: makeIgnore(o.ignore, roots),
     remoteWins: makeIgnore(o.remoteWins, roots),
     ignoreAttribute:
       typeof o.ignoreAttribute === "function" ? o.ignoreAttribute : () => false,
     conflicts,
-    protectFocusedValue: o.protectFocusedValue !== false,
+    protectFocusedValue: protect === undefined ? true : protect,
+    restoreFocus: o.restoreFocus !== false,
     head: Object.assign(
       { awaitLoads: false, preserve: () => false },
       o.head || {},
@@ -202,6 +211,7 @@ function run({
     ignoreAttribute: o.ignoreAttribute,
     formState: o.formState,
     protectFocusedValue: o.protectFocusedValue,
+    restoreFocus: o.restoreFocus,
     preserve: o.head.preserve,
     hooks: o.hooks,
     childrenOnly,
