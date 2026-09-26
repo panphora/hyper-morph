@@ -681,8 +681,16 @@ d. positional: in order, same node type and tag, and similar() for elements;
 Pass 3, moves (global) [I12]: unpaired base elements and unpaired side
 elements are bucketed by signature; within a bucket, pairs that are
 `similar()` and unique pair and are recorded in `moved`; their subtrees go
-through pass 2. The pass stops after 2,000 similarity evaluations; what is
-left stays delete plus insert.
+through pass 2. The pass stops after 2,000 similarity evaluations.
+
+Pass 4, slots (per parent): when every element still unpaired under a
+parent sits at the same index with the same tag on both sides, the slots
+were rewritten in place and each pairs with the element in its slot; any
+count or index mismatch leaves them delete plus insert. Runs after moves so
+an element moved away and replaced in its slot stays a move. Without it the
+two sides could align the same slot differently (one side's identical
+neighbour disambiguates a single leftover, the other side's edited
+neighbour does not) and an edit both sides made was emitted twice.
 
 Rule from S7: no element pair is ever formed on tag and class alone.
 

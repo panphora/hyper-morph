@@ -134,3 +134,37 @@ test("alignment of two identical 3000-element documents is fast", () => {
   assert.ok(a.identical.has(q(b, "main")));
   assert.ok(ms < 1000, `took ${ms}ms`); // jsdom is slow; the browser benchmark holds the real target
 });
+
+test("HE1 unpaired elements that line up slot for slot pair by position", () => {
+  const { b, s, a } = run(
+    "<article><p>a0</p><p>b0</p></article>",
+    "<article><p>a1</p><p>b1</p></article>",
+  );
+  assert.equal(a.map.get(q(b, "p", 0)), q(s, "p", 0));
+  assert.equal(a.map.get(q(b, "p", 1)), q(s, "p", 1));
+  const shifted = run(
+    "<article><p>a0</p><p>b0</p></article>",
+    "<article><p>n</p><p>a1</p><p>b1</p></article>",
+  );
+  assert.equal(shifted.a.map.get(q(shifted.b, "p", 0)), undefined);
+  assert.equal(shifted.a.map.get(q(shifted.b, "p", 1)), undefined);
+  const rotated = run(
+    "<article><p>a0</p><p>b0</p><p>Cherries are red</p></article>",
+    "<article><p>Cherries are red</p><p>a1</p><p>b1</p></article>",
+  );
+  assert.equal(rotated.a.map.get(q(rotated.b, "p", 2)), q(rotated.s, "p", 0));
+  assert.equal(rotated.a.map.get(q(rotated.b, "p", 0)), undefined);
+  assert.equal(rotated.a.map.get(q(rotated.b, "p", 1)), undefined);
+});
+
+test("HE1 slot pairing yields to a move: elements moved out and replaced are moves", () => {
+  const { b, s, a } = run(
+    `<section id="x"><p>Apples are red</p><p>Bananas are yellow</p></section><section id="y"></section>`,
+    `<section id="x"><p>n1</p><p>n2</p></section><section id="y"><p>Apples are red</p><p>Bananas are yellow</p></section>`,
+  );
+  const x = q(b, "#x");
+  assert.equal(a.map.get(x.children[0]), q(s, "#y").children[0]);
+  assert.equal(a.map.get(x.children[1]), q(s, "#y").children[1]);
+  assert.ok(a.moved.has(x.children[0]));
+  assert.equal(a.reverse.get(q(s, "#x").children[0]), undefined);
+});

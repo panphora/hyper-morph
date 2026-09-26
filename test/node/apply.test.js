@@ -229,3 +229,53 @@ test("H12 protectFocusedValue subtree leaves the focused element's children alon
     host.remove();
   }
 });
+
+test("HE2 an ignored root is a no-op with an empty report", async () => {
+  const ignore = (el) => el.hasAttribute("no-save");
+  const empty = {
+    applied: [],
+    decisions: [],
+    conflicts: [],
+    localDiverged: false,
+    identities: [],
+    moved: [],
+    replaced: [],
+  };
+  for (const children of [true, false]) {
+    const host = document.createElement("div");
+    host.innerHTML = `<div no-save id="r"><p>current</p></div>`;
+    document.body.appendChild(host);
+    const root = host.firstElementChild;
+    const report = await morphElement(
+      root,
+      children
+        ? "<p>next</p>"
+        : `<div no-save id="r" class="k"><p>next</p></div>`,
+      { children, ignore },
+    );
+    assert.equal(root.outerHTML, `<div no-save="" id="r"><p>current</p></div>`);
+    assert.deepEqual(report, empty);
+    host.remove();
+  }
+  const tagged = document.createElement("div");
+  tagged.innerHTML = `<div no-save><p>current</p></div>`;
+  document.body.appendChild(tagged);
+  const report = await morphElement(
+    tagged.firstElementChild,
+    `<section no-save><p>next</p></section>`,
+    { ignore },
+  );
+  assert.equal(tagged.innerHTML, `<div no-save=""><p>current</p></div>`);
+  assert.deepEqual(report, empty);
+  tagged.remove();
+  const d = parse(doc("<p>current</p>"));
+  d.documentElement.setAttribute("no-save", "");
+  const docReport = await mergeDocument({
+    live: d,
+    base: null,
+    remote: doc("<p>next</p>"),
+    ignore,
+  });
+  assert.equal(d.body.innerHTML, "<p>current</p>");
+  assert.deepEqual(docReport, empty);
+});

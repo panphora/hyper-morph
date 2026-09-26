@@ -198,7 +198,9 @@ is called at most once per element per call and is ancestor-aware: a
 descendant of an ignored element is ignored. The walk stops at the merge
 root, so a marker above the root does not exempt the root itself. The
 predicate's second argument is `true` for a merge root, so a caller can
-treat a marker on the root itself differently from one below it. Ignored
+treat a marker on the root itself differently from one below it. A call
+whose root is itself ignored touches nothing and resolves to an empty
+report (`localDiverged` false). Ignored
 live elements are never moved; the cursor skips over them so insertions
 land around them.
 
@@ -521,13 +523,20 @@ Per side, in order; a node pairs at most once.
 3. **Moves.** Elements still unpaired on both sides pair across parents by
    identical hash, else by equal signature and similar text, under a
    budget of 2000 similarity evaluations per side.
+4. **Slots.** Per parent, when every element still unpaired sits at the
+   same index with the same tag on both sides, the slots were rewritten in
+   place and each pairs with the element in its slot. Any count or index
+   mismatch could be a shift, so nothing pairs.
 
 Code-like elements (`script`, `style`, `textarea`, `template`, `iframe`,
 `object`, `canvas`, `video`, `audio`, `svg`) never pair by text: identity,
 identical hash, or position only.
 
 No element pair is ever made on tag and class alone. Two `<li class="row">`
-with different text and nothing else to go on are a delete and an insert.
+with different text and nothing else to go on are a delete and an insert,
+unless everything left under their parent lines up slot for slot (pass 4):
+then they are the same slot rewritten, and both sides align it the same
+way whichever neighbours changed.
 
 ### Elements
 

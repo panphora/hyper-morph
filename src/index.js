@@ -177,6 +177,7 @@ function run({
     options,
     [liveRoot, baseRoot, localRoot, remoteRoot].filter(Boolean),
   );
+  if (o.ignored(liveRoot)) return { report: emptyReport(), loads: [] };
   const doc = liveRoot.ownerDocument;
   const before = o.scripts.execute
     ? collectBodyScriptSignatures(liveRoot, o.ignored, doc.baseURI)
@@ -271,6 +272,19 @@ function run({
   return { report, loads };
 }
 
+/** The report of a call that touched nothing: an ignored root. */
+function emptyReport() {
+  return {
+    applied: [],
+    decisions: [],
+    conflicts: [],
+    localDiverged: false,
+    identities: [],
+    moved: [],
+    replaced: [],
+  };
+}
+
 /**
  * @param {object} options - see docs/rewrite-plan.md 4.3
  * @returns {Promise<object>} MergeReport
@@ -360,6 +374,9 @@ export function morphElement(oldEl, newContent, options = {}) {
   const doc = oldEl.ownerDocument;
   const { base, ...rest } = options;
   const childrenOnly = !!rest.children;
+  // An ignored root is left alone whole, as its subtree would be below it.
+  if (normalize(rest, [oldEl]).ignored(oldEl))
+    return Promise.resolve(emptyReport());
   const remoteC = contentOf(newContent, doc);
   const baseC = base != null ? contentOf(base, doc) : null;
   let remoteRoot,
@@ -395,15 +412,7 @@ export function morphElement(oldEl, newContent, options = {}) {
       // the new tag and swap it in.
       const o = normalize(rest, [oldEl, remoteRoot]);
       if (o.hooks.beforeNodeMorphed(oldEl, remoteRoot) === false)
-        return Promise.resolve({
-          applied: [],
-          decisions: [],
-          conflicts: [],
-          localDiverged: false,
-          identities: [],
-          moved: [],
-          replaced: [],
-        });
+        return Promise.resolve(emptyReport());
       const inner = run({
         liveRoot: oldEl,
         baseRoot:

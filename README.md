@@ -57,8 +57,10 @@ mutation.
    Elements pair by identity (`data-id`, then `id`, or your own function),
    then by structure: identical subtrees pair in lockstep, then unique
    signatures, then signature plus similar text, then position. Unpaired
-   elements on both sides are checked for moves across parents. Nothing
-   pairs on tag and class alone.
+   elements on both sides are checked for moves across parents, and what
+   is left pairs slot for slot when every unpaired element under a parent
+   sits at the same index with the same tag on both sides. Nothing pairs
+   on tag and class alone.
 3. **Merge.** Every base node is emitted with whatever each side changed:
    attributes per name (class as a token set, style as a declaration map),
    text as a character-level three-way merge, children ordered by the side

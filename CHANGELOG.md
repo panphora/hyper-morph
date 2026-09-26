@@ -23,15 +23,25 @@ the review, the scenarios, and the specification.
   conflict in that content reports the block as `node` and a `range` into
   its merged text.
 - Alignment that pairs elements without ids: identical subtrees, unique
-  signatures, signature plus similar text, position, then cross-parent
-  moves. Never on tag and class alone.
+  signatures, signature plus similar text, position, cross-parent moves,
+  then slots rewritten in place (every unpaired element under a parent at
+  the same index with the same tag on both sides). Never on tag and class
+  alone.
 - A report per call: `applied`, `decisions`, `conflicts`, `localDiverged`,
-  `identities`, `moved`, `replaced`.
+  `identities`, `moved`, `replaced`. `localDiverged` is true exactly when
+  the merged document differs from the remote one, compared directly after
+  the merge, ignored regions and ignored attributes aside.
 - Options `remoteWins`, `ignoreAttribute`, `conflicts`, `local` (snapshot
   root plus `toLive`), `identity` per side (function or path-keyed map),
-  `beforeApply`.
+  `beforeApply`, `restoreFocus` (default on; `false` skips capturing and
+  restoring focus, scroll and selection), `protectFocusedValue: "subtree"`
+  (the focused element's children are left alone as well as its value).
+- The `ignore` predicate is told when the element is a merge root; a call
+  whose root is ignored touches nothing and returns an empty report.
 - `createIdentityStore`, `importMap`, `tieredIdentity` for synthetic
-  identities; `createParseCache`.
+  identities; `createParseCache`. An exported identity map carries the
+  sender's element child counts under the reserved key `"~"`, and
+  `importMap` imports nothing below an element whose child count differs.
 - `head.preserve(el)`: a live head child the predicate approves is never
   removed, only updated in place.
 - Type declarations in `types/index.d.ts`, and a full contract in
@@ -46,8 +56,9 @@ the review, the scenarios, and the specification.
 - All entry points return a Promise; DOM work is still synchronous.
 - Unknown options throw before any mutation.
 - `formState: "attribute" | "property"` replaces `formStateSync`;
-  `protectFocusedValue` (default on) replaces `ignoreActiveValue`; `hooks`
-  replaces `callbacks`; `ignore` (a predicate) replaces the `policy` presets.
+  `protectFocusedValue` (default on; `"subtree"` is what `ignoreActiveValue`
+  meant) replaces `ignoreActiveValue`; `hooks` replaces `callbacks`;
+  `ignore` (a predicate) replaces the `policy` presets.
 - Scripts new to the page run once after apply, head scripts included.
 - Live nodes are never parked: what nothing claims is removed after every
   move has happened, and nodes are moved with `moveBefore` where available.
@@ -56,8 +67,8 @@ the review, the scenarios, and the specification.
 ### Removed
 
 - The vendored Idiomorph core, the content-scoring matcher (`./matcher`),
-  the pantry, `morphStyle`, `ignoreActive`, `restoreFocus`, `policy`, the
-  `head` merge styles, and `beforeNodePantried`. The `key` option is
+  the pantry, `morphStyle`, `ignoreActive`, `policy`, the `head` merge
+  styles, and `beforeNodePantried`. The `key` option is
   replaced by `identity`.
 - `scripts/propagate.js`, `packed-contract.json`, and the `hyper` package
   field.

@@ -1005,3 +1005,82 @@ test("H14 localDiverged ignores what the merge ignores", () => {
   );
   assert.equal(edited.res.localDiverged, true);
 });
+
+test("HE1 the same edit on both sides beside a neighbour's edit is one paragraph", () => {
+  const cases = [
+    [
+      "remote also edits the next paragraph",
+      `<p>a0</p><p>b0</p>`,
+      `<p>a1</p><p>b0</p>`,
+      `<p>a1</p><p>b1</p>`,
+      `<p>a1</p><p>b1</p>`,
+    ],
+    [
+      "local also edits the next paragraph",
+      `<p>a0</p><p>b0</p>`,
+      `<p>a1</p><p>b1</p>`,
+      `<p>a1</p><p>b0</p>`,
+      `<p>a1</p><p>b1</p>`,
+      true,
+    ],
+    [
+      "the neighbour comes first",
+      `<p>a0</p><p>b0</p>`,
+      `<p>a0</p><p>b1</p>`,
+      `<p>a1</p><p>b1</p>`,
+      `<p>a1</p><p>b1</p>`,
+    ],
+    [
+      "list items",
+      `<ul><li>1</li><li>2</li><li>3</li></ul>`,
+      `<ul><li>1</li><li>x</li><li>3</li></ul>`,
+      `<ul><li>1</li><li>x</li><li>y</li></ul>`,
+      `<ul><li>1</li><li>x</li><li>y</li></ul>`,
+    ],
+  ];
+  for (const [label, b, l, r, want, diverged = false] of cases) {
+    const { html, res } = mergeBodies(b, l, r);
+    assert.equal(html, want, label);
+    assert.equal(res.conflicts.length, 0, label);
+    assert.equal(res.localDiverged, diverged, label);
+  }
+  const differ = mergeBodies(
+    `<p>a0</p><p>b0</p>`,
+    `<p>a2</p><p>b0</p>`,
+    `<p>a1</p><p>b1</p>`,
+  );
+  assert.equal(differ.html, `<p>a1</p><p>b1</p>`);
+  assert.equal(differ.res.conflicts.length, 1);
+  assert.equal(differ.res.conflicts[0].kind, "text");
+});
+
+test("HE1 family: one unit edited identically on both sides, a neighbour by one side", () => {
+  const tag = (t, i, v) => `<${t}>${v}${i}</${t}>`;
+  let cases = 0;
+  for (const [wrap, t] of [
+    ["", "p"],
+    ["ul", "li"],
+  ])
+    for (let n = 2; n <= 4; n++)
+      for (let i = 0; i < n; i++)
+        for (let j = 0; j < n; j++) {
+          if (j === i) continue;
+          for (const side of ["local", "remote"]) {
+            const build = (edit) =>
+              Array.from({ length: n }, (_, k) => tag(t, k, edit(k))).join("");
+            const base = build(() => "v");
+            const same = (k) => (k === i ? "same" : "v");
+            const both = (k) => (k === i ? "same" : k === j ? "other" : "v");
+            const local = build(side === "local" ? both : same);
+            const remote = build(side === "remote" ? both : same);
+            const want = build(both);
+            const w = (s) => (wrap ? `<${wrap}>${s}</${wrap}>` : s);
+            const { html, res } = mergeBodies(w(base), w(local), w(remote));
+            const label = `${t} n=${n} i=${i} j=${j} ${side}`;
+            assert.equal(html, w(want), label);
+            assert.equal(res.conflicts.length, 0, label);
+            cases++;
+          }
+        }
+  assert.equal(cases, 2 * 2 * (2 + 6 + 12));
+});

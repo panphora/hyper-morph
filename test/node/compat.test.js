@@ -98,3 +98,30 @@ test("H12 hypercms morphForm options: ignoreActiveValue keeps the focused subtre
   form.remove();
   host.remove();
 });
+
+test("HE2 compat: an ignored root under sync or history policy is a no-op", async () => {
+  for (const [attrs, policy] of [
+    [["no-save"], "sync"],
+    [["no-undo", "editor-ui"], "history"],
+    [["editor-ui"], "history"],
+  ]) {
+    const t = document.createElement("div");
+    for (const a of attrs) t.setAttribute(a, "");
+    t.innerHTML = "<p>current</p>";
+    document.body.appendChild(t);
+    const before = t.outerHTML;
+    const report = await m.morph(t, "<p>next</p>", {
+      morphStyle: "innerHTML",
+      policy,
+    });
+    assert.equal(t.outerHTML, before, attrs.join(" "));
+    assert.deepEqual(report.applied, []);
+    assert.equal(report.localDiverged, false);
+    const whole = await m.morph(t, t.outerHTML.replace("current", "next"), {
+      policy,
+    });
+    assert.equal(t.outerHTML, before, attrs.join(" ") + " whole");
+    assert.deepEqual(whole.applied, []);
+    t.remove();
+  }
+});

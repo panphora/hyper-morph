@@ -8,10 +8,14 @@
  *      similar text (nearest index), then position.
  *   3. moves, global: what is still unpaired on both sides pairs by identical
  *      hash, else by signature and similar text, bounded by a budget.
+ *   4. slots, per parent: when every element still unpaired under a parent
+ *      sits at the same index with the same tag on both sides, the slots
+ *      were rewritten in place and pair positionally.
  *
  * Text is aligned as runs (see similarity.js). No element pair is ever made
- * on tag and class alone: an identity, an identical hash, or similar text is
- * required, or the two are a delete and an insert.
+ * on tag and class alone: an identity, an identical hash, similar text, or
+ * a slot-for-slot match of everything left is required, or the two are a
+ * delete and an insert.
  */
 
 import { CODE_LIKE } from "./similarity.js";
@@ -46,6 +50,7 @@ export function align(baseRoot, sideRoot, o) {
   const visited = new Set();
   const unpairedBase = [],
     unpairedSide = [];
+  const slotParents = []; // [base parent, side parent] with unpaired elements on both sides
   const queue = [];
   let budget = MOVE_BUDGET;
   let posB = new Map(),
@@ -82,6 +87,9 @@ export function align(baseRoot, sideRoot, o) {
 
   // Pass 3: moves, then the children of moved pairs.
   moves();
+  drain();
+  // Pass 4: slots, then the children of the new pairs.
+  pairSlots();
   drain();
   if (prof) prof.align = (prof.align || 0) + (performance.now() - t0);
 
@@ -134,15 +142,57 @@ export function align(baseRoot, sideRoot, o) {
       passSigSimilar(freeB, freeS, bUnits, sUnits);
       passPositional(bUnits, sUnits);
     }
+    let openB = false,
+      openS = false;
     for (const u of bUnits) {
       if (!map.has(u)) {
-        if (isEl(u)) unpairedBase.push(u);
+        if (isEl(u)) {
+          unpairedBase.push(u);
+          openB = true;
+        }
         continue;
       }
       if (isEl(u) && !identical.has(u)) queue.push([u, map.get(u)]);
     }
     for (const u of sUnits)
-      if (!reverse.has(u) && isEl(u)) unpairedSide.push(u);
+      if (!reverse.has(u) && isEl(u)) {
+        unpairedSide.push(u);
+        openS = true;
+      }
+    if (openB && openS) slotParents.push([bEl, sEl]);
+  }
+
+  /**
+   * The same slots rewritten on one side: base [A, B] against side [A', B']
+   * with neither text similar. Every element still unpaired under the
+   * parent sits at the same index with the same tag on the other side, so
+   * no insertion or deletion can have shifted them, and each pairs with the
+   * element in its slot. Runs last, after moves, so an element that moved
+   * away and was replaced in its slot is a move, not a rewrite. With any
+   * count or index mismatch nothing pairs: the difference could be a shift.
+   */
+  function pairSlots() {
+    for (const [bEl, sEl] of slotParents) {
+      const bu = unitsOf(bEl),
+        su = unitsOf(sEl);
+      const leftB = [],
+        leftS = [];
+      for (let i = 0; i < bu.length; i++)
+        if (isEl(bu[i]) && !map.has(bu[i])) leftB.push([bu[i], i]);
+      for (let i = 0; i < su.length; i++)
+        if (isEl(su[i]) && !reverse.has(su[i])) leftS.push([su[i], i]);
+      if (!leftB.length || leftB.length !== leftS.length) continue;
+      if (
+        !leftB.every(
+          ([b, i], k) => leftS[k][1] === i && leftS[k][0].tagName === b.tagName,
+        )
+      )
+        continue;
+      for (let k = 0; k < leftB.length; k++) {
+        pair(leftB[k][0], leftS[k][0]);
+        queue.push([leftB[k][0], leftS[k][0]]);
+      }
+    }
   }
 
   function passIdentical(freeB, freeS) {
