@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { diff, merge3Text } from "../../src/text-merge.js";
+import {
+  diff,
+  merge3Text,
+  MAX_TOKENS,
+  MAX_EDITS,
+} from "../../src/text-merge.js";
 
 function apply(base, hunks) {
   let out = "",
@@ -182,4 +187,98 @@ test("scripts without spaces merge by word", () => {
   const r = merge3Text("我们今天去公园", "我们明天去公园", "我们今天去海边");
   assert.equal(r.text, "我们明天去海边");
   assert.equal(r.conflicts.length, 0);
+});
+
+test("H2 diff joins hunks separated only by whitespace", () => {
+  assert.deepEqual(diff("a b c", "a x y b"), [{ bs: 2, be: 5, text: "x y b" }]);
+  assert.deepEqual(diff("the cat sat", "the dog and cat"), [
+    { bs: 4, be: 11, text: "dog and cat" },
+  ]);
+  assert.deepEqual(diff("a b c", "x b y"), [
+    { bs: 0, be: 1, text: "x" },
+    { bs: 4, be: 5, text: "y" },
+  ]);
+  assert.deepEqual(diff("a\nb\nc", "x\ny\nc"), [
+    { bs: 0, be: 1, text: "x" },
+    { bs: 2, be: 3, text: "y" },
+  ]);
+});
+
+test("H2 a whitespace anchor inside one edit does not split it around a conflict", () => {
+  const cases = [
+    ["a b c", "a x y b", "a Z b c", "a Z b c"],
+    [
+      "the cat sat",
+      "the dog and cat",
+      "the black cat sat",
+      "the black cat sat",
+    ],
+    [
+      "We plan to release it next week.",
+      "We plan to ship it and release it",
+      "We plan to release it very next week.",
+      "We plan to ship it very next week.",
+    ],
+    [
+      "one two three",
+      "one four five two",
+      "one six two three",
+      "one six two three",
+    ],
+  ];
+  for (const [b, l, r, want] of cases) {
+    const m = merge3Text(b, l, r);
+    assert.equal(m.text, want, `${l} / ${r}`);
+    assert.equal(m.conflicts.length, 1, `${l} / ${r}`);
+    const ml = merge3Text(b, l, r, "local");
+    assert.equal(ml.text, l, `${l} / ${r} (local policy)`);
+  }
+});
+
+test("H16 a text insertion touching a replacement is a conflict, either side", () => {
+  const b = "We plan to release it next week.";
+  const ins = "We plan to release it very next week.";
+  const rep = "We plan to release it soon.";
+  const a = merge3Text(b, ins, rep);
+  assert.equal(a.text, rep);
+  assert.equal(a.conflicts.length, 1);
+  assert.equal(merge3Text(b, ins, rep, "local").text, ins);
+  const c = merge3Text(b, rep, ins);
+  assert.equal(c.text, ins);
+  assert.equal(c.conflicts.length, 1);
+  assert.equal(merge3Text(b, rep, ins, "local").text, rep);
+});
+
+test("H16 two touching replacements both land, fused word included", () => {
+  const a = merge3Text(
+    "now then, upon a time",
+    "now when, upon a time",
+    "now then upon a time",
+  );
+  assert.equal(a.text, "now when upon a time");
+  assert.equal(a.conflicts.length, 0);
+  const f = merge3Text("the cat. sat", "the dog sat", "the cat.sat");
+  assert.equal(f.text, "the dogsat");
+  assert.equal(f.conflicts.length, 0);
+  const g = merge3Text("the cat. sat", "the cat.sat", "the dog sat");
+  assert.equal(g.text, "the dogsat");
+  assert.equal(g.conflicts.length, 0);
+});
+
+test("H19b past both bounds the merge is a line-granularity conflict", () => {
+  const lines = 5000;
+  const base = "a b c d e\n".repeat(lines);
+  const local = "a b c d L\n".repeat(lines);
+  const remote = "R b c d e\n" + "a b c d e\n".repeat(lines - 1);
+  assert.ok(base.split(" ").length > MAX_TOKENS);
+  assert.ok(lines > MAX_EDITS);
+  const r = merge3Text(base, local, remote);
+  assert.equal(r.granularity, "line");
+  assert.equal(r.text, remote);
+  assert.equal(r.conflicts.length, 1);
+  assert.equal(r.conflicts[0].bs, 0);
+  assert.equal(r.conflicts[0].be, base.length);
+  const l = merge3Text(base, local, remote, "local");
+  assert.equal(l.granularity, "line");
+  assert.equal(l.text, local);
 });

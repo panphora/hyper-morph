@@ -705,7 +705,7 @@ merge3Text(base: string, local: string, remote: string, policy?: "remote" | "loc
   text: string;
   conflicts: Array<{ bs: number; be: number; local: string; remote: string; resolved: string }>; // base offsets
   mapLocalOffset: (localOffset: number) => number; // caret offset in local -> merged
-  granularity: "word" | "line" | "whole";
+  granularity: "word" | "line";
 };
 diff(base: string, side: string, maxEdits?: number): Array<{ bs: number; be: number; text: string }>;
 ```

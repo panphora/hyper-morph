@@ -3,7 +3,9 @@
 //   I2 merge(base, x, x) === x, no conflicts
 //   I3 every output token is a token of the side it claims (base/local/remote)
 //   I3s no conflicts and no same-point insertions => every word of the output
-//       string is a word of base, local or remote (no invented text)
+//       string is a word of base, local or remote, or a fusion of such words
+//       at touching edits (decision 2 accepts `thenupon`; nothing else is
+//       invented). The fusions are counted as `joins`.
 //   I4 no conflicts => |out| == |L| + |R| - |B| - collapsed (no duplication, no loss)
 //   I5 separated edits (>= one untouched non-space token between them on
 //      the base) both land, no conflict, output == both applied to base
@@ -13,6 +15,11 @@
 //   I9 policy "local" keeps every local hunk: merge(base, local, remote, "local")
 //      contains each local-inserted word; and with policy local + remote===base
 //      the result is local
+//   I10 decision 2 on touching hunks: a text insertion touching the other
+//       side's replacement is a conflict; two touching replacements both land
+//   I11 token count, on the iterations whose edits use fresh words: every word
+//       of the output occurs at most max(count in local, count in remote)
+//       times (nothing duplicated; a base word a side deleted does not come back)
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -28,12 +35,21 @@ const VOCAB =
   "the quick brown fox jumps over lazy dog and a cat sat on mat with hat now then 你好 世界 日本語 テキスト café naïve 👍 x1".split(
     " ",
   );
+const LATIN = VOCAB.filter((w) => /^\p{Script=Latin}+$/u.test(w));
 
 function runFuzz(seed, N) {
   const rnd = () =>
     (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
   const pick = (a) => a[Math.floor(rnd() * a.length)];
   const int = (n) => Math.floor(rnd() * n);
+  // A fresh word is Latin letters plus a serial, so both tokenizers keep it
+  // whole; a CJK word plus digits would split into two tokens.
+  let fresh = false,
+    seq = 0;
+  const word = () => (fresh ? pick(LATIN) + ++seq : pick(VOCAB));
+  // the other side's edit lands at the same spot a third of the time, so
+  // touching and overlapping edits are common
+  let lastAt = -1;
 
   function makeBase() {
     const n = 1 + int(12);
@@ -49,15 +65,28 @@ function runFuzz(seed, N) {
 
   function editTokens(toks) {
     const t = toks.slice();
-    const kind = int(5);
-    const i = int(t.length + 1);
+    const kind = int(6);
+    const i =
+      lastAt >= 0 && rnd() < 0.33
+        ? Math.min(lastAt, t.length)
+        : int(t.length + 1);
+    lastAt = i;
+    // an edit straddling a kept word: words typed before it, tokens after
+    // it removed (the shape whose diff can anchor on a space, H2)
+    if (kind === 5 && t.length > 2) {
+      let j = Math.min(i, t.length - 2);
+      if (j > 0 && /^\s+$/.test(t[j])) j--;
+      t.splice(j + 1, 1 + int(2));
+      t.splice(j, 0, word(), " ");
+      return t;
+    }
     if (kind === 0 && t.length) {
       const j = Math.min(i, t.length - 1);
-      t[j] = pick(VOCAB);
+      t[j] = word();
       return t;
     }
     if (kind === 1) {
-      t.splice(i, 0, pick(VOCAB), " ");
+      t.splice(i, 0, word(), " ");
       return t;
     }
     if (kind === 2 && t.length) {
@@ -78,22 +107,43 @@ function runFuzz(seed, N) {
     const j = Math.min(i, t.length);
     const len = int(4);
     const repl = [];
-    for (let k = 0; k < 1 + int(3); k++) repl.push(pick(VOCAB), " ");
+    for (let k = 0; k < 1 + int(3); k++) repl.push(word(), " ");
     t.splice(j, len, ...repl);
     return t;
   }
 
   const join = (t) => t.join("");
   const norm = (w) => w.replace(/\u00a0/g, " ");
+  const isWord = (w) => /[\p{L}\p{N}]/u.test(w);
+  const wordCounts = (tok, s) => {
+    const m = new Map();
+    for (const w of tok(s).map(norm))
+      if (isWord(w)) m.set(w, (m.get(w) || 0) + 1);
+    return m;
+  };
+  // `w` is a concatenation of two or more tokens from `parts`
+  const fusion = (w, parts) => {
+    const ok = new Uint8Array(w.length + 1);
+    ok[0] = 1;
+    for (let i = 1; i <= w.length; i++)
+      for (let j = 0; j < i && !ok[i]; j++)
+        if (ok[j] && parts.has(w.slice(j, i))) ok[i] = 1;
+    return ok[w.length] === 1;
+  };
   let n = 0,
     conflicted = 0,
-    joins = 0;
+    joins = 0,
+    touching = 0,
+    landed = 0,
+    counted = 0;
   const fails = [];
   const check = (name, cond, info) => {
     if (!cond) fails.push({ name, ...info });
   };
 
   for (let iter = 0; iter < N; iter++) {
+    fresh = iter % 2 === 1;
+    lastAt = -1;
     const base = makeBase();
     const B = words(base);
     let Lt = editTokens(B);
@@ -144,7 +194,69 @@ function runFuzz(seed, N) {
         const bad = tok(out.text)
           .map(norm)
           .filter((w) => !wB.has(w) && !wL.has(w) && !wR.has(w));
-        if (bad.length) joins++;
+        const parts = new Set(
+          [...wB, ...wL, ...wR].filter((w) => !/^\s+$/.test(w)),
+        );
+        const fused = bad.filter((w) => !/^\s+$/.test(w));
+        joins += fused.length;
+        check(
+          "I3s",
+          fused.every((w) => fusion(w, parts)),
+          { ...info, bad },
+        );
+      }
+      const isIns = (h) => h.bs === h.be;
+      const covered = (p, q) => d.conflicts.some((c) => c.bs <= q && p <= c.be);
+      for (const l of d.localHunks)
+        for (const r of d.remoteHunks) {
+          if (l.bs < r.be && r.bs < l.be) continue;
+          if (l.be !== r.bs && r.be !== l.bs) continue;
+          const lo = Math.min(l.bs, r.bs),
+            hi = Math.max(l.be, r.be);
+          if (isIns(l) !== isIns(r)) {
+            touching++;
+            check(
+              "I10 insertion touching a replacement conflicts",
+              covered(lo, hi),
+              {
+                ...info,
+                l: join(l.toks.map((t) => t.raw)),
+                r: join(r.toks.map((t) => t.raw)),
+              },
+            );
+          } else if (!isIns(l) && !isIns(r)) {
+            const others = [...d.localHunks, ...d.remoteHunks].filter(
+              (h) => h !== l && h !== r && h.bs <= hi && lo <= h.be,
+            );
+            if (others.length || covered(lo, hi)) continue;
+            landed++;
+            const [first, second] = l.bs <= r.bs ? [l, r] : [r, l];
+            const want = join(
+              [...first.toks, ...second.toks].map((t) => t.raw),
+            );
+            check(
+              "I10 touching replacements both land",
+              out.text.includes(want),
+              {
+                ...info,
+                want,
+              },
+            );
+          }
+        }
+      if (fresh) {
+        counted++;
+        const cb = wordCounts(tok, base),
+          cl = wordCounts(tok, local),
+          cr = wordCounts(tok, remote);
+        for (const [w, c] of wordCounts(tok, out.text)) {
+          if (!cb.has(w) && !cl.has(w) && !cr.has(w)) continue; // a fusion, I3s
+          check("I11", c <= Math.max(cl.get(w) || 0, cr.get(w) || 0), {
+            ...info,
+            word: w,
+            count: c,
+          });
+        }
       }
       if (!out.conflicts.length) {
         const fast = allAscii(base, local, remote);
@@ -189,6 +301,8 @@ function runFuzz(seed, N) {
   // I5: separated edits
   let sep = 0;
   for (let iter = 0; iter < N; iter++) {
+    fresh = iter % 2 === 1;
+    lastAt = -1;
     const base = makeBase();
     const B = words(base);
     const nonSpace = B.map((w, i) => (/^\s+$/.test(w) ? -1 : i)).filter(
@@ -219,14 +333,29 @@ function runFuzz(seed, N) {
     });
   }
 
-  return { fails, n, sep, conflicted };
+  return { fails, n, sep, conflicted, joins, touching, landed, counted };
 }
 
 for (const seed of [1, 2, 3]) {
   test(`text merge fuzz, seed ${seed}`, () => {
-    const { fails, n, sep } = runFuzz(seed, 500);
+    const { fails, n, sep, joins, touching, landed, counted } = runFuzz(
+      seed,
+      500,
+    );
     assert.ok(n > 400, `random merges actually ran: ${n}`);
     assert.ok(sep > 100, `separated-edit merges actually ran: ${sep}`);
-    assert.equal(fails.length, 0, JSON.stringify(fails.slice(0, 3), null, 1));
+    assert.ok(joins > 0, `fused words at touching edits were seen: ${joins}`);
+    assert.ok(touching > 20, `insertions touching a replacement: ${touching}`);
+    assert.ok(landed > 20, `touching replacement pairs: ${landed}`);
+    assert.ok(counted > 200, `fresh-word merges counted: ${counted}`);
+    const byName = {};
+    for (const f of fails) byName[f.name] = (byName[f.name] || 0) + 1;
+    assert.equal(
+      fails.length,
+      0,
+      JSON.stringify(byName) +
+        "\n" +
+        JSON.stringify(fails.slice(0, 3), null, 1),
+    );
   });
 }

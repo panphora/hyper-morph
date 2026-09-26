@@ -16,8 +16,9 @@
  *     that swallows one tag of an element swallows every hunk on that side
  *     that mentions the element
  *
- * Cost bounds: over MAX_TOKENS tokens, line granularity; beyond that,
- * whole-value with one conflict.
+ * Cost bounds: over MAX_TOKENS tokens, line granularity; over MAX_EDITS
+ * edits at either granularity, the diff of that side is one coarse hunk
+ * (diffTokens never fails), so a merge always has a word or line result.
  */
 export const MAX_TOKENS = 20000;
 export const MAX_EDITS = 4000;
@@ -79,10 +80,13 @@ function myers(a, b, maxD) {
   const max = Math.min(n + m, maxD);
   const offset = max + 1;
   const v = new Int32Array(2 * max + 3);
+  // trace[d] holds the band k in [-d, d] of v as it stood before row d, so
+  // the trace costs O(D^2) instead of O(D * (n + m)) copies of the whole
+  // array; entry i of trace[d] is diagonal k = i - d
   const trace = [];
   let found = n === 0 && m === 0;
   for (let d = 0; d <= max && !found; d++) {
-    trace.push(Int32Array.from(v));
+    trace.push(v.slice(offset - d, offset + d + 1));
     for (let k = -d; k <= d; k += 2) {
       let x;
       if (k === -d || (k !== d && v[offset + k - 1] < v[offset + k + 1]))
@@ -107,11 +111,10 @@ function myers(a, b, maxD) {
   for (let d = trace.length - 1; d > 0; d--) {
     const vd = trace[d];
     const k = x - y;
+    const i = k + d;
     const prevK =
-      k === -d || (k !== d && vd[offset + k - 1] < vd[offset + k + 1])
-        ? k + 1
-        : k - 1;
-    const prevX = vd[offset + prevK];
+      k === -d || (k !== d && vd[i - 1] < vd[i + 1]) ? k + 1 : k - 1;
+    const prevX = vd[prevK + d];
     const prevY = prevX - prevK;
     while (x > prevX && y > prevY) {
       ops.push([0, x - 1, y - 1]);
@@ -169,26 +172,49 @@ export function diffTokens(B, S, maxD = MAX_EDITS) {
       cosmetic,
       coarse: true,
     };
+  // Equal whitespace between two changes is not an anchor: a run of spaces
+  // Myers matched inside one edit would split it into two hunks, and a
+  // conflict could then swallow one half while the other lands beside it
+  // (duplicating the words the second half re-inserts). Such a gap joins
+  // the hunks on both sides of it. A newline keeps its anchoring, so edits
+  // on separate lines stay separate.
   const hunks = [];
+  const cosmeticAt = (ia, ib) => {
+    if (am[ia].raw !== bm[ib].raw) cosmetic.push({ bi: p + ia, tok: bm[ib] });
+  };
   let cur = null;
+  let gap = [];
   let ai = 0;
+  const settle = () => {
+    if (cur) hunks.push(cur);
+    cur = null;
+    for (const [ia, ib] of gap) cosmeticAt(ia, ib);
+    gap = [];
+  };
   for (const [op, ia, ib] of ops) {
     if (op === 0) {
-      if (cur) {
-        hunks.push(cur);
-        cur = null;
+      if (cur && isSpace(am[ia]) && !am[ia].k.includes("\n"))
+        gap.push([ia, ib]);
+      else {
+        settle();
+        cosmeticAt(ia, ib);
       }
-      if (am[ia].raw !== bm[ib].raw) cosmetic.push({ bi: p + ia, tok: bm[ib] });
       ai = ia + 1;
       continue;
     }
     if (!cur) cur = { bs: p + ai, be: p + ai, toks: [] };
+    else
+      for (const [ga, gb] of gap) {
+        cur.be = p + ga + 1;
+        cur.toks.push(bm[gb]);
+      }
+    gap = [];
     if (op === -1) {
       cur.be = p + ia + 1;
       ai = ia + 1;
     } else cur.toks.push(bm[ib]);
   }
-  if (cur) hunks.push(cur);
+  settle();
   return { hunks, cosmetic };
 }
 
@@ -229,7 +255,6 @@ const sameToks = (a, b) =>
 export function merge3Tokens(B, L, R, policy = "remote") {
   const dL = diffTokens(B, L),
     dR = diffTokens(B, R);
-  if (!dL || !dR) return null; // caller falls back (line / whole)
   const lh = dL.hunks,
     rh = dR.hunks;
 
@@ -626,15 +651,6 @@ export function merge3Text(base, local, remote, policy = "remote") {
     baseToks = lines(base);
     res = merge3Tokens(baseToks, lines(local), lines(remote), policy);
     granularity = "line";
-  }
-  if (!res) {
-    const text = policy === "local" ? local : remote;
-    return {
-      text,
-      conflicts: [{ bs: 0, be: base.length, local, remote, resolved: text }],
-      mapLocalOffset: (n) => Math.min(n, text.length),
-      granularity: "whole",
-    };
   }
   const join = (toks) => toks.map((t) => t.raw).join("");
   const off = [0];

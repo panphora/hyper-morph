@@ -1235,11 +1235,18 @@ export function mergeInline(o) {
     nodes.push(br);
   }
 
+  // The output text node holding offset `p`: the one containing it, else
+  // the one ending at it, else the next one, else the last. The nodes are
+  // sorted, non-empty and disjoint, and the callers ask in near order, so a
+  // pointer walk replaces three scans per call.
+  let ni = 0;
   const nodeAt = (p) => {
-    for (const t of textNodes) if (p >= t.ms && p < t.me) return t;
-    for (const t of textNodes) if (p === t.me) return t;
-    for (const t of textNodes) if (p < t.ms) return t;
-    return textNodes[textNodes.length - 1] || null;
+    while (ni > 0 && textNodes[ni - 1].me >= p) ni--;
+    while (ni < textNodes.length && textNodes[ni].me < p) ni++;
+    const t = textNodes[ni];
+    if (!t) return textNodes[textNodes.length - 1] || null;
+    const next = textNodes[ni + 1];
+    return t.me === p && next && next.ms === p ? next : t;
   };
 
   // Decisions: one text decision per output text node, from the pieces and
@@ -1328,16 +1335,25 @@ export function mergeInline(o) {
   }
   // Caret coverage: per local text node, the offsets that map into each
   // output node.
+  // The output nodes are sorted, non-empty and disjoint, so at most the
+  // first node ending at or after `mp` and the one after it can hold it;
+  // `ti` walks with the mapped offsets instead of scanning per character.
   const caretOf = new Map();
+  const lastNode = textNodes[textNodes.length - 1] || null;
+  let ti = 0;
   for (const ln of fl.nodes) {
     let cur = null;
     for (let k = ln.s; k <= ln.e; k++) {
       const mp = mapLocal(k);
-      let t = textNodes.find(
-        (x) =>
-          mp >= x.ms && mp <= x.me && (mp < x.me || k === ln.e || x === cur),
-      );
-      if (!t) t = nodeAt(mp);
+      while (ti > 0 && textNodes[ti - 1].me >= mp) ti--;
+      while (ti < textNodes.length && textNodes[ti].me < mp) ti++;
+      const holds = (x) =>
+        x && mp >= x.ms && mp <= x.me && (mp < x.me || k === ln.e || x === cur);
+      const t = holds(textNodes[ti])
+        ? textNodes[ti]
+        : holds(textNodes[ti + 1])
+          ? textNodes[ti + 1]
+          : textNodes[ti] || lastNode;
       if (!t) break;
       if (cur === t) {
         const list = caretOf.get(t);

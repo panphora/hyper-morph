@@ -708,8 +708,9 @@ by first expressing it in base coordinates through the local hunks, then
 walking the merged segments [I5]. A caret exactly at a segment start stays
 before that segment, so a remote insertion at the caret lands after it.
 
-Bounds: over 20,000 tokens or 4,000 edits, line granularity; beyond that,
-whole-value with a conflict record.
+Bounds: over 20,000 tokens, line granularity; a side with over 4,000 edits
+at either granularity diffs as one coarse hunk, so every merge has a word or
+line result (the former whole-value fallback was unreachable and is gone).
 
 ## 4.8 Merge (`merge.js`)
 

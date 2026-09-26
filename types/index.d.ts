@@ -264,7 +264,7 @@ export interface TextMergeResult {
   }>;
   /** Caret offset in the local text to the merged text. */
   mapLocalOffset: (localOffset: number) => number;
-  granularity: "word" | "line" | "whole";
+  granularity: "word" | "line";
 }
 
 export function merge3Text(

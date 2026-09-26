@@ -457,12 +457,12 @@ const inlineRows = [
     1,
   ],
   [
-    "I11 remote rewrites the paragraph, local bolds a word",
+    "I11 remote rewrites the paragraph, local bolds a word inside it: conflict",
     P(FOX),
     BOLD,
     P("Something else entirely."),
-    P("Something <b>else</b> entirely."),
-    0,
+    P("Something else entirely."),
+    1,
   ],
   [
     "I12 remote deletes the paragraph text, local bolds",

@@ -264,12 +264,12 @@ const cases = [
     0,
   ],
   [
-    "A24 remote rewrites the paragraph word by word, local bolds a word (rule)",
+    "A24 remote rewrites the paragraph, local bolds a word inside it: conflict (rule)",
     P(FOX),
     P("The <b>quick</b> brown fox jumps over the lazy dog."),
     P("A completely different sentence."),
-    P("A <b>completely</b> different sentence."),
-    0,
+    P("A completely different sentence."),
+    1,
   ],
   [
     "A26 policy local on C1",
@@ -1108,5 +1108,28 @@ test("H15 an insertion at a segment edge does not inherit the other side's mark"
     const x = mergeBlocks(b, l, r);
     assert.equal(x.html, expected);
     assert.equal(x.conflicts.length, 0);
+  }
+});
+
+test("H2 a whitespace anchor does not duplicate a mark beside a conflict", () => {
+  const cases = [
+    [
+      P("w30 <b>w31</b> w32"),
+      P("w30 n34 n33 <b>w31</b>"),
+      P("w30 <br> <br> <b>w31</b> w32"),
+      P("w30 <br> <br> <b>w31</b> w32"),
+    ],
+    [
+      P("a <b>b</b> c"),
+      P("a x y <b>b</b>"),
+      P("a <br> <b>b</b> c"),
+      P("a <br> <b>b</b> c"),
+    ],
+  ];
+  for (const [b, l, r, expected] of cases) {
+    const x = mergeBlocks(b, l, r);
+    assert.equal(x.html, expected);
+    assert.equal(x.conflicts.length, 1);
+    assert.equal(x.conflicts[0].kind, "text");
   }
 });
