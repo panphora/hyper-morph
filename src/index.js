@@ -109,6 +109,22 @@ function normalize(o, roots = []) {
   };
 }
 
+/**
+ * The identity the page authored, from an IdentitySpec: the function itself,
+ * or a map spec's `first`, else its `then`. Two elements whose authored
+ * identities differ are different elements and never pair; a synthetic id
+ * from a map never keeps a pair from forming, since the same element can
+ * carry different synthetic ids in two tabs until they have met.
+ */
+function authoredOf(spec) {
+  if (typeof spec === "function") return spec;
+  if (spec && typeof spec === "object" && spec.map) {
+    if (typeof spec.first === "function") return spec.first;
+    if (typeof spec.then === "function") return spec.then;
+  }
+  return defaultIdentity;
+}
+
 /** Resolve an IdentitySpec against a parsed side root. */
 function resolveIdentity(spec, root) {
   if (typeof spec === "function") return spec;
@@ -143,6 +159,11 @@ export function merge3(base, local, remote, options = {}) {
       base: resolveIdentity(id.base, bRoot),
       local: resolveIdentity(id.local, lRoot),
       remote: resolveIdentity(id.remote, rRoot),
+    },
+    authored: {
+      base: authoredOf(id.base),
+      local: authoredOf(id.local),
+      remote: authoredOf(id.remote),
     },
     skipUnchanged:
       o.hooks.beforeNodeMorphed === noop && o.hooks.afterNodeMorphed === noop,
@@ -188,6 +209,11 @@ function run({
       base: resolveIdentity(identity.base, baseRoot || localRoot),
       local: resolveIdentity(identity.local, localRoot),
       remote: resolveIdentity(identity.remote, remoteRoot),
+    },
+    authored: {
+      base: authoredOf(identity.base),
+      local: authoredOf(identity.local),
+      remote: authoredOf(identity.remote),
     },
     ignored: o.ignored,
     remoteWins: o.remoteWins,
@@ -272,6 +298,8 @@ function run({
   return { report, loads };
 }
 
+const parseCaches = new WeakMap();
+
 /** The report of a call that touched nothing: an ignored root. */
 function emptyReport() {
   return {
@@ -294,8 +322,13 @@ export function mergeDocument(options) {
   const live = o.live;
   if (!live || live.nodeType !== 9)
     throw new TypeError("live must be a Document");
-  const cache =
-    mergeDocument._cache || (mergeDocument._cache = createParseCache(live));
+  // One parse cache per live document: a cache built for another document
+  // would parse in that document's realm, which may be gone.
+  let cache = parseCaches.get(live);
+  if (!cache) {
+    cache = createParseCache(live);
+    parseCaches.set(live, cache);
+  }
   const remoteDoc = cache("remote", o.remote);
   const baseInput = typeof o.base === "string" && o.base === "" ? null : o.base;
   const baseDoc = baseInput ? cache("base", baseInput) : null;

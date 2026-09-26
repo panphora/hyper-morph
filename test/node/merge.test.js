@@ -1084,3 +1084,36 @@ test("HE1 family: one unit edited identically on both sides, a neighbour by one 
         }
   assert.equal(cases, 2 * 2 * (2 + 6 + 12));
 });
+
+test("HF2 a peer that re-keyed an element replaces it instead of merging into it", () => {
+  const { html, res } = mergeBodies(
+    `<h1 id="hero">Mine</h1><p id="sub">Plain</p>`,
+    `<h1 id="hero">Mine</h1><p id="sub">Plain</p>`,
+    `<h1 id="hero-2">Theirs</h1><p id="sub">Plain</p>`,
+  );
+  assert.equal(html, `<h1 id="hero-2">Theirs</h1><p id="sub">Plain</p>`);
+  assert.equal(res.conflicts.length, 0);
+  assert.equal(res.localDiverged, false);
+  const edited = mergeBodies(
+    `<h1 id="hero">Mine</h1><p id="sub">Plain</p>`,
+    `<h1 id="hero">Mine, typed</h1><p id="sub">Plain</p>`,
+    `<h1 id="hero-2">Theirs</h1><p id="sub">Plain</p>`,
+  );
+  assert.equal(
+    edited.html,
+    `<h1 id="hero">Mine, typed</h1><h1 id="hero-2">Theirs</h1><p id="sub">Plain</p>`,
+  );
+  assert.equal(kinds(edited.res, "edit-beats-delete").length, 1);
+});
+
+test("HF2 a merge tag whose key changed still pairs with its slot: one script, the new key", () => {
+  const { res } = mergeBodies(
+    `<div><script type="application/json" merge="one">{"a": 1}</script><p>x</p></div>`,
+    `<div><script type="application/json" merge="one">{"a": 2, "b": 1}</script><p>x</p></div>`,
+    `<div><script type="application/json" merge="two">{"a": 9}</script><p>x</p></div>`,
+  );
+  const scripts = res.doc.body.querySelectorAll("script");
+  assert.equal(scripts.length, 1);
+  assert.equal(scripts[0].getAttribute("merge"), "two");
+  assert.equal(kinds(res, "edit-beats-delete").length, 0);
+});

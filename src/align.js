@@ -15,7 +15,9 @@
  * Text is aligned as runs (see similarity.js). No element pair is ever made
  * on tag and class alone: an identity, an identical hash, similar text, or
  * a slot-for-slot match of everything left is required, or the two are a
- * delete and an insert.
+ * delete and an insert. Two elements that both carry an identity pair only
+ * when it is the same one: a re-keyed element is a replacement, never a
+ * rewrite of the element that held the old key.
  */
 
 import { CODE_LIKE } from "./similarity.js";
@@ -39,10 +41,14 @@ const POSITIONAL_LOOKAHEAD = 3;
  * @param {ReturnType<import("./similarity.js").createAnalyzer>} o.analyzer
  * @param {Map<string, Element>} o.baseIndex - identity index of the base side
  * @param {Map<string, Element>} o.sideIndex - identity index of the side
+ * @param {(el: Element) => string | null} [o.baseId] - identity of a base element
+ * @param {(el: Element) => string | null} [o.sideId] - identity of a side element
  * @returns {Alignment}
  */
 export function align(baseRoot, sideRoot, o) {
   const { meta, unitsOf, unitHash, similar } = o.analyzer;
+  const baseId = o.baseId || (() => null),
+    sideId = o.sideId || (() => null);
   const map = new Map(),
     reverse = new Map();
   const moved = new Set(),
@@ -62,6 +68,14 @@ export function align(baseRoot, sideRoot, o) {
   };
   const isEl = (u) => !!u && u.nodeType === 1;
   const codeLike = (el) => CODE_LIKE.has(el.tagName);
+  // Elements with different identities are different elements, whatever
+  // their content or position says.
+  const keysAgree = (b, s) => {
+    const kb = baseId(b);
+    if (!kb) return true;
+    const ks = sideId(s);
+    return !ks || kb === ks;
+  };
 
   const prof = globalThis.__hyperMorphProfile;
   let t0 = prof ? performance.now() : 0;
@@ -184,7 +198,10 @@ export function align(baseRoot, sideRoot, o) {
       if (!leftB.length || leftB.length !== leftS.length) continue;
       if (
         !leftB.every(
-          ([b, i], k) => leftS[k][1] === i && leftS[k][0].tagName === b.tagName,
+          ([b, i], k) =>
+            leftS[k][1] === i &&
+            leftS[k][0].tagName === b.tagName &&
+            keysAgree(b, leftS[k][0]),
         )
       )
         continue;
@@ -252,7 +269,7 @@ export function align(baseRoot, sideRoot, o) {
       const k = key(b);
       if (k == null || cb.get(k) !== 1) continue;
       const s = sideByKey.get(k);
-      if (s && !reverse.has(s)) pair(b, s);
+      if (s && !reverse.has(s) && keysAgree(b, s)) pair(b, s);
     }
   }
 
@@ -275,7 +292,7 @@ export function align(baseRoot, sideRoot, o) {
       cands.sort((x, y) => x.d - y.d);
       if (cands.length > NEAREST_WINDOW) cands = cands.slice(0, NEAREST_WINDOW);
       for (const { c } of cands) {
-        if (similar(b, c.el)) {
+        if (keysAgree(b, c.el) && similar(b, c.el)) {
           pair(b, c.el);
           break;
         }
@@ -286,7 +303,7 @@ export function align(baseRoot, sideRoot, o) {
   function compatible(b, s) {
     if (isEl(b) !== isEl(s)) return false;
     if (isEl(b)) {
-      if (b.tagName !== s.tagName) return false;
+      if (b.tagName !== s.tagName || !keysAgree(b, s)) return false;
       if (codeLike(b)) return true;
       // An element that was empty on one side (a new paragraph being typed
       // into, a cleared field) pairs positionally; similarity has nothing to
@@ -370,7 +387,13 @@ export function align(baseRoot, sideRoot, o) {
       const tag = b.tagName;
       if (byTagB.get(tag) !== 1 || byTagS.get(tag) !== 1) continue;
       const s = leftS.find((u) => u.tagName === tag);
-      if (s && !reverse.has(s) && posB.get(b) === posS.get(s)) pair(b, s);
+      if (
+        s &&
+        !reverse.has(s) &&
+        posB.get(b) === posS.get(s) &&
+        keysAgree(b, s)
+      )
+        pair(b, s);
     }
   }
 
@@ -404,7 +427,7 @@ export function align(baseRoot, sideRoot, o) {
       let hit = null,
         count = 0;
       for (const s of bucket) {
-        if (reverse.has(s)) continue;
+        if (reverse.has(s) || !keysAgree(b, s)) continue;
         if (budget-- <= 0) break;
         if (similar(b, s)) {
           count++;

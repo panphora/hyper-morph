@@ -32,6 +32,40 @@ function baseFor(oldEl, mergeBase) {
   return wrap;
 }
 
+/**
+ * The remote document for a document-level morph. A string or a Document is
+ * taken as is. An element is the new `<html>` (0.5.x callers hand over a
+ * detached clone of the live one): it is adopted into a fresh document as
+ * its root, since its ownerDocument is the live document itself and merging
+ * that against itself would do nothing.
+ */
+function remoteDocument(newContent, live) {
+  if (typeof newContent === "string" || newContent.nodeType === 9)
+    return newContent;
+  if (
+    newContent.nodeType === 1 &&
+    newContent === newContent.ownerDocument.documentElement
+  )
+    return newContent.ownerDocument;
+  const doc = live.implementation.createHTMLDocument("");
+  const root =
+    newContent.nodeType === 1 && newContent.tagName === "HTML"
+      ? newContent
+      : null;
+  if (root) {
+    doc.replaceChild(doc.adoptNode(root), doc.documentElement);
+    return doc;
+  }
+  const nodes =
+    newContent.nodeType === 11
+      ? Array.from(newContent.childNodes)
+      : newContent.nodeType
+        ? [newContent]
+        : Array.from(newContent);
+  for (const n of nodes) doc.body.appendChild(doc.adoptNode(n));
+  return doc;
+}
+
 export function morph(oldNode, newContent, config = {}) {
   const cfg = config || {};
   const policy = cfg.policy || "sync";
@@ -67,17 +101,11 @@ export function morph(oldNode, newContent, config = {}) {
     options.identity = { base: cfg.key, local: cfg.key, remote: cfg.key };
 
   if (oldNode && oldNode.nodeType === 9) {
-    const remote =
-      typeof newContent === "string"
-        ? newContent
-        : newContent.nodeType === 9
-          ? newContent
-          : newContent.ownerDocument;
     return mergeDocument(
       Object.assign({}, options, {
         live: oldNode,
         base: cfg.scripts?.mergeBase || null,
-        remote,
+        remote: remoteDocument(newContent, oldNode),
       }),
     );
   }
@@ -86,16 +114,10 @@ export function morph(oldNode, newContent, config = {}) {
     oldNode.parentNode &&
     oldNode.parentNode.nodeType === 9
   ) {
-    const remote =
-      typeof newContent === "string"
-        ? newContent
-        : newContent.nodeType === 9
-          ? newContent
-          : newContent.ownerDocument;
     const o = Object.assign({}, options, {
       live: oldNode.ownerDocument,
       base: cfg.scripts?.mergeBase || null,
-      remote,
+      remote: remoteDocument(newContent, oldNode.ownerDocument),
     });
     return mergeDocument(o);
   }

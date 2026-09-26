@@ -279,3 +279,47 @@ test("HE2 an ignored root is a no-op with an empty report", async () => {
   assert.equal(d.body.innerHTML, "<p>current</p>");
   assert.deepEqual(docReport, empty);
 });
+
+test("HF3 property mode: a control inserted from a built node keeps the value set on it", async () => {
+  const host = document.createElement("form");
+  host.innerHTML = `<input name="title" value="Hi">`;
+  document.body.appendChild(host);
+  const frag = document.createDocumentFragment();
+  const title = document.createElement("input");
+  title.name = "title";
+  title.value = "Hi";
+  const sub = document.createElement("input");
+  sub.name = "sub";
+  sub.value = "sub";
+  const wrap = document.createElement("div");
+  const area = document.createElement("textarea");
+  area.name = "notes";
+  area.value = "typed notes";
+  const check = document.createElement("input");
+  check.type = "checkbox";
+  check.name = "on";
+  check.checked = true;
+  const select = document.createElement("select");
+  select.name = "pick";
+  for (const v of ["a", "b"]) {
+    const opt = document.createElement("option");
+    opt.value = v;
+    opt.textContent = v;
+    select.appendChild(opt);
+  }
+  select.value = "b";
+  wrap.append(area, check, select);
+  frag.append(title, sub, wrap);
+  await morphElement(host, frag, {
+    children: true,
+    formState: "property",
+    protectFocusedValue: true,
+    restoreFocus: true,
+  });
+  assert.equal(host.querySelector('[name="sub"]').value, "sub");
+  assert.equal(host.querySelector('[name="notes"]').value, "typed notes");
+  assert.equal(host.querySelector('[name="on"]').checked, true);
+  assert.equal(host.querySelector('[name="pick"]').value, "b");
+  assert.equal(host.querySelector('[name="title"]').value, "Hi");
+  host.remove();
+});

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { parse, doc, document } from "./lib/dom.js";
 import { toDocument, syncDoctype, createParseCache } from "../../src/parse.js";
 import { makeIgnore } from "../../src/ignore.js";
+import { merge3, mergeDocument } from "../../src/index.js";
 import {
   createIdentityStore,
   importMap,
@@ -157,4 +158,45 @@ test("H11 makeIgnore tells the predicate which element is a merge root", () => {
     seen.filter(([t]) => t === "DIV"),
     [["DIV", true]],
   );
+});
+
+test("HF2 synthetic ids from a map never keep the same element from pairing; authored ones do", () => {
+  const b = parse(doc(`<p>Hello world</p><p data-id="x">Keyed</p>`));
+  const l = parse(doc(`<p>Hello world</p><p data-id="x">Keyed</p>`));
+  const r = parse(doc(`<p>Hello world!</p><p data-id="y">Keyed</p>`));
+  const res = merge3(b, l, r, {
+    identity: {
+      base: { map: { "1.0": "A:1" } },
+      local: { map: { "1.0": "A:1" } },
+      remote: { map: { "1.0": "B:7" } },
+    },
+  });
+  assert.equal(
+    res.doc.body.innerHTML,
+    `<p>Hello world!</p><p data-id="y">Keyed</p>`,
+  );
+  const paired = res.provenance.get(res.doc.body.children[0]);
+  assert.equal(paired.base, b.body.children[0], "the same paragraph, paired");
+  const keyed = res.provenance.get(res.doc.body.children[1]);
+  assert.equal(keyed.base, null, "a re-keyed element is a replacement");
+});
+
+test("HF4 mergeDocument parses each live document's remote in that document's realm", async () => {
+  const { JSDOM } = await import("jsdom");
+  const one = new JSDOM(`<!DOCTYPE html><html><body><p>one</p></body></html>`);
+  await mergeDocument({
+    live: one.window.document,
+    base: null,
+    remote: `<!DOCTYPE html><html><body><p>one!</p></body></html>`,
+  });
+  assert.equal(one.window.document.body.textContent, "one!");
+  one.window.close();
+  const two = new JSDOM(`<!DOCTYPE html><html><body><p>two</p></body></html>`);
+  await mergeDocument({
+    live: two.window.document,
+    base: null,
+    remote: `<!DOCTYPE html><html><body><p>two!</p></body></html>`,
+  });
+  assert.equal(two.window.document.body.textContent, "two!");
+  two.window.close();
 });

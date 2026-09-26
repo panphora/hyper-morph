@@ -15,6 +15,8 @@ function run(baseHtml, sideHtml, { ignore, idOf = defaultIdentity } = {}) {
     analyzer,
     baseIndex: indexByIdentity(b, idOf, ignored),
     sideIndex: indexByIdentity(s, idOf, ignored),
+    baseId: idOf,
+    sideId: idOf,
   });
   return { b, s, a, analyzer };
 }
@@ -167,4 +169,25 @@ test("HE1 slot pairing yields to a move: elements moved out and replaced are mov
   assert.equal(a.map.get(x.children[1]), q(s, "#y").children[1]);
   assert.ok(a.moved.has(x.children[0]));
   assert.equal(a.reverse.get(q(s, "#x").children[0]), undefined);
+});
+
+test("HF2 elements carrying different identities never pair", () => {
+  const { b, s, a } = run(
+    `<article><h1 id="hero">Mine</h1><p id="sub">Plain</p></article>`,
+    `<article><h1 id="hero-2">Theirs</h1><p id="sub">Plain</p></article>`,
+  );
+  assert.equal(a.map.get(q(b, "h1")), undefined);
+  assert.equal(a.reverse.get(q(s, "h1")), undefined);
+  assert.equal(a.map.get(q(b, "p")), q(s, "p"));
+  const similar = run(
+    `<ul><li data-id="a">Apples are red</li><li data-id="b">Bananas are yellow</li></ul>`,
+    `<ul><li data-id="b">Bananas are yellow now</li><li data-id="c">Apples are red now</li></ul>`,
+  );
+  assert.equal(similar.a.map.get(q(similar.b, "li", 0)), undefined);
+  assert.equal(similar.a.map.get(q(similar.b, "li", 1)), q(similar.s, "li", 0));
+  const oneSided = run(
+    `<article><h1>Mine</h1></article>`,
+    `<article><h1 id="hero">Theirs</h1></article>`,
+  );
+  assert.equal(oneSided.a.map.get(q(oneSided.b, "h1")), q(oneSided.s, "h1"));
 });

@@ -298,6 +298,11 @@ export function apply(liveRoot, mergedRoot, result, o) {
         replaced.push(clone);
         recordIdentities(clone, m);
         if (!isHtmlScript(clone)) graft(clone, m);
+        // A copy carries attributes only. In property mode the caller's
+        // built node is the source of form state, so the copy takes the
+        // properties set on it, as the node itself would have carried them.
+        if (o.formState === "property" && builtRemote(pm))
+          syncFormStateDeep(clone, pm.remote);
       }
       // The graft may have moved the cursor node into the clone.
       cursor = nextUsable(clone.nextSibling);

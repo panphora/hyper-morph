@@ -125,3 +125,47 @@ test("HE2 compat: an ignored root under sync or history policy is a no-op", asyn
     t.remove();
   }
 });
+
+test("HF1 an <html> element handed as new content is the remote, not the live document", async () => {
+  document.body.innerHTML = `<h1 id="hero" contenteditable="true" data-bound="rich">Hello <em>you</em></h1><p id="sub">Plain</p>`;
+  const title = document.querySelector("#hero");
+  const incoming = document.documentElement.cloneNode(true);
+  const h = incoming.querySelector("#hero");
+  h.removeAttribute("contenteditable");
+  h.removeAttribute("data-bound");
+  h.innerHTML = "Theirs";
+  const report = await m.morph(document.documentElement, incoming, {
+    morphStyle: "outerHTML",
+    key: (el) => el.getAttribute("data-id") || el.getAttribute("id") || null,
+  });
+  assert.equal(document.querySelector("#hero"), title);
+  assert.equal(title.hasAttribute("contenteditable"), false);
+  assert.equal(title.hasAttribute("data-bound"), false);
+  assert.equal(title.innerHTML, "Theirs");
+  assert.ok(report.applied.length > 0);
+  const again = document.documentElement.cloneNode(true);
+  again.querySelector("#sub").textContent = "Changed";
+  await m.morph(document, again, { morphStyle: "outerHTML" });
+  assert.equal(document.querySelector("#sub").textContent, "Changed");
+  document.body.innerHTML = "";
+});
+
+test("HF2 compat: a keyed element never morphs into one with another key", async () => {
+  document.body.innerHTML = `<h1 class="title" id="hero" contenteditable="true">Mine</h1><p id="sub">Plain</p>`;
+  const title = document.querySelector(".title");
+  title.focus();
+  const incoming = document.documentElement.cloneNode(true);
+  const h = incoming.querySelector(".title");
+  h.setAttribute("id", "hero-2");
+  h.removeAttribute("contenteditable");
+  h.innerHTML = "Theirs";
+  await m.morph(document.documentElement, incoming, {
+    morphStyle: "outerHTML",
+    ignoreActiveValue: true,
+    key: (el) => el.getAttribute("data-id") || el.getAttribute("id") || null,
+  });
+  assert.equal(document.contains(title), false, "the old node was replaced");
+  assert.equal(document.querySelector(".title").id, "hero-2");
+  assert.equal(document.querySelector(".title").innerHTML, "Theirs");
+  document.body.innerHTML = "";
+});

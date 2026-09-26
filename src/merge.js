@@ -49,6 +49,7 @@ const isEl = (u) => !!u && u.nodeType === 1;
  * @param {Document} remoteDoc
  * @param {object} o
  * @param {{ base: Function, local: Function, remote: Function }} o.identity
+ * @param {{ base: Function, local: Function, remote: Function }} [o.authored] - the authored part of each identity; elements whose authored identities differ never pair (default: o.identity)
  * @param {(n: Node) => boolean} o.ignored
  * @param {(el: Element) => boolean} o.remoteWins
  * @param {(el: Element, name: string) => boolean} o.ignoreAttribute
@@ -82,6 +83,10 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   const idBase = withHead(o.identity.base),
     idLocal = withHead(o.identity.local),
     idRemote = withHead(o.identity.remote);
+  // What keeps two elements apart in alignment: the identity the page
+  // authored, never a merge key or a head signature (those pair, and a
+  // changed one is a rewrite in place) and never a synthetic id.
+  const authored = o.authored || o.identity;
 
   const rootOf = (x) => (x && x.nodeType === 9 ? x.documentElement : x);
   const bRoot = rootOf(baseDoc),
@@ -103,6 +108,8 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           ignored,
           fast(o.identity.local),
         ),
+        baseId: authored.base,
+        sideId: authored.local,
       });
   const R = align(bRoot, rRoot, {
     analyzer,
@@ -113,6 +120,8 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       ignored,
       fast(o.identity.remote),
     ),
+    baseId: authored.base,
+    sideId: authored.remote,
   });
   if (prof) {
     prof.alignTotal = (prof.alignTotal || 0) + (performance.now() - t0);

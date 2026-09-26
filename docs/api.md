@@ -538,6 +538,15 @@ unless everything left under their parent lines up slot for slot (pass 4):
 then they are the same slot rewritten, and both sides align it the same
 way whichever neighbours changed.
 
+Two elements that both carry an authored identity pair only when it is the
+same one, in every pass: an element re-keyed on one side is a replacement,
+never a rewrite of the element that held the old key. The authored identity
+is the identity function itself, or a map spec's `first`, else its `then`;
+a synthetic id from a map never keeps a pair from forming, since the same
+element can carry different synthetic ids in two tabs until they have met.
+Merge keys and head signatures do not keep elements apart either: a data
+script whose key changed is replaced in place.
+
 ### Elements
 
 An element paired on both sides is emitted once, with:
@@ -826,6 +835,7 @@ Deprecated. `morph(oldNode, newContent, config)` keeps 0.5.x callers working and
 
 | 0.5.x option                           | 1.0 equivalent                                                                                                                                           |
 | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `newContent` as an `<html>` element    | the remote document (adopted into one; the live document is never the remote)                                                                            |
 | `policy: "sync" \| "history" \| "raw"` | `ignore` (the old sync and history ignore selectors; `raw` ignores nothing; `history` morphs a `[no-undo]` root that is not `[editor-ui]`, as 0.5.x did) |
 | `callbacks`                            | `hooks`                                                                                                                                                  |
 | `ignoreActiveValue: true`              | `protectFocusedValue: "subtree"`                                                                                                                         |
@@ -836,7 +846,7 @@ Deprecated. `morph(oldNode, newContent, config)` keeps 0.5.x callers working and
 | `scripts.mergeBase`                    | `base`                                                                                                                                                   |
 | `head.block`                           | `head.awaitLoads`                                                                                                                                        |
 | `head.shouldPreserve`                  | `head.preserve`                                                                                                                                          |
-| `key`                                  | `identity` on all three sides                                                                                                                            |
+| `key`                                  | `identity` on all three sides; as in 0.5.x, elements with different keys never morph into each other                                                     |
 | `morphStyle: "innerHTML"`              | `children: true`                                                                                                                                         |
 
 A `Document` or `<html>` target goes through `mergeDocument`; any other element goes through `morphElement`. New code should call those directly.

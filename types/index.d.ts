@@ -10,6 +10,9 @@ export type IdOf = (el: Element) => string | null | undefined;
  * children only) applied after the side is parsed, with `then` answering
  * for elements the map does not name. The reserved key "~" carries the
  * sender's element child counts; below a count mismatch nothing is imported.
+ * The authored identity (the function, or `first`, else `then`) keeps
+ * elements with different values apart in alignment; synthetic ids from the
+ * map never do.
  */
 export type IdentitySpec =
   | IdOf

@@ -9,7 +9,11 @@ the review, the scenarios, and the specification.
 ### Added
 
 - `morph(oldNode, newContent, config)`: the 0.5.x surface as a deprecated
-  compatibility export, mapped onto the new API (see `docs/api.md`).
+  compatibility export, mapped onto the new API (see `docs/api.md`). An
+  `<html>` element handed as new content is the remote document; a keyed
+  element never morphs into one with another key; in `formStateSync:
+"property"` a control inserted from a built node keeps the properties set
+  on it.
 
 - `mergeDocument({ live, base, remote, local?, ... })`: three-way merge of
   whole documents. `morphDocument(live, remote)` is the two-way form;
@@ -26,7 +30,7 @@ the review, the scenarios, and the specification.
   signatures, signature plus similar text, position, cross-parent moves,
   then slots rewritten in place (every unpaired element under a parent at
   the same index with the same tag on both sides). Never on tag and class
-  alone.
+  alone, and never across two different authored identities.
 - A report per call: `applied`, `decisions`, `conflicts`, `localDiverged`,
   `identities`, `moved`, `replaced`. `localDiverged` is true exactly when
   the merged document differs from the remote one, compared directly after
