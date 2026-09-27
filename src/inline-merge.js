@@ -1300,13 +1300,27 @@ export function mergeInline(o) {
       return kept.includes(pick) ? pick : kept[0];
     };
     const at = (f, i) => (i >= 0 ? blockU(f.stackAt[i]) : null);
+    // A block closes one run when it can: when the three-way pick already
+    // closed an earlier run (a join's block, kept by the side that joined),
+    // a base break keeps its own block if no other break picks it. Two
+    // splits of one block still share it, and the second run gets a copy.
+    const picks = new Map();
+    for (let i = 0; i < m; i++) {
+      if (text[i] !== BREAK) continue;
+      const B = ob[i] >= 0 ? at(fb, ob[i]) : null,
+        Ls = at(fl, ol[i]),
+        Rs = at(fr, or[i]);
+      picks.set(i, [B, ob[i] >= 0 ? threeWay(B, Ls, Rs) : Ls || Rs]);
+    }
+    const picked = new Set([...picks.values()].map((p) => p[1]));
+    const closed = new Set();
     let runStart = 0;
     for (let i = 0; i < m; i++) {
       if (text[i] !== BREAK) continue;
-      const u =
-        ob[i] >= 0
-          ? threeWay(at(fb, ob[i]), at(fl, ol[i]), at(fr, or[i]))
-          : at(fl, ol[i]) || at(fr, or[i]);
+      const [B, pick] = picks.get(i);
+      let u = pick;
+      if (u && closed.has(u) && B && !closed.has(B) && !picked.has(B)) u = B;
+      if (u) closed.add(u);
       for (let k = runStart; k <= i; k++) blockOf[k] = u;
       runStart = i + 1;
     }

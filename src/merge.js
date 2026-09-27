@@ -1460,19 +1460,22 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           ? whole
           : (!Lv.asBase && Lv.baseOf(whole)) ||
             (!Rv.asBase && Rv.baseOf(whole));
-        // A piece whose own side still has the whole block, that end
-        // included, is new text typed beside it, not half split off it.
-        if (bk && isEl(part) && !bSet.has(part))
+        // A piece whose own side still has the whole block is new text
+        // typed beside it, not half split off it.
+        if (bk && isEl(part) && !bSet.has(part)) {
+          const was = flatText(bk);
           for (const x of [L.map.get(bk), R.map.get(bk)]) {
             if (!x || x === part || x.ownerDocument !== part.ownerDocument)
               continue;
             const t = flatText(x);
             if (
               t.length > piece.length &&
+              t.includes(was) &&
               (t.startsWith(piece) || t.endsWith(piece))
             )
               return false;
           }
+        }
         const pt = tokens(part);
         const wt = family(whole);
         let n = 0;
@@ -1480,10 +1483,19 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         if (pt.size && n * 2 >= pt.size) return true;
         if (!piece || piece.length > SPLIT_SCAN_MAX) return false;
         const kin = bk ? [whole, bk, L.map.get(bk), R.map.get(bk)] : [whole];
+        // A base block a side joined away may carry the other side's edit:
+        // its twins' text is the piece too.
+        const pieces = [piece];
+        if (bSet.has(part))
+          for (const x of [L.map.get(part), R.map.get(part)]) {
+            const t = x && flatText(x);
+            if (t && t !== piece) pieces.push(t);
+          }
         return kin.some((x) => {
           const t = x && flatText(x);
           return (
-            !!t && t !== piece && (t.startsWith(piece) || t.endsWith(piece))
+            !!t &&
+            pieces.some((p) => t !== p && (t.startsWith(p) || t.endsWith(p)))
           );
         });
       };

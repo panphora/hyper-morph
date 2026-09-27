@@ -562,3 +562,80 @@ test("R4 a remote-wins span with an id keeps its live node when remote adds anot
   );
   assert.equal(live.querySelector("#a"), a);
 });
+
+test("R5 a split whose halves repeat a word is still a split", async () => {
+  const cases = [
+    [
+      `<p>ha ha ha</p>`,
+      `<p>ha ha</p><p>ha</p>`,
+      `<p>ha ha HA</p>`,
+      `<p>ha ha</p><p>HA</p>`,
+    ],
+    [
+      `<p>ha ha ha</p>`,
+      `<p>ha ha HA</p>`,
+      `<p>ha ha</p><p>ha</p>`,
+      `<p>ha ha</p><p>HA</p>`,
+    ],
+    [
+      `<p>Row, row, row your boat</p>`,
+      `<p>Row,</p><p>row, row your boat</p>`,
+      `<p>ROW, row, row your boat</p>`,
+      `<p>ROW,</p><p>row, row your boat</p>`,
+    ],
+    [
+      `<p>ha ha ha</p>`,
+      `<p>ha ha</p><p>ha</p>`,
+      `<p><b>ha ha ha</b></p>`,
+      `<p><b>ha ha</b></p><p><b>ha</b></p>`,
+    ],
+    [
+      `<ul><li>a a b</li></ul>`,
+      `<ul><li>a</li><li>a b</li></ul>`,
+      `<ul><li>A a b</li></ul>`,
+      `<ul><li>A</li><li>a b</li></ul>`,
+    ],
+    [
+      `<p>yes yes yes</p>`,
+      `<p>yes yes</p><p>yes</p>`,
+      `<p>yes yes no</p>`,
+      `<p>yes yes</p><p>no</p>`,
+    ],
+  ];
+  for (const [base, local, remote, expected] of cases) {
+    const m = mergeBodies(base, local, remote);
+    assert.equal(m.html, expected, local + " | " + remote);
+    assert.equal(m.res.conflicts.length, 0, local + " | " + remote);
+    assert.equal(await onLivePage(base, local, remote), expected);
+  }
+});
+
+test("R5 a join that fused an echoed edit is found by the edit, so the joined paragraph lands once", async () => {
+  const base = `<p>red fox</p><p>the quick brown dog</p>`;
+  const local = `<p>blue fox</p><p>the quick brown dog</p>`;
+  const remote = `<p>blue foxthe quick brown dog</p><p><br></p>`;
+  const expected = remote;
+  assert.equal(mergeBodies(base, local, remote).html, expected);
+  assert.equal(await onLivePage(base, local, remote), expected);
+});
+
+test("R5 a join beside the other side's new line keeps the second block's own element", async () => {
+  const cases = [
+    [
+      `<ul><li>milk</li><li class="done">eggs</li></ul>`,
+      `<ul><li>milkeggs</li></ul>`,
+      `<ul><li>milk</li><li><br></li><li class="done">eggs</li></ul>`,
+    ],
+    [
+      `<h2>alpha bravo</h2><p>charlie delta</p>`,
+      `<h2>alpha bravocharlie delta</h2>`,
+      `<h2>alpha bravo</h2><p><br></p><p>charlie delta</p>`,
+    ],
+  ];
+  for (const [base, local, remote] of cases) {
+    const m = mergeBodies(base, local, remote);
+    assert.equal(m.html, remote, local + " | " + remote);
+    assert.equal(m.res.conflicts.length, 1, local + " | " + remote);
+    assert.equal(await onLivePage(base, local, remote), remote);
+  }
+});
