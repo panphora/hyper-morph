@@ -483,6 +483,15 @@ export function align(baseRoot, sideRoot, o) {
 
   function passPositional(bUnits, sUnits) {
     pairRunsByAnchor(bUnits, sUnits);
+    // An empty line where a block with words was is that block cleared only
+    // in its own slot; elsewhere it is a new line (Enter) beside a deletion.
+    const sameSlot = slotTest(bUnits, sUnits);
+    const emptiedElsewhere = (b, s) =>
+      isEl(b) &&
+      meta(b).hint !== "" &&
+      meta(s).hint === "" &&
+      !!s.querySelector("br") &&
+      !sameSlot(b, s);
     let cursor = 0;
     for (const b of bUnits) {
       if (map.has(b)) {
@@ -499,7 +508,7 @@ export function align(baseRoot, sideRoot, o) {
         const s = sUnits[i];
         if (reverse.has(s)) continue;
         looked++;
-        if (compatible(b, s) && !isBanned(b, s)) {
+        if (compatible(b, s) && !isBanned(b, s) && !emptiedElsewhere(b, s)) {
           pair(b, s);
           if (isEl(b) && (meta(b).hint === "" || meta(s).hint === ""))
             weak.add(b);
@@ -520,20 +529,15 @@ export function align(baseRoot, sideRoot, o) {
    * a move with content evidence takes the side element over. Runs before the hash passes because it needs no hashing,
    * which keeps an ordinary edit from hashing the whole document.
    */
-  function pairUnambiguous(bUnits, sUnits) {
-    const leftB = bUnits.filter((u) => isEl(u) && !map.has(u)),
-      leftS = sUnits.filter((u) => isEl(u) && !reverse.has(u));
-    if (!leftB.length || !leftS.length) return;
-    const byTagB = countBy(leftB, (u) => u.tagName),
-      byTagS = countBy(leftS, (u) => u.tagName);
-    // The same slot: the same index, or the same paired element before it
-    // (an insertion or deletion further up shifts the index, not the slot).
+  // The same slot: the same index, or the same paired element before it
+  // (an insertion or deletion further up shifts the index, not the slot).
+  function slotTest(bUnits, sUnits) {
     const anchor = (units, i, has) => {
       for (let j = i - 1; j >= 0; j--)
         if (isEl(units[j]) && has(units[j])) return units[j];
       return null;
     };
-    const sameSlot = (b, s) => {
+    return (b, s) => {
       const bi = posB.get(b),
         si = posS.get(s);
       if (bi === si) return true;
@@ -541,6 +545,15 @@ export function align(baseRoot, sideRoot, o) {
         as = anchor(sUnits, si, (u) => reverse.has(u));
       return ab ? map.get(ab) === as : !as;
     };
+  }
+
+  function pairUnambiguous(bUnits, sUnits) {
+    const leftB = bUnits.filter((u) => isEl(u) && !map.has(u)),
+      leftS = sUnits.filter((u) => isEl(u) && !reverse.has(u));
+    if (!leftB.length || !leftS.length) return;
+    const byTagB = countBy(leftB, (u) => u.tagName),
+      byTagS = countBy(leftS, (u) => u.tagName);
+    const sameSlot = slotTest(bUnits, sUnits);
     for (const b of leftB) {
       const tag = b.tagName;
       if (byTagB.get(tag) !== 1 || byTagS.get(tag) !== 1) continue;

@@ -918,9 +918,28 @@ export function mergeInline(o) {
   const overlaps = (a, b) => a.bs < b.be && b.bs < a.be;
   const touches = (a, b) =>
     a.bs <= b.be && b.bs <= a.be && isInsert(a) !== isInsert(b);
+  const hasBreak = (h, fs) =>
+    fb.text.slice(h.bs, h.be).includes(BREAK) ||
+    fs.text.slice(h.ss, h.se).includes(BREAK);
+  // A replacement of a block's whole text rewrites the block: it meets a
+  // join or split beside it as a conflict, as any text replacement does.
+  const wholeBlock = (h) => {
+    if (isInsert(h)) return false;
+    let a = h.bs,
+      b = h.be;
+    while (a > 0 && /\s/.test(fb.text[a - 1])) a--;
+    while (b < fb.text.length && /\s/.test(fb.text[b])) b++;
+    return (
+      (a === 0 || fb.text[a - 1] === BREAK) &&
+      (b === fb.text.length || fb.text[b] === BREAK)
+    );
+  };
+  const wordEdit = (h, fs) => !hasBreak(h, fs) && !wholeBlock(h);
   const textConflict = (l, r) =>
     overlaps(l, r) ||
-    (touches(l, r) && !structural(l, fl) && !structural(r, fr));
+    (touches(l, r) &&
+      !(structural(l, fl) && wordEdit(r, fr)) &&
+      !(structural(r, fr) && wordEdit(l, fl)));
   const sameHunk = (l, r) => {
     if (l.bs !== r.bs || l.be !== r.be || l.toks.length !== r.toks.length)
       return false;
@@ -1264,6 +1283,7 @@ export function mergeInline(o) {
   // block's break into it; a split inserts one, so the words after it
   // follow the new block's break.
   const blockOf = new Array(m).fill(null);
+  const glue = new Set();
   if (anyBlocks) {
     const threeWay = (B, Ls, Rs) => {
       const cands = new Set([B, Ls, Rs]);
@@ -1289,6 +1309,48 @@ export function mergeInline(o) {
           : at(fl, ol[i]) || at(fr, or[i]);
       for (let k = runStart; k <= i; k++) blockOf[k] = u;
       runStart = i + 1;
+    }
+    // No side had words outside a block, so none land there: a run whose
+    // break every side's reading dropped (a join beside the other side's
+    // break edit) lands in the block its words came from, or when another
+    // run holds that block, continues the block before it or the one after.
+    const wordy = (c) => c !== BREAK && c !== ATOM && !/\s/.test(c);
+    const loose = (f) => {
+      for (let i = 0; i < f.text.length; i++)
+        if (wordy(f.text[i]) && !at(f, i)) return true;
+      return false;
+    };
+    if (!loose(fb) && !loose(fl) && !loose(fr)) {
+      const runs = [];
+      let s = 0;
+      for (let i = 0; i < m; i++)
+        if (text[i] === BREAK || i === m - 1) {
+          runs.push([s, i]);
+          s = i + 1;
+        }
+      const held = new Set(blockOf);
+      for (let r = 0; r < runs.length; r++) {
+        const [s, e] = runs[r];
+        if (blockOf[e]) continue;
+        let k = s;
+        while (k <= e && !wordy(text[k])) k++;
+        if (k > e) continue;
+        const B = at(fb, ob[k]),
+          Ls = at(fl, ol[k]),
+          Rs = at(fr, or[k]);
+        const own = threeWay(B, Ls, Rs) || Ls || Rs || B;
+        if (own && !held.has(own)) {
+          held.add(own);
+          for (let j = s; j <= e; j++) blockOf[j] = own;
+          continue;
+        }
+        const prev = r > 0 && blockOf[runs[r - 1][1]];
+        const next = r + 1 < runs.length && blockOf[runs[r + 1][1]];
+        if (prev) glue.add(runs[r - 1][1]);
+        else if (next && text[e] === BREAK) glue.add(e);
+        else continue;
+        for (let k = s; k <= e; k++) blockOf[k] = prev || next;
+      }
     }
   }
 
@@ -1733,6 +1795,7 @@ export function mergeInline(o) {
       while (stack.length < want.length) openMark(want[stack.length]);
     }
     if (text[i] === BREAK) {
+      if (glue.has(i)) continue;
       // The block ends here: close it (and the marks inside it), so the
       // next block opens afresh even when the same block continues.
       flush(i);

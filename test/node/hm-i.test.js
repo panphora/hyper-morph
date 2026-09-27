@@ -416,3 +416,86 @@ test("HM-I13 two paragraphs each side rewrote to the same text both land", async
     assert.equal(await onLivePage(base, local, remote), expected);
   }
 });
+
+test("R4 a join beside the other side's Enter or deletion keeps every word inside a block", async () => {
+  const base = `<p>alpha bravo</p><p>charlie delta</p>`;
+  const join = `<p>alpha bravocharlie delta</p>`;
+  const cases = [
+    [
+      base,
+      join,
+      `<p>alpha bravo</p><p><br></p><p>charlie delta</p>`,
+      `<p>alpha bravo</p><p><br></p><p>charlie delta</p>`,
+      1,
+    ],
+    [base, `<p>alpha bravo</p><p><br></p><p>charlie delta</p>`, join, join, 1],
+    [base, join, `<p>alpha bravo</p>`, `<p>alpha bravo</p>`, 0],
+    [
+      `<p>alpha bravo</p><p>charlie delta</p><p>new para text</p>`,
+      `<p>alpha bravo</p><p>new para text</p>`,
+      `<p>alpha bravocharlie delta</p><p>new para text</p>`,
+      `<p>alpha bravo</p><p>new para text</p>`,
+      0,
+    ],
+    [
+      `<p>w0 w1</p><p>w2 w3</p>`,
+      `<p>w0 w1w2 w3</p>`,
+      `<p>w0 w1</p>`,
+      `<p>w0 w1</p>`,
+      0,
+    ],
+  ];
+  for (const [b, local, remote, expected, conflicts] of cases) {
+    const m = mergeBodies(b, local, remote);
+    assert.equal(m.html, expected, local + " | " + remote);
+    assert.equal(m.res.conflicts.length, conflicts, local + " | " + remote);
+    assert.equal(await onLivePage(b, local, remote), expected);
+  }
+});
+
+test("R4 an empty line typed where a paragraph was deleted does not take its place, so a join beside it keeps its words", async () => {
+  const cases = [
+    [
+      `<p>alpha bravo</p><p>charlie delta</p>`,
+      `<p>alpha bravocharlie delta</p>`,
+      `<p>charlie delta</p><p><br></p>`,
+      `<p>charlie delta</p><p><br></p>`,
+    ],
+    [
+      `<p>w0 w1 w2 w3</p><p>w4 w5 w6 w7</p>`,
+      `<p>w0 w1 w2 w3 w4 w5 w6 w7</p>`,
+      `<p>w4 w5 w6 w7</p><p><br></p>`,
+      `<p>w4 w5 w6 w7</p><p><br></p>`,
+    ],
+  ];
+  for (const [b, local, remote, expected] of cases) {
+    assert.equal(
+      mergeBodies(b, local, remote).html,
+      expected,
+      local + " | " + remote,
+    );
+    assert.equal(await onLivePage(b, local, remote), expected);
+  }
+});
+
+test("R4 a paragraph rewritten whole beside the other side's join conflicts, and the echoed paragraph lands once", async () => {
+  const base = `<p>alpha bravo</p><p>charlie delta</p>`;
+  const cases = [
+    [
+      `<p>alpha bravo</p><p>new para text</p>`,
+      `<p>alpha bravo charlie delta</p><p>new para text</p>`,
+      `<p>alpha bravo charlie delta</p><p>new para text</p>`,
+    ],
+    [
+      `<p>alpha bravo</p><p>new para text</p>`,
+      `<p>alpha bravocharlie delta</p><p>new para text</p>`,
+      `<p>alpha bravocharlie delta</p><p>new para text</p>`,
+    ],
+  ];
+  for (const [local, remote, expected] of cases) {
+    const m = mergeBodies(base, local, remote);
+    assert.equal(m.html, expected, local + " | " + remote);
+    assert.equal(m.res.conflicts.length, 1, local + " | " + remote);
+    assert.equal(await onLivePage(base, local, remote), expected);
+  }
+});
