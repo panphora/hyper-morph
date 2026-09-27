@@ -2008,14 +2008,17 @@ export function mergeInline(o) {
         { flatLocal: fl.text, localNodes: fl.nodes, textNodes, lToM, mapLocal },
       ];
     const records = [];
-    let start = 0;
+    let start = 0,
+      ni = 0;
     for (let k = 0; k <= fl.text.length; k++) {
       if (k < fl.text.length && fl.text[k] !== BREAK) continue;
       const from = start,
         end = k;
       if (end > from) {
         const localNodes = [];
-        for (const x of fl.nodes) {
+        while (ni < fl.nodes.length && fl.nodes[ni].e <= from) ni++;
+        for (let j = ni; j < fl.nodes.length && fl.nodes[j].s < end; j++) {
+          const x = fl.nodes[j];
           const s = Math.max(x.s, from),
             e = Math.min(x.e, end);
           if (s < e)

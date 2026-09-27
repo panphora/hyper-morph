@@ -1523,7 +1523,9 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
             ks = isEl(sk) && sideId(sk);
           return !kb || !ks || kb === ks;
         };
-        const here = (t) => !!t && (isEl(t) ? V.here(t) : su.includes(t));
+        const sPos = new Map();
+        for (let j = 0; j < su.length; j++) sPos.set(su[j], j);
+        const here = (t) => !!t && (isEl(t) ? V.here(t) : sPos.has(t));
         const twinHere = (bk) => {
           const t = V.twin(bk);
           return here(t) ? t : null;
@@ -1534,28 +1536,35 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         const sOrphans = su.filter((u) => textBlock(u) && !V.baseOf(u));
         const pairedHere = (u, list) =>
           list === bUnits ? !!twinHere(u) : bSet.has(V.baseOf(u));
-        // The gap around index i in a list: the nearest paired units before
-        // and after it, and everything strictly between them.
-        const gap = (list, i) => {
-          let lo = i - 1,
-            hi = i + 1;
-          while (lo >= 0 && !pairedHere(list[lo], list)) lo--;
-          while (hi < list.length && !pairedHere(list[hi], list)) hi++;
-          return {
-            lo: lo >= 0 ? list[lo] : null,
-            hi: hi < list.length ? list[hi] : null,
-            from: lo + 1,
-            to: hi,
-          };
+        // For each index of a list, the index of the nearest paired unit
+        // before it (-1 if none) and after it (the length if none).
+        const nearest = (list) => {
+          const prev = new Int32Array(list.length),
+            next = new Int32Array(list.length);
+          let last = -1;
+          for (let i = 0; i < list.length; i++) {
+            prev[i] = last;
+            if (pairedHere(list[i], list)) last = i;
+          }
+          last = list.length;
+          for (let i = list.length - 1; i >= 0; i--) {
+            next[i] = last;
+            if (pairedHere(list[i], list)) last = i;
+          }
+          return { prev, next };
         };
+        const sNear = nearest(su),
+          bNear = nearest(bUnits);
         const qualify = (bk, sk) => {
           addBase(bk);
           add(sk);
         };
         for (const y of sOrphans) {
-          const g = gap(su, su.indexOf(y));
-          const bLo = g.lo ? V.baseOf(g.lo) : null,
-            bHi = g.hi ? V.baseOf(g.hi) : null;
+          const j = sPos.get(y),
+            lo = sNear.prev[j],
+            hi = sNear.next[j];
+          const bLo = lo >= 0 ? V.baseOf(su[lo]) : null,
+            bHi = hi < su.length ? V.baseOf(su[hi]) : null;
           const from = bLo ? bPos.get(bLo) : -1,
             to = bHi ? bPos.get(bHi) : bUnits.length;
           for (
@@ -1617,7 +1626,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
               qualify(x, y);
               addBase(x2);
             }
-            const y2 = nextText(su, su.indexOf(y), dir);
+            const y2 = nextText(su, sPos.get(y) ?? -1, dir);
             if (y2 && mostIn(lost, y2)) {
               qualify(x, y);
               const bk = V.baseOf(y2);
@@ -1627,15 +1636,13 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           }
         }
         for (const x of bOrphans) {
-          const i = bPos.get(x);
-          let lo = i - 1,
-            hi = i + 1;
-          while (lo >= 0 && !twinHere(bUnits[lo])) lo--;
-          while (hi < bUnits.length && !twinHere(bUnits[hi])) hi++;
+          const i = bPos.get(x),
+            lo = bNear.prev[i],
+            hi = bNear.next[i];
           const sLo = lo >= 0 ? twinHere(bUnits[lo]) : null,
             sHi = hi < bUnits.length ? twinHere(bUnits[hi]) : null;
-          const from = sLo ? su.indexOf(sLo) : -1,
-            to = sHi ? su.indexOf(sHi) : su.length;
+          const from = sLo ? (sPos.get(sLo) ?? -1) : -1,
+            to = sHi ? (sPos.get(sHi) ?? -1) : su.length;
           for (
             let j = Math.max(0, from);
             j <= Math.min(to, su.length - 1);
