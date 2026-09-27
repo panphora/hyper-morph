@@ -713,3 +713,28 @@ test("R6 an edited block deleted beside a neighbour that ends with the edit keep
     assert.equal(await onLivePage(base, local, remote), expected);
   }
 });
+
+test("R6 a short edit that a deleted block's neighbour already held is no join", async () => {
+  const cases = [
+    [
+      `<p>red fox</p><p>AllDone</p>`,
+      `<p>Done</p><p>AllDone</p>`,
+      `<p>AllDone now</p>`,
+      `<p>Done</p><p>AllDone now</p>`,
+    ],
+    [
+      `<p>red fox</p><p>nobody</p>`,
+      `<p>no</p><p>nobody</p>`,
+      `<p>nobody now</p>`,
+      `<p>no</p><p>nobody now</p>`,
+    ],
+  ];
+  for (const [base, local, remote, expected] of cases) {
+    assert.equal(
+      mergeBodies(base, local, remote).html,
+      expected,
+      local + " | " + remote,
+    );
+    assert.equal(await onLivePage(base, local, remote), expected);
+  }
+});

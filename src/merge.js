@@ -1485,20 +1485,21 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         if (pt.size && n * 2 >= pt.size) return true;
         if (!piece || piece.length > SPLIT_SCAN_MAX) return false;
         const kin = bk ? [whole, bk, L.map.get(bk), R.map.get(bk)] : [whole];
+        const atEnd = (t, p) => t !== p && (t.startsWith(p) || t.endsWith(p));
+        if (kin.some((x) => x && atEnd(flatText(x), piece))) return true;
         // A base block a side joined away may carry the other side's edit:
-        // when the block it joined into gained text, its twins' text is the
-        // piece too.
-        const pieces = [piece];
-        if (bSet.has(part) && bk && flatText(whole) !== flatText(bk))
-          for (const x of [L.map.get(part), R.map.get(part)]) {
-            const t = x && flatText(x);
-            if (t && t !== piece) pieces.push(t);
-          }
-        return kin.some((x) => {
-          const t = x && flatText(x);
+        // its twin's text counts when the block it joined into gained it at
+        // that end.
+        if (!bSet.has(part) || !bk) return false;
+        const w = flatText(whole),
+          was = flatText(bk);
+        return [L.map.get(part), R.map.get(part)].some((x) => {
+          const p = x && flatText(x);
           return (
-            !!t &&
-            pieces.some((p) => t !== p && (t.startsWith(p) || t.endsWith(p)))
+            !!p &&
+            w !== p &&
+            ((w.startsWith(p) && !was.startsWith(p)) ||
+              (w.endsWith(p) && !was.endsWith(p)))
           );
         });
       };
