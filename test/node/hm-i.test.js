@@ -173,3 +173,59 @@ test("HM-I3 the caret keeps its character through a join that fuses two words", 
     ed.remove();
   }
 });
+
+test("HM-I4 splits in CJK, emoji and inside a word are splits", async () => {
+  const cases = [
+    [
+      `<p>你好世界这是测试</p>`,
+      `<p>你好世界</p><p>这是测试</p>`,
+      `<p>你好世界这是测试！</p>`,
+      `<p>你好世界</p><p>这是测试！</p>`,
+    ],
+    [
+      `<p>你好世界这是测试</p>`,
+      `<p>你好世界这是测试！</p>`,
+      `<p>你好世界</p><p>这是测试</p>`,
+      `<p>你好世界</p><p>这是测试！</p>`,
+    ],
+    [
+      `<p>😀 😃 😄 😁</p>`,
+      `<p>😀 😃</p><p>😄 😁</p>`,
+      `<p>😀 😃 😄 😁 APPEND</p>`,
+      `<p>😀 😃</p><p>😄 😁 APPEND</p>`,
+    ],
+    [
+      `<p>hello</p>`,
+      `<p>he</p><p>llo</p>`,
+      `<p>hello there</p>`,
+      `<p>he</p><p>llo there</p>`,
+    ],
+    [
+      `<p>hello</p>`,
+      `<p>hello there</p>`,
+      `<p>he</p><p>llo</p>`,
+      `<p>he</p><p>llo there</p>`,
+    ],
+    [
+      `<p>你好世界</p><p>这是测试</p>`,
+      `<p>你好世界这是测试</p>`,
+      `<p>你好世界</p><p>这是测试！</p>`,
+      `<p>你好世界这是测试！</p>`,
+    ],
+  ];
+  for (const [base, local, remote, expected] of cases) {
+    const m = mergeBodies(base, local, remote);
+    assert.equal(m.html, expected, local + " | " + remote);
+    assert.equal(m.res.conflicts.length, 0, local + " | " + remote);
+    assert.equal(await onLivePage(base, local, remote), expected);
+  }
+});
+
+test("HM-I4 a CJK split whose half the splitter also edited is still one block", () => {
+  const m = mergeBodies(
+    `<p>你好世界这是测试</p>`,
+    `<p>你好世界</p><p>这是测验</p>`,
+    `<p>你好世界这是测试！</p>`,
+  );
+  assert.equal(m.html, `<p>你好世界</p><p>这是测试！</p>`);
+});

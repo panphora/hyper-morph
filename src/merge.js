@@ -22,7 +22,7 @@
 
 import { createAnalyzer } from "./similarity.js";
 import { align } from "./align.js";
-import { merge3Text, diff } from "./text-merge.js";
+import { merge3Text, diff, words } from "./text-merge.js";
 import { mergeInline, isInlineUnit } from "./inline-merge.js";
 import { indexByIdentity, defaultIdentity } from "./identity.js";
 import { headSignature } from "./head-merge.js";
@@ -1421,12 +1421,23 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         if (t) return t;
         const text = isEl(u) ? u.textContent : u.value;
         t = new Set();
-        if (text.length <= SPLIT_SCAN_MAX)
-          for (const w of text.toLowerCase().split(/[^\p{L}\p{N}]+/u))
+        const low = text.toLowerCase();
+        if (text.length > SPLIT_SCAN_MAX);
+        else if (/^[\x00-\x7f]*$/.test(low))
+          for (const w of low.split(/[^\p{L}\p{N}]+/u)) {
             if (w) t.add(w);
+          }
+        else for (const w of words(low)) if (!/^[\s\p{P}]+$/u.test(w)) t.add(w);
         tokCache.set(u, t);
         return t;
       };
+      // The text with its whitespace collapsed: a piece split inside a word
+      // shares no whole word with its block, only its start or its end.
+      const flatText = (u) =>
+        (isEl(u) ? u.textContent : u.value)
+          .toLowerCase()
+          .replace(/\s+/g, " ")
+          .trim();
       // A block's words together with its twins' words: a split right at a
       // word one side changed still shows the half as part of the block.
       const famCache = new Map();
@@ -1450,11 +1461,23 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       };
       const holdsMost = (whole, part) => {
         const pt = tokens(part);
-        if (!pt.size) return false;
         const wt = family(whole);
         let n = 0;
         for (const w of pt) if (wt.has(w)) n++;
-        return n * 2 >= pt.size;
+        if (pt.size && n * 2 >= pt.size) return true;
+        const piece = flatText(part);
+        if (!piece || piece.length > SPLIT_SCAN_MAX) return false;
+        const bk = bSet.has(whole)
+          ? whole
+          : (!Lv.asBase && Lv.baseOf(whole)) ||
+            (!Rv.asBase && Rv.baseOf(whole));
+        const kin = bk ? [whole, bk, L.map.get(bk), R.map.get(bk)] : [whole];
+        return kin.some((x) => {
+          const t = x && flatText(x);
+          return (
+            !!t && t !== piece && (t.startsWith(piece) || t.endsWith(piece))
+          );
+        });
       };
       const add = (u) => {
         if (!out) out = new Set();
