@@ -262,11 +262,47 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       return d;
     };
     const cands = [];
+    // Identical inserts under different parents are one insertion only
+    // with evidence: two people adding an empty paragraph, a "Done" item or
+    // an <hr> in two sections made two blocks. The markup must appear once
+    // on each side, and either carry real text, or sit where something
+    // moved (a sibling one side moved, a block the other side deleted).
+    const telling = (el) => {
+      const t = el.textContent.trim();
+      return t.split(/\s+/).length >= 3 || t.replace(/\s/g, "").length >= 12;
+    };
+    const movedBase = (b) => {
+      const lt = L.map.get(b),
+        rt = R.map.get(b);
+      return (
+        (lt && L.reverse.get(lt.parentNode) !== b.parentNode) ||
+        (rt && R.reverse.get(rt.parentNode) !== b.parentNode)
+      );
+    };
+    const unsettled = (A, O, x) => {
+      for (const sib of x.parentNode.children) {
+        const b = sib !== x && A.reverse.get(sib);
+        if (b && movedBase(b)) return true;
+      }
+      const bp = A.reverse.get(x.parentNode);
+      if (bp)
+        for (const b of bp.children)
+          if (!O.map.has(b) && !ignored(b)) return true;
+      return false;
+    };
     for (const [h, ls] of lIns) {
       const rs = rIns.get(h);
       if (!rs) continue;
+      const unique = ls.length === 1 && rs.length === 1;
       for (const lu of ls)
-        if (!isInlineUnit(lu, inlineOpts)) cands.push([lu, rs, depth(lu)]);
+        if (!isInlineUnit(lu, inlineOpts))
+          cands.push([
+            lu,
+            rs,
+            depth(lu),
+            unique &&
+              (telling(lu) || unsettled(L, R, lu) || unsettled(R, L, rs[0])),
+          ]);
     }
     if (!cands.length) return { partner, drop };
     cands.sort((a, b) => a[2] - b[2]);
@@ -276,14 +312,14 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       for (const d of el.querySelectorAll("*")) covered.add(d);
     };
     const baseParentOf = (A, el) => A.reverse.get(el.parentNode) || null;
-    for (const [lu, rs] of cands) {
+    for (const [lu, rs, , crossable] of cands) {
       if (covered.has(lu)) continue;
       const bp = baseParentOf(L, lu);
       const free = (x) =>
         !taken.has(x) && !covered.has(x) && x.tagName === lu.tagName;
       const ru =
         rs.find((x) => free(x) && bp && baseParentOf(R, x) === bp) ||
-        rs.find(free);
+        (crossable ? rs.find(free) : null);
       if (!ru) continue;
       taken.add(ru);
       cover(lu);
