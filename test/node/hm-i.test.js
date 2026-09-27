@@ -393,3 +393,26 @@ test("HM-I9 an echoed rewrite beside a new sibling lands once", async () => {
     assert.equal(await onLivePage(base, local, remote), expected);
   }
 });
+
+test("HM-I13 two paragraphs each side rewrote to the same text both land", async () => {
+  const cases = [
+    [
+      `<p>alpha beta gamma</p><hr><p>delta epsilon zeta</p>`,
+      `<p>all tasks complete</p><hr><p>delta epsilon zeta</p>`,
+      `<p>alpha beta gamma</p><hr><p>all tasks complete</p>`,
+      `<p>all tasks complete</p><hr><p>all tasks complete</p>`,
+    ],
+    [
+      `<div id="a"><p>alpha beta gamma</p></div><div id="b"><p>delta epsilon zeta</p></div>`,
+      `<div id="a"><p>all tasks complete</p></div><div id="b"><p>delta epsilon zeta</p></div>`,
+      `<div id="a"><p>alpha beta gamma</p></div><div id="b"><p>all tasks complete</p></div>`,
+      `<div id="a"><p>all tasks complete</p></div><div id="b"><p>all tasks complete</p></div>`,
+    ],
+  ];
+  for (const [base, local, remote, expected] of cases) {
+    const m = mergeBodies(base, local, remote);
+    assert.equal(m.html, expected, local + " | " + remote);
+    assert.equal(m.res.conflicts.length, 0, local + " | " + remote);
+    assert.equal(await onLivePage(base, local, remote), expected);
+  }
+});

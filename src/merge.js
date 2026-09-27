@@ -314,6 +314,8 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   // slot, and not the same base element: local read the block as a rewrite
   // of one paragraph, remote as a rewrite of its neighbour. It is one
   // block both inserted, and each read would land it again.
+  // When each side kept the paragraph the other rewrote, they are two
+  // rewrites that happen to match, and both land.
   function splitCrossRewrites() {
     if (!L.weak || !R.weak || !L.weak.size || !R.weak.size || !L.unpair) return;
     const lBy = new Map();
@@ -327,6 +329,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       if (!isEl(b) || !isEl(y)) continue;
       const lb = lBy.get(analyzer.unitHash(y));
       if (!lb || lb === b || !L.weak.has(lb)) continue;
+      if (L.map.has(b) && R.map.has(lb)) continue;
       if (L.map.get(lb).tagName !== y.tagName) continue;
       L.unpair(lb);
       R.unpair(b);
