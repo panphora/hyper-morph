@@ -154,6 +154,50 @@ function myers(a, b, maxD) {
 }
 
 /**
+ * Myers, but where block breaks are present the words align first and the
+ * breaks then align inside each gap between aligned words. Otherwise a
+ * split ties with rewriting the next block: `c d e|x y|` into `c d|e|`
+ * could read as deleting ` e` and rewriting `x y` as `e`, and a deletion
+ * of `x y` on the other side would then conflict away the `e` both sides
+ * kept.
+ */
+function wordsFirst(a, b, maxD) {
+  const brk = (t) => t.k === BREAK;
+  if (!a.some(brk) && !b.some(brk)) return myers(a, b, maxD);
+  const ai = [],
+    bi = [];
+  for (let i = 0; i < a.length; i++) if (!brk(a[i])) ai.push(i);
+  for (let i = 0; i < b.length; i++) if (!brk(b[i])) bi.push(i);
+  const top = myers(
+    ai.map((i) => a[i]),
+    bi.map((i) => b[i]),
+    maxD,
+  );
+  if (!top) return null;
+  const ops = [];
+  let x = 0,
+    y = 0;
+  const gapTo = (xe, ye) => {
+    while (x < xe && y < ye && a[x].k === b[y].k) ops.push([0, x++, y++]);
+    const sub = myers(a.slice(x, xe), b.slice(y, ye), maxD);
+    if (!sub) return false;
+    for (const [op, i, j] of sub) ops.push([op, i + x, j + y]);
+    x = xe;
+    y = ye;
+    return true;
+  };
+  for (const [op, i, j] of top) {
+    if (op !== 0) continue;
+    if (!gapTo(ai[i], bi[j])) return null;
+    ops.push([0, x, y]);
+    x++;
+    y++;
+  }
+  if (!gapTo(a.length, b.length)) return null;
+  return ops;
+}
+
+/**
  * Token hunks transforming B into S. Each hunk: { bs, be, toks, keys }
  * in B token indices. Cosmetic hunks (equal key, different raw) are returned
  * separately: { bi, tok }.
@@ -179,7 +223,7 @@ export function diffTokens(B, S, maxD = MAX_EDITS) {
     bm = S.slice(p, S.length - s);
   // A middle that shares few words is a rewrite: one hunk, no Myers. Also
   // the answer when Myers exceeds maxD (prefix and suffix are already trimmed).
-  const ops = sharesFew(am, bm) ? null : myers(am, bm, maxD);
+  const ops = sharesFew(am, bm) ? null : wordsFirst(am, bm, maxD);
   if (!ops) {
     const hunks =
       am.length || bm.length ? [{ bs: p, be: p + am.length, toks: bm }] : [];
@@ -242,6 +286,7 @@ export function diffTokens(B, S, maxD = MAX_EDITS) {
     } else cur.toks.push(bm[ib]);
   }
   settle();
+  slideOntoBreaks(parts, B);
   const joined = joinParts(parts);
   return {
     hunks: joined.hunks,
@@ -249,6 +294,41 @@ export function diffTokens(B, S, maxD = MAX_EDITS) {
     parts,
     cosmeticEq: cosmetic,
   };
+}
+
+/**
+ * A deletion or insertion that starts with a block break, beside an equal
+ * break, can sit on either side of it. It moves right past it, so it ends
+ * on the break of the block it removes or adds, wherever the diff found
+ * it: two sides deleting one block then delete the same characters.
+ */
+function slideOntoBreaks(parts, B) {
+  for (let i = 0; i < parts.length; i++) {
+    const q = parts[i];
+    if (q.gap.length) continue;
+    const next = i + 1 < parts.length ? parts[i + 1].bs : Infinity;
+    if (!q.toks.length)
+      while (
+        q.be + 1 < next &&
+        q.be < B.length &&
+        B[q.bs].k === BREAK &&
+        B[q.be].k === BREAK
+      ) {
+        q.bs++;
+        q.be++;
+      }
+    else if (q.bs === q.be)
+      while (
+        q.bs + 1 < next &&
+        q.bs < B.length &&
+        q.toks[0].k === BREAK &&
+        B[q.bs].k === BREAK
+      ) {
+        q.toks = [...q.toks.slice(1), q.toks[0]];
+        q.bs++;
+        q.be++;
+      }
+  }
 }
 
 /**

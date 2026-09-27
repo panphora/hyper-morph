@@ -229,3 +229,38 @@ test("HM-I4 a CJK split whose half the splitter also edited is still one block",
   );
   assert.equal(m.html, `<p>你好世界</p><p>这是测试！</p>`);
 });
+
+test("HM-I11 a split beside a block both sides deleted keeps the split-off words", async () => {
+  const cases = [
+    [
+      `<p>c d e</p><p>x y</p>`,
+      `<p>c d</p><p>e</p>`,
+      `<p>c d e</p>`,
+      `<p>c d</p><p>e</p>`,
+    ],
+    [
+      `<p>c d e</p><p>x y</p>`,
+      `<p>c d e</p>`,
+      `<p>c d</p><p>e</p>`,
+      `<p>c d</p><p>e</p>`,
+    ],
+    [
+      `<p>a b</p><p>c d e</p><p>x y</p>`,
+      `<p>a b</p><p>c d</p><p>e</p>`,
+      `<p>q r</p><p>c d e</p>`,
+      `<p>q r</p><p>c d</p><p>e</p>`,
+    ],
+    [
+      `<p>w0 w1 w2</p><p>w5 w6 w7 w8 w9</p><p>w10 w11 w12 w13 w14</p>`,
+      `<p>w0 w1 w2</p><p>w5 w6 w7 w8</p><p>w9</p>`,
+      `<p>w17 w18 w19 w20</p><p>w5 w6 w7 w8 w9</p>`,
+      `<p>w17 w18 w19 w20</p><p>w5 w6 w7 w8</p><p>w9</p>`,
+    ],
+  ];
+  for (const [base, local, remote, expected] of cases) {
+    const m = mergeBodies(base, local, remote);
+    assert.equal(m.html, expected, local + " | " + remote);
+    assert.equal(m.res.conflicts.length, 0, local + " | " + remote);
+    assert.equal(await onLivePage(base, local, remote), expected);
+  }
+});
