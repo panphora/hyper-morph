@@ -499,3 +499,66 @@ test("R4 a paragraph rewritten whole beside the other side's join conflicts, and
     assert.equal(await onLivePage(base, local, remote), expected);
   }
 });
+
+test("R4 a new block that starts or ends like its neighbour is new text when the neighbour kept it", async () => {
+  const cases = [
+    [
+      `<p>hello</p>`,
+      `<p>he</p><p>hello</p>`,
+      `<p>HELLO</p>`,
+      `<p>he</p><p>HELLO</p>`,
+    ],
+    [
+      `<p>hello</p>`,
+      `<p>hello</p><p>llo</p>`,
+      `<p>HELLO</p>`,
+      `<p>HELLO</p><p>llo</p>`,
+    ],
+    [`<p>hello</p>`, `<p>he</p><p>hello</p>`, ``, `<p>he</p>`],
+    [
+      `<ol><li>10 apples</li></ol>`,
+      `<ol><li>1</li><li>10 apples</li></ol>`,
+      `<ol><li>12 apples</li></ol>`,
+      `<ol><li>1</li><li>12 apples</li></ol>`,
+    ],
+    [
+      `<p>hello</p>`,
+      `<p>he</p><p>llo</p>`,
+      `<p>hello there</p>`,
+      `<p>he</p><p>llo there</p>`,
+    ],
+    [`<p>你好世界</p>`, `<p>你好</p><p>你好世界</p>`, ``, `<p>你好</p>`],
+    [
+      `<p>Hello world</p>`,
+      `<p>Hello</p><p>Hello world</p>`,
+      `<p>Hello there world</p>`,
+      `<p>Hello</p><p>Hello there world</p>`,
+    ],
+  ];
+  for (const [base, local, remote, expected] of cases) {
+    const m = mergeBodies(base, local, remote);
+    assert.equal(m.html, expected, local + " | " + remote);
+    assert.equal(m.res.conflicts.length, 0, local + " | " + remote);
+    assert.equal(await onLivePage(base, local, remote), expected);
+  }
+});
+
+test("R4 a remote-wins span with an id keeps its live node when remote adds another beside it", async () => {
+  const live = parse(
+    doc(`<p>one <span id="a" no-watch>A</span> two</p><p>three</p>`),
+  );
+  const a = live.querySelector("#a");
+  await mergeDocument({
+    live,
+    base: doc(`<p>one <span id="a" no-watch>A</span> two three</p>`),
+    remote: doc(
+      `<p>one <span id="x" no-watch>X</span><span id="a" no-watch>A2</span> two THREE</p>`,
+    ),
+    remoteWins: (el) => el.hasAttribute("no-watch"),
+  });
+  assert.equal(
+    live.body.innerHTML,
+    `<p>one <span id="x" no-watch="">X</span><span id="a" no-watch="">A2</span> two</p><p>THREE</p>`,
+  );
+  assert.equal(live.querySelector("#a"), a);
+});

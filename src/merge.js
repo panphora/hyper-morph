@@ -1455,17 +1455,30 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         return f;
       };
       const holdsMost = (whole, part) => {
+        const piece = flatText(part);
+        const bk = bSet.has(whole)
+          ? whole
+          : (!Lv.asBase && Lv.baseOf(whole)) ||
+            (!Rv.asBase && Rv.baseOf(whole));
+        // A piece whose own side still has the whole block, that end
+        // included, is new text typed beside it, not half split off it.
+        if (bk && isEl(part) && !bSet.has(part))
+          for (const x of [L.map.get(bk), R.map.get(bk)]) {
+            if (!x || x === part || x.ownerDocument !== part.ownerDocument)
+              continue;
+            const t = flatText(x);
+            if (
+              t.length > piece.length &&
+              (t.startsWith(piece) || t.endsWith(piece))
+            )
+              return false;
+          }
         const pt = tokens(part);
         const wt = family(whole);
         let n = 0;
         for (const w of pt) if (wt.has(w)) n++;
         if (pt.size && n * 2 >= pt.size) return true;
-        const piece = flatText(part);
         if (!piece || piece.length > SPLIT_SCAN_MAX) return false;
-        const bk = bSet.has(whole)
-          ? whole
-          : (!Lv.asBase && Lv.baseOf(whole)) ||
-            (!Rv.asBase && Rv.baseOf(whole));
         const kin = bk ? [whole, bk, L.map.get(bk), R.map.get(bk)] : [whole];
         return kin.some((x) => {
           const t = x && flatText(x);

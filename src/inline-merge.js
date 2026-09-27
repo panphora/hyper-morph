@@ -664,9 +664,9 @@ export function mergeInline(o) {
     const keyOf = new Map();
     for (const a of fs.atoms) {
       // A remote-wins span holds whatever remote has: its content is no
-      // edit of either side, and it keys by what it is.
+      // edit of either side, and it keys by what it is and its id.
       if (o.remoteWins && o.remoteWins(a.el) && MARK_TAGS.has(a.el.tagName))
-        keyOf.set(a, "w" + a.el.tagName);
+        keyOf.set(a, "w" + a.el.tagName + "#" + (a.el.id || ""));
       else if (!byTwin) keyOf.set(a, a.key);
       else if (fs === fb) keyOf.set(a, "=" + contentKey(a.el));
       else {
