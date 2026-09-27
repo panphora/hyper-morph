@@ -127,7 +127,6 @@ export function align(baseRoot, sideRoot, o) {
     unpair,
     rematch: movesAndSlots,
     insertedByHash,
-    adopt,
   };
 
   // Pass 3: moves, then the children of moved pairs. Pass 4: slots, then the
@@ -333,8 +332,7 @@ export function align(baseRoot, sideRoot, o) {
 
   /**
    * Pair two elements on positional evidence alone (a weak pair) and align
-   * their children. The merge uses it for a slot the other side's echo
-   * resolves; see resolveSlotEchoes in merge.js.
+   * their children.
    */
   function adopt(b, s) {
     pair(b, s);

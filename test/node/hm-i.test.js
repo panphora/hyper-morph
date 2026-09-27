@@ -358,3 +358,38 @@ test("HM-I5 a paragraph with an inline remote-wins region still splits and joins
     assert.ok(live.contains(span), "the live remote-wins span is kept");
   }
 });
+
+test("HM-I9 an echoed rewrite beside a new sibling lands once", async () => {
+  const cases = [
+    [
+      `<h2>t</h2><p>one two three</p><h3>u</h3>`,
+      `<h2>t</h2><p>new para here</p><p>uno dos tres</p><h3>u</h3>`,
+      `<h2>t</h2><p>uno dos tres</p><h3>u</h3>`,
+      `<h2>t</h2><p>new para here</p><p>uno dos tres</p><h3>u</h3>`,
+    ],
+    [
+      `<h2>t</h2><p>one two three</p><h3>u</h3>`,
+      `<h2>t</h2><p>uno dos tres</p><h3>u</h3>`,
+      `<h2>t</h2><p>uno dos tres</p><p>new para here</p><h3>u</h3>`,
+      `<h2>t</h2><p>uno dos tres</p><p>new para here</p><h3>u</h3>`,
+    ],
+    [
+      `<h2>t</h2><p>one two three</p><h3>u</h3>`,
+      `<h2>t</h2><p>new para here</p><p>uno dos tres cuatro</p><h3>u</h3>`,
+      `<h2>t</h2><p>uno dos tres</p><h3>u</h3>`,
+      `<h2>t</h2><p>new para here</p><p>uno dos tres cuatro</p><h3>u</h3>`,
+    ],
+    [
+      `<ul><li>one two three</li></ul>`,
+      `<ul><li>new item</li><li>uno dos tres</li></ul>`,
+      `<ul><li>uno dos tres</li></ul>`,
+      `<ul><li>new item</li><li>uno dos tres</li></ul>`,
+    ],
+  ];
+  for (const [base, local, remote, expected] of cases) {
+    const m = mergeBodies(base, local, remote);
+    assert.equal(m.html, expected, local + " | " + remote);
+    assert.equal(m.res.conflicts.length, 0);
+    assert.equal(await onLivePage(base, local, remote), expected);
+  }
+});
