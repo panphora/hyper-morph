@@ -127,6 +127,7 @@ export function align(baseRoot, sideRoot, o) {
     unpair,
     rematch: movesAndSlots,
     insertedByHash,
+    adopt,
   };
 
   // Pass 3: moves, then the children of moved pairs. Pass 4: slots, then the
@@ -275,41 +276,71 @@ export function align(baseRoot, sideRoot, o) {
 
   /**
    * The same slots rewritten on one side: base [A, B] against side [A', B']
-   * with neither text similar. Every element still unpaired under the
-   * parent sits at the same index with the same tag on the other side, so
-   * no insertion or deletion can have shifted them, and each pairs with the
-   * element in its slot. Runs last, after moves, so an element that moved
-   * away and was replaced in its slot is a move, not a rewrite. With any
-   * count or index mismatch nothing pairs: the difference could be a shift.
+   * with neither text similar. Leftovers are grouped by gap between paired
+   * elements; within a gap whose sides hold the same count with the same
+   * tags, no insertion or deletion can have shifted them, and each pairs
+   * with the element in its slot. Runs last, after moves, so an element
+   * that moved away and was replaced in its slot is a move, not a rewrite.
+   * A gap with a count mismatch pairs nothing: the difference could be a
+   * shift.
    */
   function pairSlots(from, to) {
     for (let n = from; n < to; n++) {
       const [bEl, sEl] = slotParents[n];
       const bu = unitsOf(bEl),
         su = unitsOf(sEl);
-      const leftB = [],
-        leftS = [];
-      for (let i = 0; i < bu.length; i++)
-        if (isEl(bu[i]) && !map.has(bu[i])) leftB.push([bu[i], i]);
-      for (let i = 0; i < su.length; i++)
-        if (isEl(su[i]) && !reverse.has(su[i])) leftS.push([su[i], i]);
-      if (!leftB.length || leftB.length !== leftS.length) continue;
-      if (
-        !leftB.every(
-          ([b, i], k) =>
-            leftS[k][1] === i &&
-            leftS[k][0].tagName === b.tagName &&
-            keysAgree(b, leftS[k][0]) &&
-            !isBanned(b, leftS[k][0]),
+      // Leftovers by gap: the gap is named by the nearest preceding paired
+      // element (the base one, or the side one's base twin), or null at the
+      // start. A gap whose two sides hold the same number of leftovers, tag
+      // for tag, was rewritten in place; a gap with a count mismatch may
+      // have shifted and pairs nothing, whatever the other gaps hold.
+      const gapsB = new Map(),
+        gapsS = new Map();
+      let anchor = null;
+      for (const u of bu) {
+        if (!isEl(u)) continue;
+        if (map.has(u)) anchor = u;
+        else {
+          if (!gapsB.has(anchor)) gapsB.set(anchor, []);
+          gapsB.get(anchor).push(u);
+        }
+      }
+      anchor = null;
+      for (const u of su) {
+        if (!isEl(u)) continue;
+        if (reverse.has(u)) anchor = reverse.get(u);
+        else {
+          if (!gapsS.has(anchor)) gapsS.set(anchor, []);
+          gapsS.get(anchor).push(u);
+        }
+      }
+      for (const [key, leftB] of gapsB) {
+        const leftS = gapsS.get(key);
+        if (!leftS || leftB.length !== leftS.length) continue;
+        if (
+          !leftB.every(
+            (b, k) =>
+              leftS[k].tagName === b.tagName &&
+              keysAgree(b, leftS[k]) &&
+              !isBanned(b, leftS[k]),
+          )
         )
-      )
-        continue;
-      for (let k = 0; k < leftB.length; k++) {
-        pair(leftB[k][0], leftS[k][0]);
-        weak.add(leftB[k][0]);
-        queue.push([leftB[k][0], leftS[k][0]]);
+          continue;
+        for (let k = 0; k < leftB.length; k++) adopt(leftB[k], leftS[k]);
       }
     }
+  }
+
+  /**
+   * Pair two elements on positional evidence alone (a weak pair) and align
+   * their children. The merge uses it for a slot the other side's echo
+   * resolves; see resolveSlotEchoes in merge.js.
+   */
+  function adopt(b, s) {
+    pair(b, s);
+    weak.add(b);
+    queue.push([b, s]);
+    drain();
   }
 
   function passIdentical(freeB, freeS) {

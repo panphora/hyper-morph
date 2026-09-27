@@ -123,6 +123,8 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     baseId: authored.base,
     sideId: authored.remote,
   });
+  resolveSlotEchoes(L, R);
+  resolveSlotEchoes(R, L);
   demoteEchoes(L, R);
   demoteEchoes(R, L);
   if (prof) {
@@ -176,6 +178,54 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     L,
     R,
   };
+
+  // A base element the other side paired only by its slot, left unpaired on
+  // this side beside inserts in the same gap: when one of those inserts is
+  // this side's copy of the slot's new content (the same markup, or alike
+  // text), the count mismatch that kept the slot pass from pairing them was
+  // an insertion elsewhere in the gap, and the copy is the element's twin.
+  function resolveSlotEchoes(A, O) {
+    if (!A.adopt || !O.weak || !O.weak.size) return;
+    const sideId = A === L ? authored.local : authored.remote;
+    for (const bk of Array.from(O.weak)) {
+      if (!isEl(bk) || A.map.has(bk)) continue;
+      const e = O.map.get(bk);
+      if (!isEl(e)) continue;
+      const bParent = bk.parentNode,
+        sParent = bParent && A.map.get(bParent);
+      if (!sParent) continue;
+      let anchor = null;
+      for (const u of unitsOf(bParent)) {
+        if (u === bk) break;
+        if (isEl(u) && A.map.has(u)) anchor = u;
+      }
+      const sAnchor = anchor ? A.map.get(anchor) : null;
+      if (sAnchor && sAnchor.parentNode !== sParent) continue;
+      const kb = authored.base(bk);
+      let inGap = sAnchor === null,
+        hit = null;
+      for (const u of unitsOf(sParent)) {
+        if (!isEl(u)) continue;
+        if (u === sAnchor) {
+          inGap = true;
+          continue;
+        }
+        if (!inGap) continue;
+        if (A.reverse.has(u)) break;
+        const ks = sideId(u);
+        if (
+          u.tagName === e.tagName &&
+          !(kb && ks && kb !== ks) &&
+          (analyzer.unitHash(u) === analyzer.unitHash(e) ||
+            analyzer.similar(u, e))
+        ) {
+          hit = u;
+          break;
+        }
+      }
+      if (hit) A.adopt(bk, hit);
+    }
+  }
 
   // A weak pair (made with no content evidence) whose side element the
   // other side inserted verbatim is an echo of that insertion, not a rewrite
