@@ -616,13 +616,28 @@ export function align(baseRoot, sideRoot, o) {
       if (!bySig.has(sig)) bySig.set(sig, []);
       bySig.get(sig).push(s);
     }
-    for (const b of unpairedBase) {
-      if (map.has(b)) continue;
+    // A base element paired by its slot with a dissimilar rewrite is a move
+    // candidate too: an edited copy elsewhere is the stronger evidence, and
+    // the rewrite in its slot is then an insertion.
+    const slotOnly = new Set();
+    for (const b of weak) {
+      const s = map.get(b);
+      if (!isEl(b) || !isEl(s) || codeLike(b)) continue;
+      if (meta(b).hint === "" || meta(s).hint === "") continue;
+      if (!similar(b, s)) slotOnly.add(b);
+    }
+    for (const b of [...unpairedBase, ...slotOnly]) {
+      const was = map.get(b);
+      if (was && !(weak.has(b) && slotOnly.has(b))) continue;
+      const claim = (s) => {
+        if (was) unpair(b);
+        take(s);
+      };
       const same = byHash.get(meta(b).hash);
       if (same) {
-        const s = same.find((x) => free(x, b) && !isBanned(b, x));
+        const s = same.find((x) => x !== was && free(x, b) && !isBanned(b, x));
         if (s) {
-          take(s);
+          claim(s);
           lockstep(b, s);
           moved.add(b);
           continue;
@@ -634,7 +649,8 @@ export function align(baseRoot, sideRoot, o) {
       let hit = null,
         count = 0;
       for (const s of bucket) {
-        if (!free(s, b) || !keysAgree(b, s) || isBanned(b, s)) continue;
+        if (s === was || !free(s, b) || !keysAgree(b, s) || isBanned(b, s))
+          continue;
         if (budget-- <= 0) break;
         if (similar(b, s)) {
           count++;
@@ -643,7 +659,7 @@ export function align(baseRoot, sideRoot, o) {
         }
       }
       if (count === 1) {
-        take(hit);
+        claim(hit);
         pair(b, hit);
         moved.add(b);
         queue.push([b, hit]);

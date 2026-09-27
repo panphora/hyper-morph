@@ -264,3 +264,19 @@ test("HM-I11 a split beside a block both sides deleted keeps the split-off words
     assert.equal(await onLivePage(base, local, remote), expected);
   }
 });
+
+test("HM-I12 a paragraph moved and edited leaves its slot to the paragraph typed there", async () => {
+  const base = `<p>w0 w1 w2 w3 w4 w5</p><div><p>w7 w8 w9 w10</p></div>`;
+  const moved = `<p>new</p><div><p>w23 w1 w2 w3 w4 w5</p><p>w7 w8 w9 w10</p></div>`;
+  const edited = `<p>w0 w1 w2 w3 w4 w5 w6</p><div><p>w7 w8 w9 w10</p></div>`;
+  const expected = `<p>new</p><div><p>w23 w1 w2 w3 w4 w5 w6</p><p>w7 w8 w9 w10</p></div>`;
+  for (const [local, remote] of [
+    [moved, edited],
+    [edited, moved],
+  ]) {
+    const m = mergeBodies(base, local, remote);
+    assert.equal(m.html, expected);
+    assert.equal(m.res.conflicts.length, 0);
+    assert.equal(await onLivePage(base, local, remote), expected);
+  }
+});
