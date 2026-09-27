@@ -141,6 +141,29 @@ export function flatten(units, o = {}) {
       }
       if (o.skip && o.skip.has(node)) continue;
       const tag = node.tagName;
+      if (o.blocks && o.blocks.has(node)) {
+        // A block starts after a break: text before it never fuses with
+        // its first word. Blocks in a row share the break between them.
+        if (f.text.length && f.text[f.text.length - 1] !== BREAK) {
+          f.stackAt.push(stack);
+          f.text += BREAK;
+        }
+        const m = {
+          el: node,
+          tag,
+          from: f.text.length,
+          to: -1,
+          depth: stack.length,
+          block: true,
+        };
+        f.marks.push(m);
+        const inner = stack.concat([m]);
+        walk(node.childNodes, inner);
+        f.stackAt.push(inner);
+        f.text += BREAK;
+        m.to = f.text.length;
+        continue;
+      }
       const empty = MARK_TAGS.has(tag) && isEmptyMark(node);
       if (
         ATOM_TAGS.has(tag) ||
@@ -223,7 +246,11 @@ export function sliceHtml(f, from, to) {
       stack.push(m);
     }
     const atom = f.atomAt.get(i);
-    out += atom ? atom.el.outerHTML : escapeHtml(f.text[i]);
+    out += atom
+      ? atom.el.outerHTML
+      : f.text[i] === BREAK
+        ? ""
+        : escapeHtml(f.text[i]);
   }
   while (stack.length) out += `</${stack.pop().tag.toLowerCase()}>`;
   return out;
@@ -674,6 +701,7 @@ export function mergeInline(o) {
   const baseUs = [];
   for (const m of fb.marks) {
     const u = newU(m.tag, m.depth);
+    u.block = !!m.block;
     u.base = m.el;
     u.baseMark = m;
     byEl.set(m.el, u);
@@ -706,7 +734,7 @@ export function mergeInline(o) {
         let bestOv = 0;
         if (r)
           for (const c of baseUs) {
-            if (c.tag !== m.tag || c[side]) continue;
+            if (c.tag !== m.tag || c[side] || !!c.block !== !!m.block) continue;
             const ov =
               Math.min(r[1], c.baseMark.to) - Math.max(r[0], c.baseMark.from);
             if (
@@ -722,6 +750,7 @@ export function mergeInline(o) {
       }
       if (!u) {
         u = newU(m.tag, m.depth);
+        u.block = !!m.block;
         u.new = side;
       }
       u[side] = m.el;
@@ -732,9 +761,11 @@ export function mergeInline(o) {
   pairSide(fl, "local", L, ML.toB);
   pairSide(fr, "remote", R, MR.toB);
   const resolve = (u) => u.merged || u;
+  // Block marks are a layer of their own (blockOf below): the inline
+  // rules (format hunks, inheritance, nesting) never see them.
   const usOf = (stack) => {
     const s = new Set();
-    for (const m of stack) s.add(byEl.get(m.el));
+    for (const m of stack) if (!m.block) s.add(byEl.get(m.el));
     return s;
   };
   const usCache = new Map();
@@ -804,9 +835,32 @@ export function mergeInline(o) {
     return null;
   };
   const isInsert = (h) => h.bs === h.be;
-  const textConflict = (a, b) =>
-    (a.bs < b.be && b.bs < a.be) ||
-    (a.bs <= b.be && b.bs <= a.be && isInsert(a) !== isInsert(b));
+  // A hunk that only puts in or takes out block breaks (whitespace aside):
+  // a split or a join. A text insertion touching it is not a conflict
+  // (Decision 2 is about replacements of words): it lands beside the break,
+  // in the block its own position names.
+  const structural = (h, fs) => {
+    let brk = false;
+    for (let i = h.bs; i < h.be; i++) {
+      const c = fb.text[i];
+      if (c === BREAK) brk = true;
+      else if (!/\s/.test(c)) return false;
+    }
+    for (let i = h.ss; i < h.se; i++) {
+      const c = fs.text[i];
+      if (c === BREAK) brk = true;
+      else if (!/\s/.test(c)) return false;
+    }
+    return brk;
+  };
+  const overlaps = (a, b) => a.bs < b.be && b.bs < a.be;
+  const touches = (a, b) =>
+    a.bs <= b.be && b.bs <= a.be && isInsert(a) !== isInsert(b);
+  const textConflict = (l, r) =>
+    overlaps(l, r) ||
+    (touches(l, r) &&
+      !(isInsert(l) && structural(r, fr)) &&
+      !(isInsert(r) && structural(l, fl)));
   const sameHunk = (l, r) => {
     if (l.bs !== r.bs || l.be !== r.be || l.toks.length !== r.toks.length)
       return false;
@@ -851,8 +905,15 @@ export function mergeInline(o) {
   while (li < lh.length || ri < rh.length) {
     const l = lh[li],
       r = rh[ri];
-    const takeL =
+    let takeL =
       !!l && (!r || l.bs < r.bs || (l.bs === r.bs && l.be <= r.be && !r.lead));
+    // Two insertions at one point, one of them a break: the text goes
+    // first, so it stays in the block the break ends.
+    if (l && r && l.bs === r.bs && isInsert(l) && isInsert(r)) {
+      const sl = structural(l, fl),
+        sr = structural(r, fr);
+      if (sl !== sr) takeL = sr;
+    }
     const h = takeL ? l : r,
       other = takeL ? r : l;
     const same = !!other && sameHunk(l, r);
@@ -865,7 +926,7 @@ export function mergeInline(o) {
         : !!rh[ri + 1] && sameHunk(l, rh[ri + 1]));
     // Two different texts typed into an empty segment collide.
     const withOther =
-      !!other && !same && !echoed && (n === 0 || textConflict(h, other));
+      !!other && !same && !echoed && (n === 0 || textConflict(l, r));
     let conflict = withOther;
     const rel = formatRelation(h, takeL ? RF : LF);
     if (rel === "straddle") conflict = true;
@@ -1100,7 +1161,11 @@ export function mergeInline(o) {
       const id = ids ? ids.local(ul.local) : null;
       if (!id) continue;
       const ur = newR.find(
-        (x) => !x.merged && x.tag === ul.tag && ids.remote(x.remote) === id,
+        (x) =>
+          !x.merged &&
+          x.tag === ul.tag &&
+          !!x.block === !!ul.block &&
+          ids.remote(x.remote) === id,
       );
       if (ur) unify(ul, ur);
     }
@@ -1109,7 +1174,8 @@ export function mergeInline(o) {
       const ra = mergedRange(ul.localMark, lToM);
       if (!ra) continue;
       for (const ur of newR) {
-        if (ur.merged || ur.tag !== ul.tag) continue;
+        if (ur.merged || ur.tag !== ul.tag || !!ur.block !== !!ul.block)
+          continue;
         const rb = mergedRange(ur.remoteMark, rToM);
         if (rb && Math.min(ra[1], rb[1]) - Math.max(ra[0], rb[0]) > 0) {
           unify(ul, ur);
@@ -1119,6 +1185,52 @@ export function mergeInline(o) {
     }
   }
   usCache.clear();
+
+  // The block mark (if any) on a side's stack, as its merged unit.
+  const blockU = (stack) => {
+    for (const mk of stack) if (mk.block) return resolve(byEl.get(mk.el));
+    return null;
+  };
+  const anyBlocks =
+    fb.marks.some((mk) => mk.block) ||
+    fl.marks.some((mk) => mk.block) ||
+    fr.marks.some((mk) => mk.block);
+  // The break that ends a run of characters carries the block they land
+  // in: a base break names its block on the three sides (the sides may
+  // disagree, and the disagreement resolves like any three-way choice), a
+  // break one side inserted names that side's block. Characters after the
+  // last break, and before a break no block owns, are loose text. A join
+  // deletes a break, so the words of the second block follow the first
+  // block's break into it; a split inserts one, so the words after it
+  // follow the new block's break.
+  const blockOf = new Array(m).fill(null);
+  if (anyBlocks) {
+    const threeWay = (B, Ls, Rs) => {
+      const cands = new Set([B, Ls, Rs]);
+      cands.delete(null);
+      const kept = [];
+      for (const u of cands) {
+        const inB = u === B,
+          inL = u === Ls,
+          inR = u === Rs;
+        if (inL === inR ? inL : inL === inB ? inR : inL) kept.push(u);
+      }
+      if (kept.length <= 1) return kept[0] || null;
+      const pick = policy === "local" ? Ls : Rs;
+      return kept.includes(pick) ? pick : kept[0];
+    };
+    const at = (f, i) => (i >= 0 ? blockU(f.stackAt[i]) : null);
+    let runStart = 0;
+    for (let i = 0; i < m; i++) {
+      if (text[i] !== BREAK) continue;
+      const u =
+        ob[i] >= 0
+          ? threeWay(at(fb, ob[i]), at(fl, ol[i]), at(fr, or[i]))
+          : at(fl, ol[i]) || at(fr, or[i]);
+      for (let k = runStart; k <= i; k++) blockOf[k] = u;
+      runStart = i + 1;
+    }
+  }
 
   // The marks of each merged character, as a sorted list. Nesting order:
   // the side whose stack holds both marks decides (local, remote, base);
@@ -1262,6 +1374,7 @@ export function mergeInline(o) {
   const opened = new Map();
   const openMark = (u) => {
     const el = out.createElement(u.tag);
+    if (u.block) blockEls.add(el);
     const first = !opened.has(u);
     if (first) {
       opened.set(u, el);
@@ -1521,10 +1634,15 @@ export function mergeInline(o) {
       append(el);
     }
   };
+  const blockEls = new Set();
   for (let i = 0; i < m; i++) {
     const at = atomsAt(i);
-    const blockAt = !!at && isBlock((at.ab || at.al || at.ar).el);
-    const want = blockAt ? [] : marksAt(i);
+    const atomBlock = !!at && isBlock((at.ab || at.al || at.ar).el);
+    const want = atomBlock
+      ? []
+      : blockOf[i]
+        ? [blockOf[i], ...marksAt(i)]
+        : marksAt(i);
     let c = 0;
     while (c < stack.length && c < want.length && stack[c].u === want[c]) c++;
     if (c < stack.length) {
@@ -1540,6 +1658,19 @@ export function mergeInline(o) {
     if (want.length > stack.length) {
       flush(i);
       while (stack.length < want.length) openMark(want[stack.length]);
+    }
+    if (text[i] === BREAK) {
+      // The block ends here: close it (and the marks inside it), so the
+      // next block opens afresh even when the same block continues.
+      flush(i);
+      let k = stack.length;
+      while (k > 0 && !stack[k - 1].u.block) k--;
+      if (k > 0)
+        while (stack.length >= k) {
+          stack.pop();
+          container = stack.length ? stack[stack.length - 1].el : null;
+        }
+      continue;
     }
     if (at) {
       flush(i);
@@ -1642,7 +1773,8 @@ export function mergeInline(o) {
   const hasText = (p) => {
     if (p.conflict) return true;
     const t = p.src === "local" ? fl.text : p.src === "remote" ? fr.text : "";
-    for (let i = p.from; i < p.to; i++) if (t[i] !== ATOM) return true;
+    for (let i = p.from; i < p.to; i++)
+      if (t[i] !== ATOM && t[i] !== BREAK) return true;
     return false;
   };
   for (const p of pieces)
@@ -1788,8 +1920,53 @@ export function mergeInline(o) {
     textMappers.set(t.node, mapper);
   }
 
+  // For apply: the local flat text and nodes this merge read, the output
+  // text nodes with their ranges, and the caret map between them. Breaks
+  // are not text: the record maps break-free offsets, which is what the
+  // live text nodes hold.
+  // One record per local block (a break-free stretch of the local flat
+  // text), as apply saw them before blocks merged as one sequence: the
+  // typing a live text node took after the snapshot is found by diffing
+  // that block's text alone, so words on both sides of a break never fuse
+  // and an insertion at a block edge belongs to the block it was typed in.
+  function segmentRecords() {
+    if (!fl.text.includes(BREAK))
+      return [
+        { flatLocal: fl.text, localNodes: fl.nodes, textNodes, lToM, mapLocal },
+      ];
+    const records = [];
+    let start = 0;
+    for (let k = 0; k <= fl.text.length; k++) {
+      if (k < fl.text.length && fl.text[k] !== BREAK) continue;
+      const from = start,
+        end = k;
+      if (end > from) {
+        const localNodes = [];
+        for (const x of fl.nodes) {
+          const s = Math.max(x.s, from),
+            e = Math.min(x.e, end);
+          if (s < e)
+            localNodes.push({ node: x.node, s: s - from, e: e - from });
+        }
+        records.push({
+          flatLocal: fl.text.slice(from, end),
+          localNodes,
+          textNodes,
+          lToM: lToM.subarray
+            ? lToM.subarray(from, end + 1)
+            : lToM.slice(from, end + 1),
+          mapLocal: (i) =>
+            mapLocal(from + Math.max(0, Math.min(i, end - from))),
+        });
+      }
+      start = k + 1;
+    }
+    return records;
+  }
+
   const outOpts = {
     ...o,
+    blocks: blockEls,
     ignored: (n) => pinNodes.has(n) || (o.ignored ? o.ignored(n) : false),
   };
   const ia = o.ignoreAttribute || (() => false);
@@ -1803,15 +1980,7 @@ export function mergeInline(o) {
     mapLocal,
     conflicts: conflicts.slice(firstConflict),
     granularity: lines ? "line" : "word",
-    // For apply: the local flat text and nodes this merge read, the output
-    // text nodes with their ranges, and the caret map between them.
-    segment: {
-      flatLocal: fl.text,
-      localNodes: fl.nodes,
-      textNodes,
-      lToM,
-      mapLocal,
-    },
+    segments: segmentRecords(),
     localHunks: lh,
     remoteHunks: rh,
     lToM,

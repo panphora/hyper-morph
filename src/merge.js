@@ -786,7 +786,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       decisions,
       node: el,
     });
-    segments.push(res.segment);
+    segments.push(...res.segments);
     for (const n of res.nodes) el.appendChild(n);
     return el;
   }
@@ -1510,7 +1510,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           decisions,
           node: el,
         });
-        segments.push(res.segment);
+        segments.push(...res.segments);
         const frag = out.createDocumentFragment();
         for (const n of res.nodes) frag.appendChild(n);
         for (const u of [...units, ...(lu || []), ...(ru || [])]) {
