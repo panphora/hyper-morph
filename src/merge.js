@@ -138,6 +138,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   });
   resolveSlotEchoes(L, R);
   resolveSlotEchoes(R, L);
+  splitCrossRewrites();
   demoteEchoes(L, R);
   demoteEchoes(R, L);
   if (prof) {
@@ -359,6 +360,34 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   // other side inserted verbatim is an echo of that insertion, not a rewrite
   // of the base element: unpaired, the two copies pair with each other and
   // the base element reads as deleted on that side.
+  // Both sides paired a base element with the same new block only by its
+  // slot, and not the same base element: local read the block as a rewrite
+  // of one paragraph, remote as a rewrite of its neighbour. It is one
+  // block both inserted, and each read would land it again.
+  function splitCrossRewrites() {
+    if (!L.weak || !R.weak || !L.weak.size || !R.weak.size || !L.unpair) return;
+    const lBy = new Map();
+    for (const b of L.weak) {
+      const x = L.map.get(b);
+      if (isEl(b) && isEl(x)) lBy.set(analyzer.unitHash(x), b);
+    }
+    let any = false;
+    for (const b of Array.from(R.weak)) {
+      const y = R.map.get(b);
+      if (!isEl(b) || !isEl(y)) continue;
+      const lb = lBy.get(analyzer.unitHash(y));
+      if (!lb || lb === b || !L.weak.has(lb)) continue;
+      if (L.map.get(lb).tagName !== y.tagName) continue;
+      L.unpair(lb);
+      R.unpair(b);
+      any = true;
+    }
+    if (any) {
+      L.rematch();
+      R.rematch();
+    }
+  }
+
   function demoteEchoes(A, O) {
     if (!A.weak || !A.weak.size || !O.insertedByHash) return;
     const ins = O.insertedByHash();

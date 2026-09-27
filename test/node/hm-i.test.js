@@ -280,3 +280,30 @@ test("HM-I12 a paragraph moved and edited leaves its slot to the paragraph typed
     assert.equal(await onLivePage(base, local, remote), expected);
   }
 });
+
+test("HM-I13 a block both sides typed, read as rewrites of two different neighbours, lands once", async () => {
+  const base = `<p>a b c</p><ul><li>x</li></ul><p>q r s</p>`;
+  const cases = [
+    [
+      `<ul><li>x</li></ul><p>n m o</p><p>q r s</p>`,
+      `<ul><li>x</li></ul><p>n m o</p>`,
+      `<ul><li>x</li></ul><p>n m o</p>`,
+    ],
+    [
+      `<ul><li>x</li></ul><p>n m o</p>`,
+      `<ul><li>x</li></ul><p>n m o</p><p>q r s</p>`,
+      `<ul><li>x</li></ul><p>n m o</p>`,
+    ],
+    [
+      `<ul><li>x</li></ul><p>n <b>m</b> o</p><p>q r s</p>`,
+      `<ul><li>X</li></ul><p>n <b>m</b> o</p>`,
+      `<ul><li>X</li></ul><p>n <b>m</b> o</p>`,
+    ],
+  ];
+  for (const [local, remote, expected] of cases) {
+    const m = mergeBodies(base, local, remote);
+    assert.equal(m.html, expected, local + " | " + remote);
+    assert.equal(m.res.conflicts.length, 0, local + " | " + remote);
+    assert.equal(await onLivePage(base, local, remote), expected);
+  }
+});
