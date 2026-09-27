@@ -145,6 +145,10 @@ describe("mergeDocument / morphDocument / morphElement", function () {
     const got = report.identities.map(([el, id]) => [el.textContent, id]);
     got.should.deep.include(["b", "tab2:9"]);
     got.should.deep.include(["c", "tab2:10"]);
+    const byId = new Map(report.identities.map(([el, id]) => [id, el]));
+    const lis = live.querySelectorAll("li");
+    byId.get("tab2:9").should.equal(lis[0]);
+    byId.get("tab2:10").should.equal(lis[1]);
   });
 
   it("protectFocusedValue keeps the focused input's value", async function () {

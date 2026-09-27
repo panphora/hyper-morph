@@ -5,7 +5,10 @@ import assert from "node:assert/strict";
 import { mergeBodies } from "./lib/merge.js";
 import { fuzz as run } from "../lib/structure-fuzz.js";
 
-const merge = (b, l, r) => mergeBodies(b, l, r).html;
+const merge = (b, l, r) => {
+  const { html, res } = mergeBodies(b, l, r);
+  return { html, conflicts: res.conflicts };
+};
 export const fuzz = (from, to) => run(from, to, merge);
 
 test("O18 structural fuzz: echoes, nested slots, cross-block moves, splits and joins never duplicate or lose shared content", async () => {

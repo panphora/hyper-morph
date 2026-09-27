@@ -70,6 +70,9 @@ test("H8 unchanged subtree: ignored live elements do not shift form state or ide
     "a->r-a",
     "b->r-b",
   ]);
+  const byId = new Map(rep.identities.map(([el, id]) => [id, el]));
+  assert.equal(byId.get("r-a"), live.querySelector("#a"));
+  assert.equal(byId.get("r-b"), live.querySelector("#b"));
 });
 
 test("H10 a DocumentFragment is accepted as children content", async () => {

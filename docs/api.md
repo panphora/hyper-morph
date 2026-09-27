@@ -895,10 +895,11 @@ These shapes can still duplicate or lose text. Each needs several edits at one p
 - **Blocks reordered on one side, and a join or split of the moved blocks' neighbours on the other.** The joined or split paragraph merges block by block, so its words can land twice, usually with a text conflict reported. Base `<p>w0 w1 w2</p><p>w3 w4</p>`; local `<p>w0 w1 w2 w3 w4 w5</p>` (joined, then typed `w5`); remote `<p>w3</p><p>w0 w1 w2</p>` (deleted `w4`, moved the paragraph up). `w3` lands twice, with a text conflict.
 - **A new block both sides received and then placed in different containers.** Two inserts with the same markup and three or more words under different parents read as one insertion one side moved, since that is what a relayed paragraph dragged elsewhere looks like. When two people really typed the same sentence into two sections, one copy is kept and a `both-moved` structure conflict is reported.
 
-Two shapes lose nothing but report a conflict:
+These shapes lose nothing but report a conflict:
 
 - **A join of two fully formatted paragraphs with different authored ids,** while the other side edits the second one. The words land once in the joined paragraph, an empty second paragraph remains, and an `edit-beats-delete` structure conflict is reported.
 - **A block both sides deleted and retyped alike** reports a `both-reordered` structure conflict, though the result equals both sides.
+- **A block moved out of its container while the other side edits it.** The edit lands but the container stays: base `<div><p>hello world foo baz</p></div>`, local unwraps the paragraph, remote edits `baz` to `bar`. The unwrap is undone (`edit-beats-delete` and `both-moved`); with the sides reversed the paragraph moves out and an empty `<div></div>` remains (`edit-beats-delete`).
 
 These keep every word but lose structure or an edit the conflict names:
 

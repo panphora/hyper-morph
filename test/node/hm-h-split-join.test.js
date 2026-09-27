@@ -213,6 +213,13 @@ test("HM-H1 split and join with edits on the other side", () => {
   }
 });
 
+const texts = (root) => {
+  const out = [];
+  const w = root.ownerDocument.createTreeWalker(root, 4);
+  while (w.nextNode()) out.push(w.currentNode);
+  return out;
+};
+
 // mergeDocument with a local snapshot: the live document typed after it.
 async function live(base, local, remote, type = () => {}) {
   const d = parse(doc(local));
@@ -226,6 +233,7 @@ async function live(base, local, remote, type = () => {}) {
   walk(snap, d);
   type(d);
   const before = [...d.body.querySelectorAll("p,div,li,h1")];
+  const beforeText = texts(d.body);
   const report = await mergeDocument({
     live: d,
     base: doc(base),
@@ -237,6 +245,7 @@ async function live(base, local, remote, type = () => {}) {
     html: d.body.innerHTML,
     report,
     kept: after.map((el) => before.indexOf(el)),
+    keptText: texts(d.body).map((t) => beforeText.indexOf(t)),
   };
 }
 
@@ -248,6 +257,7 @@ test("HM-H1 apply keeps the live halves and their text nodes", async () => {
   );
   assert.equal(x.html, `<p>a1 b1</p><p>c1 D1</p>`);
   assert.deepEqual(x.kept, [0, 1]);
+  assert.deepEqual(x.keptText, [0, 1]);
   x = await live(
     `<p>a1 b1 c1 d1</p>`,
     `<p>a1 b1 c1 d1</p>`,
@@ -255,6 +265,7 @@ test("HM-H1 apply keeps the live halves and their text nodes", async () => {
   );
   assert.equal(x.html, `<p>a1 b1</p><p>c1 d1</p>`);
   assert.deepEqual(x.kept, [0, -1]);
+  assert.deepEqual(x.keptText, [0, -1]);
   assert.equal(x.report.localDiverged, false);
   x = await live(
     `<p>a1 b1</p><p>c1 d1</p>`,
@@ -263,6 +274,7 @@ test("HM-H1 apply keeps the live halves and their text nodes", async () => {
   );
   assert.equal(x.html, `<p>a1 b1 c1 D1</p>`);
   assert.deepEqual(x.kept, [0]);
+  assert.deepEqual(x.keptText, [0]);
   x = await live(
     `<p>a1 b1 c1 d1</p>`,
     `<p>a1</p><p>b1</p><p>c1 d1</p>`,
@@ -270,6 +282,7 @@ test("HM-H1 apply keeps the live halves and their text nodes", async () => {
   );
   assert.equal(x.html, `<p>a1</p><p>b1</p><p>c1 D1</p>`);
   assert.deepEqual(x.kept, [0, 1, 2]);
+  assert.deepEqual(x.keptText, [0, 1, 2]);
   x = await live(
     `<p>a1 b1 c1 d1</p>`,
     `<p>a1 b1</p><p>new</p><p>c1 d1</p>`,

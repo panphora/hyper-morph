@@ -9,7 +9,10 @@ import { mergeDocument } from "../../src/index.js";
 import { fuzz } from "../lib/structure-fuzz.js";
 
 test("structural fuzz, seeds 1 to 5000", async () => {
-  const fails = await fuzz(1, 5000, (b, l, r) => mergeBodies(b, l, r).html);
+  const fails = await fuzz(1, 5000, (b, l, r) => {
+    const { html, res } = mergeBodies(b, l, r);
+    return { html, conflicts: res.conflicts };
+  });
   assert.equal(fails.length, 0, JSON.stringify(fails.slice(0, 5), null, 1));
 });
 
@@ -18,8 +21,12 @@ test("structural fuzz, seeds 1 to 5000", async () => {
 test("structural fuzz on a live page, seeds 1 to 5000", async () => {
   const merge = async (b, l, r) => {
     const live = parse(doc(l));
-    await mergeDocument({ live, base: doc(b), remote: doc(r) });
-    return live.body.innerHTML;
+    const { conflicts } = await mergeDocument({
+      live,
+      base: doc(b),
+      remote: doc(r),
+    });
+    return { html: live.body.innerHTML, conflicts };
   };
   const fails = await fuzz(1, 5000, merge);
   assert.equal(fails.length, 0, JSON.stringify(fails.slice(0, 5), null, 1));

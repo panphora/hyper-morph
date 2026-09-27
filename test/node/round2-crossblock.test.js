@@ -58,9 +58,16 @@ test("HG-F runs fused with no space between them never duplicate", () => {
     `<div>helloworld</div>`,
     `<div>hello<p>P</p>world!</div>`,
   );
-  assert.equal(count(html, "world"), 1, html);
-  assert.equal(count(html, "hello"), 1, html);
-  if (res.conflicts.length === 0) assert.equal(html, `<div>helloworld!</div>`);
+  // Remote wins the text conflict in both directions, and nothing lands twice.
+  assert.equal(html, `<div>hello<p>P</p>world!</div>`);
+  assert.equal(detail(res), "text:");
+  const rev = mergeBodies(
+    `<div>hello<p>P</p>world</div>`,
+    `<div>hello<p>P</p>world!</div>`,
+    `<div>helloworld</div>`,
+  );
+  assert.equal(rev.html, `<div>helloworld</div>`);
+  assert.equal(detail(rev.res), "text:");
 });
 
 test("HG-F a block one side inserted into a run splits it once", () => {
@@ -330,7 +337,7 @@ test("HG-F2 a block deleted on one side and edited on the other loses what the d
   }
 });
 
-test("HG-F2 an element wrapped in a new container, or moved out of one, moves", () => {
+test("HG-F2 an element wrapped in a new container moves; moved out of one beside an edit, it conflicts", () => {
   const wrap = mergeBodies(
     `<p>hello world foo baz</p><p>x</p>`,
     `<section><p>hello world foo baz</p></section><p>x</p>`,
@@ -346,7 +353,19 @@ test("HG-F2 an element wrapped in a new container, or moved out of one, moves", 
     `<p>hello world foo baz</p><p>x</p>`,
     `<div><p>hello world foo bar</p></div><p>x</p>`,
   );
-  assert.equal(count(unwrap.html, "hello"), 1, unwrap.html);
+  // Known limitation (docs/api.md): the unwrap is undone, or leaves an empty container.
+  assert.equal(unwrap.html, `<div><p>hello world foo bar</p></div><p>x</p>`);
+  assert.equal(
+    detail(unwrap.res),
+    "structure:edit-beats-delete,structure:both-moved",
+  );
+  const rev = mergeBodies(
+    `<div><p>hello world foo baz</p></div><p>x</p>`,
+    `<div><p>hello world foo bar</p></div><p>x</p>`,
+    `<p>hello world foo baz</p><p>x</p>`,
+  );
+  assert.equal(rev.html, `<div></div><p>hello world foo bar</p><p>x</p>`);
+  assert.equal(detail(rev.res), "structure:edit-beats-delete");
 });
 
 test("HG-F2 a slot paired by position yields to a move with content evidence", () => {
@@ -364,8 +383,10 @@ test("HG-F2 a rewritten element keeps its slot after an insertion above it", () 
     `<p>w18 w19 w20</p><p>w0 w1 w2 w3</p><ul><li>w17 w9 w10 w11</li><li>w21 w22 w23 w24</li></ul>`,
     `<p>w0 w1 w2 w3</p><ul><li>w17 w9 w10 w11</li><li>w12 w13 w14 w15</li></ul><p>w25 w26</p>`,
   );
-  assert.equal(count(html, "<ul>"), 1, html);
-  assert.equal(count(html, "w17"), 1, html);
+  assert.equal(
+    html,
+    `<p>w18 w19 w20</p><p>w0 w1 w2 w3</p><ul><li>w17 w9 w10 w11</li><li>w21 w22 w23 w24</li></ul><p>w25 w26</p>`,
+  );
 });
 
 test("HG-F2 an atom both sides moved, one into a new block, lands once", () => {
@@ -400,8 +421,10 @@ test("HG-F2 a container keeps its slot when the only thing before it moved in", 
     `<div><p>w17 w20 w18 w19</p><p>w0 w1 w2 w3 w4</p></div><ul><li>w5 w6 w7</li></ul>`,
     `<p>w0 w1 w2 w3 w4</p><div><p>w17 w20 w18 w19</p></div><ul><li>w5 w6 w7</li></ul>`,
   );
-  assert.equal(count(html, "w17"), 1, html);
-  assert.equal(count(html, "w0"), 1, html);
+  assert.equal(
+    html,
+    `<p>w0 w1 w2 w3 w4</p><div><p>w17 w20 w18 w19</p></div><ul><li>w5 w6 w7</li></ul>`,
+  );
 });
 
 test("HG-F2 an element moved out of its container, its slot refilled, is a move", () => {

@@ -232,13 +232,21 @@ function echo(seed, a, b, n) {
   if (fresh !== end) throw new Error("echo replay diverged");
 }
 
-const tokens = (s) => s.match(/\b(?:w|i)\d+\b/g) || [];
+// Words are read from the text and images from their tags, so an image turned
+// into text is a lost image, not a surviving token.
+const tokens = (s) => [
+  ...(s.replace(/<[^>]*>/g, " ").match(/\b(?:w|i)\d+\b/g) || []),
+  ...[...s.matchAll(/<img\b[^>]*\bsrc="(i\d+)\.png"/g)].map((m) => `<${m[1]}>`),
+];
 const tally = (s) => {
   const m = new Map();
   for (const t of tokens(s)) m.set(t, (m.get(t) || 0) + 1);
   return m;
 };
 
+// `merge` returns the merged body HTML, or { html, conflicts } to also check
+// one-sided edits: with no conflict reported, a token only one side added is
+// kept and a token only one side removed stays gone.
 async function run(seed, merge) {
   const r = rng(seed);
   const base = baseTree(r);
@@ -251,14 +259,28 @@ async function run(seed, merge) {
   for (let i = 0; i < nl; i++) op(r, local, false, claims, 1);
   for (let i = 0; i < nr; i++) op(r, remote, false, claims, 2);
   const [b, l, rm] = [base, local, remote].map(html);
-  const out = await merge(b, l, rm);
+  const res = await merge(b, l, rm);
+  const out = typeof res === "string" ? res : res.html;
   const got = tally(out),
+    inB = tally(b),
     inL = tally(l),
     inR = tally(rm);
   const problems = [];
   for (const [t, n] of got) if (n > 1) problems.push(`${t} x${n}`);
   for (const t of inL.keys())
     if (inR.has(t) && !got.has(t)) problems.push(`${t} lost`);
+  if (typeof res !== "string" && res.conflicts.length === 0)
+    for (const [mine, theirs] of [
+      [inL, inR],
+      [inR, inL],
+    ]) {
+      for (const t of mine.keys())
+        if (!inB.has(t) && !theirs.has(t) && !got.has(t))
+          problems.push(`${t} inserted by one side lost`);
+      for (const t of inB.keys())
+        if (!mine.has(t) && theirs.has(t) && got.has(t))
+          problems.push(`${t} deleted by one side kept`);
+    }
   return problems.length
     ? { seed, problems, base: b, local: l, remote: rm, out }
     : null;

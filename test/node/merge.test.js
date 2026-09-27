@@ -2,6 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mergeBodies } from "./lib/merge.js";
 
+// deepEqual compares nodes by structure, so a detached clone would pass.
+const sameNodes = (got, want) => {
+  assert.equal(got.length, want.length);
+  got.forEach((n, i) => assert.equal(n, want[i]));
+};
+
 const kinds = (res, k) =>
   res.conflicts.filter((c) =>
     c.kind === "structure" ? c.detail === k : c.kind === k,
@@ -248,9 +254,8 @@ test("T-M12 mutual moves terminate with a conflict", () => {
   const local = `<div id="b"><p>b</p><div id="a"><p>a</p></div></div>`;
   const remote = `<div id="a"><p>a</p><div id="b"><p>b</p></div></div>`;
   const { html, res } = mergeBodies(base, local, remote);
-  assert.ok(html.includes('id="a"'), html);
-  assert.ok(html.includes('id="b"'), html);
-  assert.ok(kinds(res, "both-moved").length >= 1);
+  assert.equal(html, remote);
+  assert.equal(kinds(res, "both-moved").length, 2);
 });
 
 test("T-M13 echoed insertion pairs by identity and keeps later local typing", () => {
@@ -600,8 +605,10 @@ test("I-G a mark moved to another block keeps the per-unit path", () => {
     `<div><p id="a">one three</p><p id="b">four <b>two</b></p></div>`,
     `<div><p id="a">one <b>two</b> three!</p><p id="b">four</p></div>`,
   );
-  assert.ok(html.includes("<b>two</b>"), html);
-  assert.equal((html.match(/two/g) || []).length, 1, html);
+  assert.equal(
+    html,
+    `<div><p id="a">one three!</p><p id="b">four <b>two</b></p></div>`,
+  );
   assert.ok(
     res.decisions.some((d) => d.kind === "move"),
     JSON.stringify(res.decisions),
@@ -677,7 +684,7 @@ test("I-L a two-way morph keeps swapped images by identity", () => {
 });
 
 test("I-M a dropped mark's text is not claimed by the text that replaced it", () => {
-  const { res, l } = mergeBodies(
+  const { res, b } = mergeBodies(
     `<div><a>A</a><b>B</b><c>C</c></div>`,
     `<div><a>A</a><b>B</b><c>C</c></div>`,
     `<div><b>B</b></div>`,
@@ -685,9 +692,8 @@ test("I-M a dropped mark's text is not claimed by the text that replaced it", ()
   );
   assert.equal(res.doc.body.innerHTML, `<div><b>B</b></div>`);
   const t = res.doc.querySelector("b").firstChild;
-  assert.deepEqual(res.provenance.get(t).local, [
-    l.querySelector("b").firstChild,
-  ]);
+  // Two-way mode reads the base document as local.
+  sameNodes(res.provenance.get(t).local, [b.querySelector("b").firstChild]);
 });
 
 test("identity `first` outranks the map, so an authored id pairs a moved element", async () => {

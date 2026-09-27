@@ -11,6 +11,12 @@ import { MAX_TOKENS, steps } from "../../src/text-merge.js";
 import { parse, doc } from "./lib/dom.js";
 import { block, mergeBlocks, mergeSegment } from "./lib/inline.js";
 
+// deepEqual compares nodes by structure, so a detached clone would pass.
+const sameNodes = (got, want) => {
+  assert.equal(got.length, want.length);
+  got.forEach((n, i) => assert.equal(n, want[i]));
+};
+
 const FOX = "The quick brown fox jumps over the lazy dog.";
 const P = (s) => `<p>${s}</p>`;
 const kinds = (x, kind) =>
@@ -776,15 +782,17 @@ test("text provenance: each local text node is claimed by one output node", () =
   assert.equal(first.nodeValue, "The ");
   assert.equal(b.tagName, "B");
   const p = x.provenance.get(first);
-  assert.deepEqual(p.local, [x.l.firstChild]);
+  sameNodes(p.local, [x.l.firstChild]);
   assert.equal(p.partial, true);
   assert.deepEqual(p.caret, [
     { node: x.l.firstChild, from: 0, to: 4, flatStart: 0 },
   ]);
+  assert.equal(p.caret[0].node, x.l.firstChild);
   assert.deepEqual(x.provenance.get(last).local, []);
   assert.deepEqual(x.provenance.get(last).caret, [
     { node: x.l.firstChild, from: 10, to: 44, flatStart: 0 },
   ]);
+  assert.equal(x.provenance.get(last).caret[0].node, x.l.firstChild);
   const m = x.textMappers.get(first);
   assert.equal(m(2), 2);
   assert.equal(m(6), 4); // inside the word remote bolded: clamped to this node
@@ -818,9 +826,7 @@ test("browser-split local text nodes merge and are all claimed", () => {
     x.node.innerHTML,
     "The quick brown fox jumps over the sleepy dog.",
   );
-  assert.deepEqual(x.provenance.get(x.node.firstChild).local, [
-    ...lp.childNodes,
-  ]);
+  sameNodes(x.provenance.get(x.node.firstChild).local, [...lp.childNodes]);
   assert.equal(x.textMappers.get(x.node.firstChild)(9), 9);
 });
 

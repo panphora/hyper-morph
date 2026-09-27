@@ -11,7 +11,8 @@
 //      the base) both land, no conflict, output == both applied to base
 //   I6 mapLocalOffset is monotonic and within [0, out.length]
 //   I7 idempotent: merge(out, out, out) === out; merge(base, out, out) === out
-//   I8 the resolved side's text of every conflict is present verbatim
+//   I8 the resolved side's text of every conflict is present verbatim, and
+//      under the default policy it is the remote side's text
 //   I9 policy "local" keeps every local hunk: merge(base, local, remote, "local")
 //      contains each local-inserted word; and with policy local + remote===base
 //      the result is local
@@ -299,8 +300,14 @@ function runFuzz(seed, N) {
     );
     check("I7b", merge3Text(base, out.text, out.text).text === out.text, info);
 
-    for (const c of out.conflicts)
+    for (const c of out.conflicts) {
       check("I8", out.text.includes(c.resolved), { ...info, c });
+      check(
+        "I8r remote policy resolves to the remote side",
+        c.resolved === c.remote,
+        { ...info, c },
+      );
+    }
 
     const loc = merge3Text(base, local, remote, "local");
     for (const c of loc.conflicts)
