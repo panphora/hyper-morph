@@ -31,9 +31,21 @@
  * middle that shares few tokens as one replacement.
  */
 
-import { textTokens, allAscii, diffTokens, MAX_TOKENS } from "./text-merge.js";
+import {
+  textTokens,
+  allAscii,
+  diffTokens,
+  pairedHunks,
+  MAX_TOKENS,
+} from "./text-merge.js";
 
 export const ATOM = "￼";
+
+/**
+ * Work counters for the tests: a bound on steps holds where a wall clock
+ * would be flaky. `caret` counts the characters the caret map scans.
+ */
+export const steps = { caret: 0 };
 
 export const MARK_TAGS = new Set(
   "A ABBR B BDI BDO CITE CODE DATA DEL DFN EM FONT I INS KBD MARK Q S SAMP SMALL SPAN STRIKE STRONG SUB SUP TIME TT U VAR".split(
@@ -119,12 +131,14 @@ export function flatten(units, o = {}) {
         f.pins.push({ el: node, i: f.text.length });
         continue;
       }
+      if (o.skip && o.skip.has(node)) continue;
       const tag = node.tagName;
       const empty = MARK_TAGS.has(tag) && isEmptyMark(node);
       if (
         ATOM_TAGS.has(tag) ||
         !MARK_TAGS.has(tag) ||
         (o.remoteWins && o.remoteWins(node)) ||
+        (o.atomize && o.atomize(node)) ||
         empty
       ) {
         f.atoms.push({
@@ -260,7 +274,7 @@ export function flatSig(f, ignoreAttribute = () => false) {
 // Tokens and hunks, in character offsets
 // ---------------------------------------------------------------------
 
-function tokensOf(f, fast, lines) {
+function tokensOf(f, fast, lines, keyOf = (a) => a.key) {
   const out = [];
   const text = f.text;
   let i = 0;
@@ -274,7 +288,7 @@ function tokensOf(f, fast, lines) {
   };
   for (const a of f.atoms) {
     pieceTo(a.i);
-    out.push({ k: "\0" + a.key, raw: ATOM, len: 1, atom: true });
+    out.push({ k: "\0" + keyOf(a), raw: ATOM, len: 1, atom: true });
     i = a.i + 1;
   }
   pieceTo(text.length);
@@ -304,8 +318,7 @@ const offsets = (toks) => {
  * { bs, be, ss, se, text, toks }. `respell` maps a base token index to the
  * side's spelling where the tokens are equal by key but not by text (nbsp).
  */
-function sideDiff(fs, bToks, sToks) {
-  const d = diffTokens(bToks, sToks);
+function sideDiff(fs, bToks, sToks, d) {
   const bOff = offsets(bToks),
     sOff = offsets(sToks);
   const hunks = [];
@@ -321,6 +334,7 @@ function sideDiff(fs, bToks, sToks) {
       se: sOff[ste],
       text: fs.text.slice(sOff[si], sOff[ste]),
       toks: h.toks,
+      lead: !!h.lead,
     });
     si = ste;
     bi = h.be;
@@ -397,13 +411,81 @@ export function mergeInline(o) {
   const conflicts = o.conflicts || [];
   const decisions = o.decisions || [];
   const firstConflict = conflicts.length;
-  const fb = flatten(o.base, o),
-    fl = flatten(o.local, o),
-    fr = flatten(o.remote, o);
-
   // Atoms pair by tag and position in the diff; the rebuild lets the
   // alignment override that pairing where it names a different element.
   const byTwin = !!(L && L.reverse && L.map && R && R.reverse && R.map);
+
+  // A mark a side moved to another block travels whole, as an atom, in
+  // every flat that holds it: the side that moved it deleted an atom here,
+  // the destination merges it with both sides' versions (o.moveIn), and an
+  // edit the other side made inside it goes with it instead of conflicting
+  // with the move.
+  const atomizers = { base: null, local: null, remote: null };
+  if (byTwin && o.moveIn) {
+    const within = (nodes) => (x) =>
+      nodes.some((n) => n === x || (n.nodeType === 1 && n.contains(x)));
+    const inL = within(o.local),
+      inR = within(o.remote),
+      inB = within(o.base);
+    const moved = new Set();
+    const visit = (el) => {
+      if (!MARK_TAGS.has(el.tagName)) return;
+      const lt = L.map.get(el),
+        rt = R.map.get(el);
+      if ((lt && !inL(lt)) || (rt && !inR(rt))) moved.add(el);
+      for (const c of el.children) visit(c);
+    };
+    for (const n of o.base) if (n.nodeType === 1) visit(n);
+    const side = (A) => (el) => {
+      if (!MARK_TAGS.has(el.tagName)) return false;
+      const b = A.reverse.get(el);
+      return !!b && (moved.has(b) || !inB(b));
+    };
+    if (moved.size) atomizers.base = (el) => moved.has(el);
+    atomizers.local = side(L);
+    atomizers.remote = side(R);
+  }
+  // An atom a side moved out of this segment is not in it: it merges at its
+  // destination with both sides' versions (o.moveIn). Left in the base and
+  // in the other side here, it would read as a deletion by the moving side
+  // and could glue that side's neighbouring edits into a conflict, or be
+  // emitted a second time by a region that takes the other side whole.
+  const skip = { base: new Set(), local: new Set(), remote: new Set() };
+  if (byTwin && o.moveIn) {
+    const within = (nodes) => (x) =>
+      nodes.some((n) => n === x || (n.nodeType === 1 && n.contains(x)));
+    const inL = within(o.local),
+      inR = within(o.remote);
+    for (const a of flatten(o.base, { ...o, atomize: atomizers.base }).atoms) {
+      const lt = L.map.get(a.el),
+        rt = R.map.get(a.el);
+      const outL = !!lt && !inL(lt),
+        outR = !!rt && !inR(rt);
+      if (!outL && !outR) continue;
+      skip.base.add(a.el);
+      if (lt && !outL) skip.local.add(lt);
+      if (rt && !outR) skip.remote.add(rt);
+      // A side read as base (a block it deleted, kept for the other side's
+      // edit) holds the base element itself.
+      if (inL(a.el)) skip.local.add(a.el);
+      if (inR(a.el)) skip.remote.add(a.el);
+    }
+  }
+  const fb = flatten(o.base, {
+      ...o,
+      atomize: atomizers.base,
+      skip: skip.base,
+    }),
+    fl = flatten(o.local, {
+      ...o,
+      atomize: atomizers.local,
+      skip: skip.local,
+    }),
+    fr = flatten(o.remote, {
+      ...o,
+      atomize: atomizers.remote,
+      skip: skip.remote,
+    });
   const baseAtomOf = new Map(fb.atoms.map((a) => [a.el, a]));
 
   const setAttr = (el, sample, v) => {
@@ -480,28 +562,70 @@ export function mergeInline(o) {
       return c;
     });
 
+  // Atom keys. With an alignment an atom keys by what it is, so two images
+  // in one block never stand for each other: a side atom paired with a base
+  // atom of this segment takes that atom's key (an edited image still reads
+  // as the same one), and any other keys by its content. An atom the
+  // alignment pairs with a base element outside this segment moved in from
+  // elsewhere and keys apart from everything here. Without an alignment,
+  // atoms key by tag and pair by position.
+  const contentKey = o.atomKey || ((el) => atomSig(el, () => false));
+  const atomKeys = (fs, A) => {
+    const keyOf = new Map();
+    for (const a of fs.atoms) {
+      if (!byTwin) keyOf.set(a, a.key);
+      else if (fs === fb) keyOf.set(a, "=" + contentKey(a.el));
+      else {
+        const b = A.reverse.get(a.el);
+        const t = b ? baseAtomOf.get(b) : null;
+        if (t) keyOf.set(a, "=" + contentKey(t.el));
+        else if (b) keyOf.set(a, "m" + contentKey(a.el));
+        else keyOf.set(a, "=" + contentKey(a.el));
+      }
+    }
+    return (a) => keyOf.get(a);
+  };
+  const bKey = atomKeys(fb, null),
+    lKey = atomKeys(fl, L),
+    rKey = atomKeys(fr, R);
+
   // Tokens and hunks: words, or lines past the same bound text-merge uses.
   const fast = allAscii(stripAtoms(fb), stripAtoms(fl), stripAtoms(fr));
-  let bToks = tokensOf(fb, fast, false),
-    lToks = tokensOf(fl, fast, false),
-    rToks = tokensOf(fr, fast, false);
+  let bToks = tokensOf(fb, fast, false, bKey),
+    lToks = tokensOf(fl, fast, false, lKey),
+    rToks = tokensOf(fr, fast, false, rKey);
   const lines =
     bToks.length > MAX_TOKENS ||
     lToks.length > MAX_TOKENS ||
     rToks.length > MAX_TOKENS;
   if (lines) {
-    bToks = tokensOf(fb, fast, true);
-    lToks = tokensOf(fl, fast, true);
-    rToks = tokensOf(fr, fast, true);
+    bToks = tokensOf(fb, fast, true, bKey);
+    lToks = tokensOf(fl, fast, true, lKey);
+    rToks = tokensOf(fr, fast, true, rKey);
   }
-  const Ld = sideDiff(fl, bToks, lToks),
-    Rd = sideDiff(fr, bToks, rToks);
+  const paired = pairedHunks(
+    diffTokens(bToks, lToks),
+    diffTokens(bToks, rToks),
+    bToks,
+  );
+  const Ld = sideDiff(fl, bToks, lToks, {
+      hunks: paired.lh,
+      cosmetic: paired.cosL,
+    }),
+    Rd = sideDiff(fr, bToks, rToks, {
+      hunks: paired.rh,
+      cosmetic: paired.cosR,
+    });
   const ML = charMaps(Ld.hunks, fb.text.length, fl.text.length),
     MR = charMaps(Rd.hunks, fb.text.length, fr.text.length);
   const n = fb.text.length;
 
-  // Base atoms a side deleted in place and inserted elsewhere: moves, not
-  // deletions. The other side's edits merge at the destination.
+  // Base atoms a side deleted in place and inserted elsewhere in this
+  // segment: moves, not deletions. The other side's edits merge at the
+  // destination. (Atoms moved out of the segment are not in the flats.)
+  const sideAtomOf = (fs) => new Map(fs.atoms.map((a) => [a.el, a]));
+  const lAtomOf = sideAtomOf(fl),
+    rAtomOf = sideAtomOf(fr);
   const movedAtoms = (fs, A, M) => {
     const s = new Set();
     if (!byTwin) return s;
@@ -513,6 +637,20 @@ export function mergeInline(o) {
   };
   const movedL = movedAtoms(fl, L, ML),
     movedR = movedAtoms(fr, R, MR);
+  // A block element joined to the segment (see merge.js) keeps the per-unit
+  // rule that an edit beats a delete: one side deleting it while the other
+  // changed it is no text conflict, and the rebuild keeps the block.
+  const isBlock = (el) => !isInlineUnit(el, o);
+  const soft = new Set();
+  if (byTwin)
+    for (const a of fb.atoms) {
+      if (!isBlock(a.el)) continue;
+      const lt = L.map.get(a.el) || null,
+        rt = R.map.get(a.el) || null;
+      const t = lt && !rt ? lt : rt && !lt ? rt : null;
+      if (t && (lAtomOf.has(t) || rAtomOf.has(t)) && !t.isEqualNode(a.el))
+        soft.add(a);
+    }
 
   // Unified marks: every base mark, then each side's marks by alignment twin.
   let nextId = 1;
@@ -679,7 +817,7 @@ export function mergeInline(o) {
   };
   const atomConflict = (h, otherM, otherFlat, moved) => {
     for (const a of fb.atoms) {
-      if (a.i < h.bs || a.i >= h.be || moved.has(a)) continue;
+      if (a.i < h.bs || a.i >= h.be || moved.has(a) || soft.has(a)) continue;
       const si = otherM.bTo[a.i];
       const oa = si >= 0 ? otherFlat.atomAt.get(si) : null;
       if (oa && !oa.el.isEqualNode(a.el)) return true;
@@ -705,12 +843,21 @@ export function mergeInline(o) {
   while (li < lh.length || ri < rh.length) {
     const l = lh[li],
       r = rh[ri];
-    const takeL = !!l && (!r || l.bs < r.bs || (l.bs === r.bs && l.be <= r.be));
+    const takeL =
+      !!l && (!r || l.bs < r.bs || (l.bs === r.bs && l.be <= r.be && !r.lead));
     const h = takeL ? l : r,
       other = takeL ? r : l;
     const same = !!other && sameHunk(l, r);
+    // A hunk both sides made (the other side's hunk is this side's next
+    // one) is no conflict with the edit it touches.
+    const echoed =
+      !!other &&
+      (takeL
+        ? !!lh[li + 1] && sameHunk(lh[li + 1], r)
+        : !!rh[ri + 1] && sameHunk(l, rh[ri + 1]));
     // Two different texts typed into an empty segment collide.
-    const withOther = !!other && !same && (n === 0 || textConflict(h, other));
+    const withOther =
+      !!other && !same && !echoed && (n === 0 || textConflict(h, other));
     let conflict = withOther;
     const rel = formatRelation(h, takeL ? RF : LF);
     if (rel === "straddle") conflict = true;
@@ -1040,8 +1187,10 @@ export function mergeInline(o) {
       return res;
     }
     if (p.src === "both") {
-      const sl = fl.stackAt[l];
-      return listOf(usOfCached(sl), [sl, fr.stackAt[r]]);
+      // The same text inserted on both sides carries the marks of either.
+      const sl = fl.stackAt[l],
+        sr = fr.stackAt[r];
+      return listOf(new Set([...usOfCached(sl), ...usOfCached(sr)]), [sl, sr]);
     }
     const f = p.src === "local" ? fl : fr;
     const st = f.stackAt[p.src === "local" ? l : r];
@@ -1063,12 +1212,18 @@ export function mergeInline(o) {
   // Caret map: local flat offset -> merged offset. The position after the
   // last surviving local character before k; if that character was dropped,
   // the position of the first surviving one at or after k.
+  // nextM[k] is the merged offset of the first surviving local character
+  // at or after k, filled in one backward pass so each lookup is O(1).
+  const nextM = new Int32Array(fl.text.length + 1);
+  nextM[fl.text.length] = m;
+  for (let j = fl.text.length - 1; j >= 0; j--)
+    nextM[j] = lToM[j] >= 0 ? lToM[j] : nextM[j + 1];
+  steps.caret += fl.text.length;
   const mapLocal = (k) => {
     if (k <= 0) return 0;
     if (k > fl.text.length) k = fl.text.length;
     if (lToM[k - 1] >= 0) return lToM[k - 1] + 1;
-    for (let j = k; j < fl.text.length; j++) if (lToM[j] >= 0) return lToM[j];
-    return m;
+    return nextM[k];
   };
 
   // Rebuild.
@@ -1104,7 +1259,23 @@ export function mergeInline(o) {
       opened.set(u, el);
       mergeAttrs(u.base, u.local, u.remote, el);
       provenance.set(el, { base: u.base, local: u.local, remote: u.remote });
-      if (!u.base)
+      // A mark new here whose alignment twin is a base element elsewhere
+      // moved in from another block.
+      const from = (A, side) =>
+        byTwin && u[side] && A.reverse.get(u[side]) ? side : null;
+      const movedIn = !u.base && (from(L, "local") || from(R, "remote"));
+      if (movedIn) {
+        // Its live element is the local twin of that base element, which
+        // apply moves here instead of building a new one.
+        const b =
+          movedIn === "local"
+            ? L.reverse.get(u.local)
+            : R.reverse.get(u.remote);
+        const p = provenance.get(el);
+        p.local = p.local || L.map.get(b) || null;
+        p.remote = p.remote || R.map.get(b) || null;
+        decisions.push({ kind: "move", el, source: movedIn });
+      } else if (!u.base)
         decisions.push({
           kind: "insert",
           el,
@@ -1149,8 +1320,203 @@ export function mergeInline(o) {
     }
   };
   const anyAtoms = fb.atoms.length || fl.atoms.length || fr.atoms.length;
+  const atomsAt = (i) => {
+    if (!anyAtoms) return null;
+    const ab = ob[i] >= 0 ? fb.atomAt.get(ob[i]) : null,
+      al = ol[i] >= 0 ? fl.atomAt.get(ol[i]) : null,
+      ar = or[i] >= 0 ? fr.atomAt.get(or[i]) : null;
+    return ab || al || ar ? { ab, al, ar } : null;
+  };
+  // What each atom position emits, decided before anything is built so the
+  // atoms no position claimed can be placed as well. The alignment names
+  // the element where it says more than position does: a kept position
+  // whose side atom is paired with a different, unequal base atom (a swap),
+  // or an inserted atom paired with a base atom whose place this side
+  // deleted (a move). Identical atoms pair arbitrarily in the alignment, so
+  // an equal twin never overrides. An atom paired with a base element
+  // outside this segment moved in from another block and merges here.
+  const twinOf = (a, A, M, ab) => {
+    if (!a || !byTwin) return null;
+    const t = baseAtomOf.get(A.reverse.get(a.el)) || null;
+    if (!t || t === ab) return null;
+    if (ab ? t.el.isEqualNode(ab.el) : M.bTo[t.i] >= 0) return null;
+    return t;
+  };
+  const fromOutside = (a, A) => {
+    if (!a || !byTwin || !o.moveIn) return null;
+    const b = A.reverse.get(a.el);
+    return b && !baseAtomOf.has(b) ? b : null;
+  };
+  // Identical atoms are interchangeable and the alignment pairs them
+  // arbitrarily, so only an atom whose key is unique on all three sides is
+  // known to be the one a side's copy stands for.
+  const counts = (fs, key) => {
+    const c = new Map();
+    for (const a of fs.atoms) c.set(key(a), (c.get(key(a)) || 0) + 1);
+    return c;
+  };
+  const cB = counts(fb, bKey),
+    cL = counts(fl, lKey),
+    cR = counts(fr, rKey);
+  const unique = (a) => {
+    const k = bKey(a);
+    return cB.get(k) === 1 && (cL.get(k) || 0) <= 1 && (cR.get(k) || 0) <= 1;
+  };
+  const choices = new Map();
+  const claimed = new Set(),
+    claimedOut = new Set(),
+    copied = new Set();
   for (let i = 0; i < m; i++) {
-    const want = marksAt(i);
+    const at = atomsAt(i);
+    if (!at) continue;
+    const { ab, al, ar } = at;
+    const tr = twinOf(ar, R, MR, ab),
+      tl = twinOf(al, L, ML, ab);
+    let bk = ab,
+      from = null;
+    if (tr) {
+      bk = tr;
+      from = "remote";
+    } else if (tl) {
+      bk = tl;
+      from = "local";
+    }
+    if (bk) {
+      if (claimed.has(bk)) choices.set(i, { dup: bk.el });
+      else {
+        claimed.add(bk);
+        choices.set(i, { bk, from, al, ar });
+      }
+      continue;
+    }
+    const outR = fromOutside(ar, R),
+      outL = fromOutside(al, L);
+    const moved = outR || outL;
+    if (moved) {
+      if (claimedOut.has(moved)) choices.set(i, { dup: moved });
+      else {
+        claimedOut.add(moved);
+        choices.set(i, {
+          moveIn: moved,
+          side: outR ? "remote" : "local",
+          sideEl: outR ? ar.el : al.el,
+        });
+      }
+      continue;
+    }
+    // A side's copy of a base atom: the atom is not missing, whatever the
+    // alignment paired. Taken whole as a conflict region's winner, it is
+    // that atom, and no other position repeats it (identical atoms aside,
+    // which the alignment pairs arbitrarily).
+    const paired = (a, A) =>
+      a && byTwin ? baseAtomOf.get(A.reverse.get(a.el)) || null : null;
+    const t = paired(ar, R) || paired(al, L);
+    if (t) {
+      copied.add(t);
+      if (pieceAt[i].conflict && unique(t)) {
+        if (claimed.has(t)) {
+          choices.set(i, { dup: t.el });
+          continue;
+        }
+        claimed.add(t);
+      }
+    }
+    choices.set(i, { al, ar });
+  }
+  // Base atoms no position claimed although neither side deleted them: a
+  // conflict region or a move settled on text that no longer holds them.
+  // One of them goes where the policy side has it. A block one side deleted
+  // and the other changed goes where the changing side has it (edit beats
+  // delete). An atom a side moved out of this segment is placed at its
+  // destination instead.
+  const rescueAt = new Map();
+  const posOf = (toM, k) => {
+    if (toM[k] >= 0) return toM[k];
+    for (let j = k - 1; j >= 0; j--) if (toM[j] >= 0) return toM[j] + 1;
+    return 0;
+  };
+  if (byTwin)
+    for (const a of fb.atoms) {
+      if (claimed.has(a) || copied.has(a)) continue;
+      const lt = L.map.get(a.el) || null,
+        rt = R.map.get(a.el) || null;
+      const la = lt && lAtomOf.get(lt),
+        ra = rt && rAtomOf.get(rt);
+      if ((lt && !la) || (rt && !ra)) continue;
+      const edited = !(la && ra) && soft.has(a);
+      if (!edited && !(la && ra && unique(a))) continue;
+      const order =
+        policy === "local"
+          ? [
+              [la, lToM],
+              [ra, rToM],
+            ]
+          : [
+              [ra, rToM],
+              [la, lToM],
+            ];
+      const [sa, toM] = order.find(([x]) => x);
+      const at = posOf(toM, sa.i);
+      if (!rescueAt.has(at)) rescueAt.set(at, []);
+      rescueAt.get(at).push({ a, lt, rt, edited });
+      claimed.add(a);
+    }
+  // An atom a side moved in from another block that no position emitted (a
+  // conflict region here took the other side's text) still lands where
+  // that side put it: the move is not the other side's to undo.
+  if (byTwin && o.moveIn) {
+    const sides = [
+      [fl, L, lToM, "local"],
+      [fr, R, rToM, "remote"],
+    ];
+    if (policy !== "local") sides.reverse();
+    for (const [fs, A, toM, side] of sides)
+      for (const a of fs.atoms) {
+        const b = fromOutside(a, A);
+        if (!b || claimedOut.has(b)) continue;
+        claimedOut.add(b);
+        const at = posOf(toM, a.i);
+        if (!rescueAt.has(at)) rescueAt.set(at, []);
+        rescueAt.get(at).push({ move: b, side, sideEl: a.el });
+      }
+  }
+  const emitRescues = (i) => {
+    const list = rescueAt.get(i);
+    if (!list) return;
+    flush(i);
+    if (list.some((x) => isBlock(x.move ? x.sideEl : x.a.el)))
+      while (stack.length) {
+        stack.pop();
+        container = stack.length ? stack[stack.length - 1].el : null;
+      }
+    for (const { a, lt, rt, edited, move, side, sideEl } of list) {
+      if (move) {
+        const el = o.moveIn(move, side, sideEl);
+        if (el) append(el);
+        continue;
+      }
+      movedOut.add(a);
+      const el = mergeAtom(a.el, lt, rt);
+      if (edited) {
+        conflicts.push({
+          kind: "structure",
+          el,
+          detail: "edit-beats-delete",
+          base: a.el,
+        });
+        decisions.push({
+          kind: "insert",
+          el,
+          source: lt ? "local" : "remote",
+        });
+      }
+      append(el);
+    }
+  };
+  for (let i = 0; i < m; i++) {
+    const at = atomsAt(i);
+    const blockAt = !!at && isBlock((at.ab || at.al || at.ar).el);
+    const want = blockAt ? [] : marksAt(i);
     let c = 0;
     while (c < stack.length && c < want.length && stack[c].u === want[c]) c++;
     if (c < stack.length) {
@@ -1162,56 +1528,31 @@ export function mergeInline(o) {
     }
     // A pin sits between the marks that close here and those that open.
     emitPins(i);
-    if (want.length > c) {
+    emitRescues(i);
+    if (want.length > stack.length) {
       flush(i);
       while (stack.length < want.length) openMark(want[stack.length]);
     }
-    let ab = null,
-      al = null,
-      ar = null;
-    if (anyAtoms) {
-      ab = ob[i] >= 0 ? fb.atomAt.get(ob[i]) : null;
-      al = ol[i] >= 0 ? fl.atomAt.get(ol[i]) : null;
-      ar = or[i] >= 0 ? fr.atomAt.get(or[i]) : null;
-    }
-    if (ab || al || ar) {
+    if (at) {
       flush(i);
-      // The alignment names the element where it says more than position
-      // does: a kept position whose side atom is paired with a different,
-      // unequal base atom (a swap), or an inserted atom paired with a base
-      // atom whose place this side deleted (a move). Identical atoms pair
-      // arbitrarily in the alignment, so an equal twin never overrides.
-      const twinOf = (a, A, M) => {
-        if (!a || !byTwin) return null;
-        const t = baseAtomOf.get(A.reverse.get(a.el)) || null;
-        if (!t || t === ab) return null;
-        if (ab ? t.el.isEqualNode(ab.el) : M.bTo[t.i] >= 0) return null;
-        return t;
-      };
-      const tr = twinOf(ar, R, MR),
-        tl = twinOf(al, L, ML);
-      let bk = ab,
-        from = null;
-      if (tr) {
-        bk = tr;
-        from = "remote";
-      } else if (tl) {
-        bk = tl;
-        from = "local";
-      }
+      const ch = choices.get(i);
       let el;
-      if (bk) {
-        if (movedOut.has(bk)) {
-          conflicts.push({
-            kind: "structure",
-            el: null,
-            detail: "both-moved",
-            base: bk.el,
-          });
-          continue;
-        }
+      if (ch.dup) {
+        conflicts.push({
+          kind: "structure",
+          el: null,
+          detail: "both-moved",
+          base: ch.dup,
+        });
+        continue;
+      }
+      if (ch.moveIn) {
+        el = o.moveIn(ch.moveIn, ch.side, ch.sideEl);
+        if (!el) continue;
+      } else if (ch.bk) {
+        const bk = ch.bk;
         movedOut.add(bk);
-        if (bk === ab) el = mergeAtom(ab.el, al.el, ar.el);
+        if (bk === at.ab) el = mergeAtom(bk.el, ch.al.el, ch.ar.el);
         else {
           const lk = L.map.get(bk.el) || null,
             rk = R.map.get(bk.el) || null;
@@ -1223,14 +1564,18 @@ export function mergeInline(o) {
               detail: "move-beats-delete",
               base: bk.el,
             });
-          decisions.push({ kind: "move", el, source: from });
+          decisions.push({ kind: "move", el, source: ch.from });
         }
-      } else if (al) {
-        el = cloneAtom(al.el, "local");
-        if (ar) provenance.get(el).remote = ar.el;
-        decisions.push({ kind: "insert", el, source: ar ? "both" : "local" });
+      } else if (ch.al) {
+        el = cloneAtom(ch.al.el, "local");
+        if (ch.ar) provenance.get(el).remote = ch.ar.el;
+        decisions.push({
+          kind: "insert",
+          el,
+          source: ch.ar ? "both" : "local",
+        });
       } else {
-        el = cloneAtom(ar.el, "remote");
+        el = cloneAtom(ch.ar.el, "remote");
         decisions.push({ kind: "insert", el, source: "remote" });
       }
       append(el);
@@ -1240,10 +1585,11 @@ export function mergeInline(o) {
     buf += text[i];
   }
   flush(m);
-  if (pinsAt.has(m)) {
+  if (pinsAt.has(m) || rescueAt.has(m)) {
     stack.length = 0;
     container = null;
     emitPins(m);
+    emitRescues(m);
   }
   if (m === 0 && (fl.placeholder || fr.placeholder || fb.placeholder)) {
     const br = out.createElement("br");
@@ -1274,31 +1620,45 @@ export function mergeInline(o) {
   // at its edges; removed base marks; marks a side moved (its base range
   // deleted, its side range inserted somewhere else).
   const changed = new Map();
-  const note = (pos, src) => {
-    const t = nodeAt(pos);
+  // A change with no output text node to name (the text merged to
+  // nothing) is still a text decision, with no node.
+  const noNode = {};
+  const note = (pos, src, textual) => {
+    const t = nodeAt(pos) || (textual ? noNode : null);
     if (!t) return;
     const c = changed.get(t) || { l: false, r: false };
     if (src !== "remote") c.l = true;
     if (src !== "local") c.r = true;
     changed.set(t, c);
   };
+  const hasText = (p) => {
+    if (p.conflict) return true;
+    const t = p.src === "local" ? fl.text : p.src === "remote" ? fr.text : "";
+    for (let i = p.from; i < p.to; i++) if (t[i] !== ATOM) return true;
+    return false;
+  };
   for (const p of pieces)
-    if (p.src !== "base") note(p.ms, p.conflict ? "both" : p.src);
+    if (p.src !== "base") note(p.ms, p.conflict ? "both" : p.src, hasText(p));
   for (const [b, src] of respelled) if (bToM[b] >= 0) note(bToM[b], src);
-  for (const t of textNodes) {
+  for (const t of textNodes.length ? textNodes : [noNode]) {
     const c = changed.get(t);
     if (c)
       decisions.push({
         kind: "text",
-        node: t.node,
+        node: t.node || null,
         source: c.l && c.r ? "both" : c.l ? "local" : "remote",
       });
   }
+  // A base mark whose side twin sits outside this segment was moved out by
+  // that side, not removed: its destination records the move.
   for (const u of baseUs) {
-    if (opened.has(u) || (u.local && u.remote)) continue;
+    if (opened.has(u)) continue;
+    const lGone = !u.local && !(byTwin && L.map.get(u.base)),
+      rGone = !u.remote && !(byTwin && R.map.get(u.base));
+    if (!lGone && !rGone) continue;
     decisions.push({
       kind: "remove",
-      source: !u.local && !u.remote ? "both" : u.local ? "remote" : "local",
+      source: lGone && rGone ? "both" : lGone ? "local" : "remote",
       base: u.base,
     });
   }
@@ -1435,6 +1795,15 @@ export function mergeInline(o) {
     mapLocal,
     conflicts: conflicts.slice(firstConflict),
     granularity: lines ? "line" : "word",
+    // For apply: the local flat text and nodes this merge read, the output
+    // text nodes with their ranges, and the caret map between them.
+    segment: {
+      flatLocal: fl.text,
+      localNodes: fl.nodes,
+      textNodes,
+      lToM,
+      mapLocal,
+    },
     localHunks: lh,
     remoteHunks: rh,
     lToM,

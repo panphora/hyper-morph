@@ -9,7 +9,8 @@
  */
 
 import { makeInertScript, isHtmlScript } from "./scripts.js";
-import { merge3Text } from "./text-merge.js";
+import { merge3Text, diff } from "./text-merge.js";
+import { MARK_TAGS } from "./inline-merge.js";
 
 const XHTML = "http://www.w3.org/1999/xhtml";
 const FORM_TAGS = new Set(["INPUT", "OPTION", "TEXTAREA"]);
@@ -54,6 +55,7 @@ export function apply(liveRoot, mergedRoot, result, o) {
 
   // Pre-pass: resolve every merged node's live twin(s) once.
   const liveOf = new Map(); // merged node -> live node (element, or first text node of a run)
+  const mergedOf = new Map(); // live node -> the merged node it is the twin of
   const runOf = new Map(); // merged text node -> live text nodes of its run
   // live text node -> { merged, shift } for a run merged whole, or a list of
   // { merged, from, to, flatStart } when an inline merge spread the node's
@@ -64,13 +66,17 @@ export function apply(liveRoot, mergedRoot, result, o) {
     if (p) {
       if (m.nodeType === 1) {
         const lv = p.local ? o.toLive(p.local) : null;
-        if (lv && inRoot(lv) && lv.nodeType === 1) liveOf.set(m, lv);
+        if (lv && inRoot(lv) && lv.nodeType === 1) {
+          liveOf.set(m, lv);
+          mergedOf.set(lv, m);
+        }
       } else if (Array.isArray(p.local)) {
         const nodes = p.local
           .map((n) => o.toLive(n))
           .filter((n) => n && inRoot(n) && n.nodeType === m.nodeType);
         if (nodes.length) {
           liveOf.set(m, nodes[0]);
+          mergedOf.set(nodes[0], m);
           runOf.set(m, nodes);
         }
         if (Array.isArray(p.caret)) {
@@ -106,10 +112,18 @@ export function apply(liveRoot, mergedRoot, result, o) {
   for (const lv of liveOf.values()) liveTwins.add(lv);
   for (const nodes of runOf.values()) for (const n of nodes) liveTwins.add(n);
 
+  // Typing that landed after the local snapshot, per inline segment: the
+  // segment's live text is rebuilt from its local nodes and the typing is
+  // replayed onto the merged text through the caret map, so a node the
+  // merge split or re-wrapped keeps what was typed into it. A hunk whose
+  // characters the merge dropped or edited is a conflict, and the merge
+  // wins it.
+  for (const seg of result.segments || []) replayTyping(seg);
+
   const focus =
     o.restoreFocus === false ? null : captureFocus(doc, liveTextInfo);
 
-  if (o.childrenOnly) applyChildren(liveRoot, mergedRoot);
+  if (o.childrenOnly) applyChildren(kidsOf(liveRoot), kidsOf(mergedRoot));
   else applyElement(liveRoot, mergedRoot);
 
   // Final pass: remove what nothing claimed.
@@ -124,6 +138,101 @@ export function apply(liveRoot, mergedRoot, result, o) {
   return { applied, moved, replaced, identities, mergedScriptsLive, liveOf };
 
   // -------------------------------------------------------------------
+  // Word-level hunks carry the untouched letters of the word; drop them so
+  // typing at a word edge is an insertion at that edge.
+  function trimHunk(flatLocal, h) {
+    const old = flatLocal.slice(h.bs, h.be);
+    let p = 0;
+    while (p < old.length && p < h.text.length && old[p] === h.text[p]) p++;
+    let s = 0;
+    while (
+      s < old.length - p &&
+      s < h.text.length - p &&
+      old[old.length - 1 - s] === h.text[h.text.length - 1 - s]
+    )
+      s++;
+    return {
+      bs: h.bs + p,
+      be: h.be - s,
+      text: h.text.slice(p, h.text.length - s),
+    };
+  }
+  function replayTyping(seg) {
+    const lives = [];
+    for (const ln of seg.localNodes) {
+      const n = o.toLive(ln.node);
+      if (!n || !inRoot(n) || n.nodeType !== 3) return;
+      lives.push(n);
+    }
+    if (!lives.length) return;
+    const current = lives.map((n) => n.nodeValue).join("");
+    const { flatLocal, lToM, mapLocal } = seg;
+    if (current === flatLocal) return;
+    const nodes = seg.textNodes.map((t) => ({
+      node: t.node,
+      ms: t.ms,
+      me: t.me,
+    }));
+    const edits = [];
+    for (const h of diff(flatLocal, current).map((h) =>
+      trimHunk(flatLocal, h),
+    )) {
+      let ms, me;
+      if (h.be > h.bs) {
+        ms = lToM[h.bs];
+        let kept = ms >= 0;
+        for (let i = h.bs; kept && i < h.be; i++)
+          if (lToM[i] !== ms + (i - h.bs)) kept = false;
+        if (!kept) continue;
+        me = ms + (h.be - h.bs);
+      } else {
+        const before = h.bs > 0 ? lToM[h.bs - 1] : 0,
+          after = h.bs < flatLocal.length ? lToM[h.bs] : 0;
+        if (before < 0 || after < 0) continue;
+        ms = me = mapLocal(h.bs);
+      }
+      edits.push({ ms, me, text: h.text });
+    }
+    // From the end, so the offsets of the edits still to come stay valid.
+    edits.sort((a, b) => b.ms - a.ms);
+    const isMark = (n) => !!n && n.nodeType === 1 && MARK_TAGS.has(n.tagName);
+    for (const e of edits) {
+      let t = nodes.find((x) => x.ms <= e.ms && e.me <= x.me && e.ms < x.me);
+      if (!t && e.me === e.ms) {
+        // An insertion at a node boundary goes outside the marks that end
+        // or start there, as the inline merge places an edge insertion.
+        const ends = nodes.find((x) => x.me === e.ms),
+          starts = nodes.find((x) => x.ms === e.ms);
+        const ref = ends || starts;
+        if (!ref) continue;
+        let n = ref.node;
+        while (
+          isMark(n.parentNode) &&
+          (ends ? n.parentNode.lastChild : n.parentNode.firstChild) === n
+        )
+          n = n.parentNode;
+        if (n === ref.node) t = ref;
+        else {
+          const fresh = n.ownerDocument.createTextNode(e.text);
+          n.parentNode.insertBefore(fresh, ends ? n.nextSibling : n);
+          continue;
+        }
+      }
+      if (!t) continue;
+      const v = t.node.nodeValue;
+      t.node.nodeValue =
+        v.slice(0, e.ms - t.ms) + e.text + v.slice(e.me - t.ms);
+      t.me += e.text.length - (e.me - e.ms);
+    }
+  }
+
+  // The children of a template live in its content fragment.
+  function kidsOf(el) {
+    return el.nodeType === 1 && el.tagName === "TEMPLATE" && el.content
+      ? el.content
+      : el;
+  }
+
   function applyElement(liveEl, mergedEl) {
     claimed.add(liveEl);
     const p = provenance.get(mergedEl);
@@ -173,9 +282,13 @@ export function apply(liveRoot, mergedRoot, result, o) {
   }
 
   // The focused element's children are left as they are: claimed, so no
-  // other parent pulls one out and the final pass removes none.
+  // other parent pulls one out and the final pass removes none. A child the
+  // merge moved under another parent is the exception: left unclaimed, that
+  // parent moves it, where a claim would make it clone a second copy.
   function claimSubtree(parent) {
     for (let c = parent.firstChild; c; c = c.nextSibling) {
+      const m = mergedOf.get(c);
+      if (m && liveOf.get(m.parentNode) !== parent) continue;
       claimed.add(c);
       if (c.nodeType === 1) claimSubtree(c);
     }
@@ -455,6 +568,23 @@ export function apply(liveRoot, mergedRoot, result, o) {
         cc = cs[i];
       let lv = liveOf.get(mc);
       if (lv && claimed.has(lv)) lv = null;
+      const pm = provenance.get(mc);
+      if (pm && pm.pinned) {
+        // An ignored live element the inline merge placed: it moves into the
+        // copy as it is and is never synced. Without its live node there is
+        // nothing to place, and its bare stand-in goes.
+        if (lv && lv.nodeType === 1) {
+          const from = lv.parentNode;
+          moveBefore(cKids, lv, cc);
+          if (from !== cKids) {
+            moved.push(lv);
+            applied.push({ kind: "move", el: lv, from, to: cKids });
+          }
+          claimed.add(lv);
+        }
+        cc.remove();
+        continue;
+      }
       if (lv) {
         const from = lv.parentNode;
         moveBefore(cKids, lv, cc);
@@ -583,11 +713,32 @@ export function apply(liveRoot, mergedRoot, result, o) {
           : null;
       if (textLike && !protect) {
         if (o.formState === "property") {
+          // The attribute follows the merge in both modes; property mode only
+          // picks which side drives the live value. The attribute goes first,
+          // since setting it moves the value of an input nobody typed into.
+          const a = mergedEl.getAttribute("value");
+          const was = liveEl.getAttribute("value");
           if (
-            liveEl.value !== src.value &&
-            hooks.beforeAttributeUpdated("value", liveEl, "update") !== false
-          )
-            liveEl.value = src.value;
+            (was !== a || liveEl.value !== src.value) &&
+            hooks.beforeAttributeUpdated(
+              "value",
+              liveEl,
+              a == null ? "remove" : "update",
+            ) !== false
+          ) {
+            if (was !== a) {
+              if (a == null) liveEl.removeAttribute("value");
+              else liveEl.setAttribute("value", a);
+              applied.push({
+                kind: "attr",
+                el: liveEl,
+                name: "value",
+                before: was,
+                after: a,
+              });
+            }
+            if (liveEl.value !== src.value) liveEl.value = src.value;
+          }
         } else if (mergedEl.hasAttribute("value") || propertyValue != null) {
           const v =
             propertyValue != null
@@ -641,15 +792,22 @@ export function apply(liveRoot, mergedRoot, result, o) {
         )
           liveEl.setAttribute("value", mv);
       }
-      syncBoolean(liveEl, src, "checked");
+      // A focused checkbox or radio is mid-interaction as much as a focused
+      // text input mid-typing: its checked state is the user's, not the
+      // document's.
+      if (!protect) {
+        syncBoolean(liveEl, src, "checked");
+        if (
+          o.formState === "property" &&
+          liveEl.indeterminate !== src.indeterminate
+        )
+          liveEl.indeterminate = src.indeterminate;
+      }
       syncBoolean(liveEl, src, "disabled");
-      if (
-        o.formState === "property" &&
-        liveEl.indeterminate !== src.indeterminate
-      )
-        liveEl.indeterminate = src.indeterminate;
     } else if (tag === "OPTION") {
-      syncBoolean(liveEl, src, "selected");
+      const select = liveEl.parentNode && liveEl.closest("select");
+      if (!(o.protectFocusedValue && select && isFocused(select)))
+        syncBoolean(liveEl, src, "selected");
     }
   }
 

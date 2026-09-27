@@ -22,7 +22,7 @@
 
 import { createAnalyzer } from "./similarity.js";
 import { align } from "./align.js";
-import { merge3Text } from "./text-merge.js";
+import { merge3Text, diff } from "./text-merge.js";
 import { mergeInline, isInlineUnit } from "./inline-merge.js";
 import { indexByIdentity, defaultIdentity } from "./identity.js";
 import { headSignature } from "./head-merge.js";
@@ -123,6 +123,8 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     baseId: authored.base,
     sideId: authored.remote,
   });
+  demoteEchoes(L, R);
+  demoteEchoes(R, L);
   if (prof) {
     prof.alignTotal = (prof.alignTotal || 0) + (performance.now() - t0);
     t0 = performance.now();
@@ -134,7 +136,9 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   const decisions = [],
     conflicts = [];
   const mergedScripts = new Set();
+  const segments = []; // inline segment records for apply (typing after the snapshot)
   const emitted = new Set(); // base units and side units that produced output
+  const placed = new Set(); // base elements merged into the output
   const building = new Set(); // base elements whose output is under construction
   const inlineCache = new WeakMap(); // element -> its subtree is inline-only
 
@@ -154,7 +158,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   else out.body.appendChild(html);
   if (prof) prof.build = (prof.build || 0) + (performance.now() - t0);
   const localDiverged = o.childrenOnly
-    ? !sameChildren(html, rRoot)
+    ? !sameChildren(kidsOf(html), kidsOf(rRoot))
     : !sameElement(html, rRoot);
 
   return {
@@ -166,18 +170,85 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     conflicts,
     localDiverged,
     mergedScripts,
+    segments,
     remoteIdOf: o.identity.remote,
     customIdentity: o.identity.remote !== defaultIdentity,
     L,
     R,
   };
 
+  // A weak pair (made with no content evidence) whose side element the
+  // other side inserted verbatim is an echo of that insertion, not a rewrite
+  // of the base element: unpaired, the two copies pair with each other and
+  // the base element reads as deleted on that side.
+  function demoteEchoes(A, O) {
+    if (!A.weak || !A.weak.size || !O.insertedByHash) return;
+    const ins = O.insertedByHash();
+    if (!ins.size) return;
+    let any = false;
+    for (const bk of Array.from(A.weak)) {
+      const su = A.map.get(bk);
+      if (!su) continue;
+      const list = ins.get(analyzer.unitHash(su));
+      if (list && list.some((x) => x.tagName === su.tagName)) {
+        A.unpair(bk);
+        any = true;
+      }
+    }
+    if (any) A.rematch();
+  }
+
+  // An element a side moved into content that merges as one sequence (or
+  // out of it): merged at that destination with both sides' versions,
+  // unless another destination already placed it.
+  // A side's twin of a base element inside a subtree that side left
+  // identical: the alignment pairs such children only on demand.
+  function twinIn(A, bk) {
+    if (A.map.has(bk)) return A.map.get(bk);
+    const chain = [];
+    for (let p = bk.parentNode; p && !A.map.has(p); p = p.parentNode)
+      chain.push(p);
+    const top = chain.length
+      ? chain[chain.length - 1].parentNode
+      : bk.parentNode;
+    if (!top || !A.identical.has(top)) return null;
+    A.pairIdenticalChildren(top);
+    for (let i = chain.length - 1; i >= 0; i--)
+      A.pairIdenticalChildren(chain[i]);
+    return A.map.get(bk) || null;
+  }
+
+  function moveInto(bk, side, sideEl) {
+    if (placed.has(bk) || building.has(bk)) {
+      conflict({ kind: "structure", el: null, detail: "both-moved", base: bk });
+      return placed.has(bk) ? null : cloneUnit(sideEl, side);
+    }
+    const lk = twinIn(L, bk),
+      rk = twinIn(R, bk);
+    if (!lk || !rk)
+      conflict({
+        kind: "structure",
+        el: null,
+        detail: "move-beats-delete",
+        base: bk,
+      });
+    const node = mergeElement(bk, lk, rk, false);
+    (side === "local" ? localDecision : remoteDecision)({
+      kind: "move",
+      el: node,
+      source: side,
+    });
+    return node;
+  }
+
   // ---------------------------------------------------------------------
   // Side views: a side that lacks an element, or a remoteWins region, reads
   // as base for content while provenance still points at the real node.
   // ---------------------------------------------------------------------
   function view(A, sideEl, bEl, asBase) {
-    if (asBase || !sideEl) {
+    // A resurrected subtree hands its base nodes down as the side: they read
+    // as base at every depth, not only at the level the deletion happened.
+    if (asBase || !sideEl || sideEl === bEl) {
       return {
         el: bEl,
         asBase: true,
@@ -222,6 +293,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     const prov = { base: b, local: l || null, remote: r || null };
     provenance.set(el, prov);
     emitted.add(b);
+    placed.add(b);
     if (l) emitted.add(l);
     if (r) emitted.add(r);
     // Unchanged on both sides: nothing to merge below this element. The
@@ -329,7 +401,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         if (!o.ignoreAttribute(src, a.name)) names.set(a.name, a);
     }
     for (const [name, sample] of names) {
-      const bv = b.getAttribute(name),
+      const bv = b ? b.getAttribute(name) : null,
         lv = l ? l.getAttribute(name) : bv,
         rv = r ? r.getAttribute(name) : bv;
       let v;
@@ -476,6 +548,12 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     return node;
   }
 
+  // One text extends another when it differs by insertions alone: the shape
+  // of typing carried on after a copy was taken.
+  function extendsText(from, to) {
+    return diff(from, to).every((h) => h.bs === h.be);
+  }
+
   function insertedRunPair(lRun, rRun) {
     // Both sides inserted text at the same anchor with no base run.
     const lv = lRun ? lRun.value : "",
@@ -483,6 +561,8 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     let text;
     if (lv === rv || !rv) text = lv;
     else if (!lv) text = rv;
+    else if (extendsText(lv, rv)) text = rv;
+    else if (extendsText(rv, lv)) text = lv;
     else {
       text = policy === "local" ? lv : policy === "both" ? lv + rv : rv;
       conflict({
@@ -511,6 +591,74 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       });
     else remoteDecision({ kind: "insert", el: node, source: "remote" });
     return node;
+  }
+
+  /**
+   * Two copies of one inserted element that differ. With inline content
+   * whose texts differ by insertions alone (or not at all), the copy the
+   * other extends serves as base and the two merge as inline content, so
+   * typing carried on after the copy and formatting added to it both land.
+   * Otherwise the copies collide and the policy picks one.
+   */
+  function mergeEchoPair(lu, ru) {
+    const inlineOpts = { ignored, remoteWins: o.remoteWins, inlineCache };
+    const inline = (el) =>
+      unitsOf(el).every((u) =>
+        isEl(u) ? isInlineUnit(u, inlineOpts) : u.kind === "text",
+      );
+    let base = null;
+    if (inline(lu) && inline(ru)) {
+      const lt = lu.textContent,
+        rt = ru.textContent;
+      if (lt === rt || extendsText(rt, lt)) base = ru;
+      else if (extendsText(lt, rt)) base = lu;
+    }
+    if (!base) {
+      const fromLocal = policy === "local";
+      const node = cloneUnit(
+        fromLocal ? lu : ru,
+        fromLocal ? "local" : "remote",
+      );
+      const p = provenance.get(node);
+      if (fromLocal) p.remote = ru;
+      else p.local = lu;
+      conflict({
+        kind: "structure",
+        el: node,
+        detail: "insert-collision",
+        local: lu,
+        remote: ru,
+        resolved: fromLocal ? lu : ru,
+      });
+      return node;
+    }
+    const el =
+      lu.namespaceURI && lu.namespaceURI !== "http://www.w3.org/1999/xhtml"
+        ? out.createElementNS(lu.namespaceURI, lu.tagName)
+        : out.createElement(lu.tagName);
+    mergeAttrs(null, lu, ru, el);
+    provenance.set(el, { base: null, local: lu, remote: ru });
+    emitted.add(lu);
+    emitted.add(ru);
+    const res = mergeInline({
+      base: Array.from(base.childNodes),
+      local: Array.from(lu.childNodes),
+      remote: Array.from(ru.childNodes),
+      out,
+      policy,
+      idOf: { local: idLocal, remote: idRemote },
+      ignored,
+      ignoreAttribute: o.ignoreAttribute,
+      remoteWins: o.remoteWins,
+      provenance,
+      textMappers,
+      conflicts,
+      decisions,
+      node: el,
+    });
+    segments.push(res.segment);
+    for (const n of res.nodes) el.appendChild(n);
+    return el;
   }
 
   // ---------------------------------------------------------------------
@@ -553,7 +701,18 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       // changed). Merge it rather than cloning it, so apply keeps the live
       // node and the other side's edits are not lost.
       const bk = isEl(child) ? A.reverse.get(child) : null;
-      if (bk && !emitted.has(bk) && !building.has(bk)) {
+      if (bk && placed.has(bk)) {
+        // Already merged elsewhere: both sides moved it, the first place
+        // wins.
+        conflict({
+          kind: "structure",
+          el: null,
+          detail: "both-moved",
+          base: bk,
+        });
+        continue;
+      }
+      if (bk && !building.has(bk)) {
         const lk = L.map.get(bk) || null,
           rk = R.map.get(bk) || null;
         if (lk || rk) {
@@ -575,7 +734,9 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   // Children
   // ---------------------------------------------------------------------
   function mergeChildren(b, l, r, localAsBase, el) {
-    if (!localAsBase && l && L.identical.has(b)) L.pairIdenticalChildren(b);
+    // Identical subtrees are paired even under a side read as base, so the
+    // twins reach provenance and apply keeps the live nodes.
+    if (l && L.identical.has(b)) L.pairIdenticalChildren(b);
     if (r && R.identical.has(b)) R.pairIdenticalChildren(b);
     const Lv = view(L, l, b, localAsBase);
     const Rv = view(R, r, b, false);
@@ -676,12 +837,16 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         }
         return "start";
       };
-      const rRunsByAnchor = new Map();
-      for (const ru of rIns)
-        if (!isEl(ru) && ru.kind === "text") {
-          const a = anchorOf(Rv, ru);
-          if (!rRunsByAnchor.has(a)) rRunsByAnchor.set(a, ru);
-        }
+      const rRunsByAnchor = new Map(),
+        rElsByAnchor = new Map();
+      for (const ru of rIns) {
+        const a = anchorOf(Rv, ru);
+        if (isEl(ru)) {
+          if (!rElsByAnchor.has(a)) rElsByAnchor.set(a, []);
+          rElsByAnchor.get(a).push(ru);
+        } else if (ru.kind === "text" && !rRunsByAnchor.has(a))
+          rRunsByAnchor.set(a, ru);
+      }
       for (const lu of lIns) {
         let ru = null;
         if (isEl(lu)) {
@@ -702,6 +867,24 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
                   isEl(x) === isEl(lu) &&
                   (isEl(x) ? x.tagName === lu.tagName : x.kind === lu.kind),
               ) || null;
+        }
+        if (!ru && isEl(lu)) {
+          // Same tag at the same anchor with alike content: one element both
+          // sides inserted, edited on one of them since. Two authored ids
+          // that differ name two elements, however alike.
+          const la = authored.local(lu);
+          const cands = (rElsByAnchor.get(anchorOf(Lv, lu)) || []).filter(
+            (x) => {
+              const ra = authored.remote(x);
+              return (
+                !echo.has(x) &&
+                x.tagName === lu.tagName &&
+                !(la && ra && la !== ra) &&
+                analyzer.similar(lu, x)
+              );
+            },
+          );
+          if (cands.length === 1) ru = cands[0];
         }
         if (ru) {
           echo.set(ru, lu);
@@ -755,11 +938,15 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         return null;
       }
       const resurrected = !lk || !rk;
+      // A side read as base still hands its real twin to provenance, so
+      // apply keeps the live nodes of a remoteWins region instead of
+      // rebuilding them on every frame.
+      const lTwin = Lv.asBase ? L.map.get(bk) || null : lk;
       let node;
-      if (isEl(bk)) node = mergeElement(bk, Lv.asBase ? bk : lk, rk, Lv.asBase);
+      if (isEl(bk)) node = mergeElement(bk, lTwin, rk, Lv.asBase);
       else if (bk.kind === "comment")
-        node = mergeComment(bk, Lv.asBase ? bk : lk, rk);
-      else node = mergeRun(bk, Lv.asBase ? bk : lk, rk, Lv.asBase);
+        node = mergeComment(bk, lTwin, rk, Lv.asBase);
+      else node = mergeRun(bk, lTwin, rk, Lv.asBase);
       emitted.add(bk);
       if (node) {
         outputOfUnit.set(bk, node);
@@ -784,18 +971,27 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       // Returns the output node or null; handles kept, moved-in, echo, insertion.
       if (emitted.has(su)) return outputOfUnit.get(su) || null;
       const bk = V.baseOf(su);
-      if (bk && bSet.has(bk)) return emitBaseKid(bk);
+      if (bk && bSet.has(bk)) {
+        // Its base twin merged inline while this unit stayed outside that
+        // content: the side moved it out, and it lands here.
+        if (segUnits.has(bk) && !segUnits.has(su))
+          return emitOutOfSegment(bk, su, side);
+        return emitBaseKid(bk);
+      }
       if (bk) return emitMovedIn(bk, su, side);
       const partner = echo.get(su);
       if (partner) {
-        // Echoed insertion: local's version wins; provenance covers both.
+        // Echoed insertion: identical copies are one insert, kept from
+        // local; copies that differ collide, and the policy picks one.
+        // Provenance covers both either way.
         const lu = side === "local" ? su : partner,
           ru = side === "local" ? partner : su;
         let node;
         if (isEl(lu)) {
-          node = cloneUnit(lu, "local");
-          const p = provenance.get(node);
-          p.remote = ru;
+          if (analyzer.unitHash(lu) === analyzer.unitHash(ru)) {
+            node = cloneUnit(lu, "local");
+            provenance.get(node).remote = ru;
+          } else node = mergeEchoPair(lu, ru);
         } else node = insertedRunPair(lu, ru);
         emitted.add(lu);
         emitted.add(ru);
@@ -814,6 +1010,25 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           localDecision({ kind: "insert", el: node, source: "local" });
         else remoteDecision({ kind: "insert", el: node, source: "remote" });
       }
+      return node;
+    };
+
+    const emitOutOfSegment = (bk, su, side) => {
+      let node;
+      if (isEl(bk)) {
+        node = moveInto(bk, side, su);
+        if (node) emitted.add(su);
+      } else {
+        node = cloneUnit(su, side);
+        emitted.add(su);
+        if (node)
+          (side === "local" ? localDecision : remoteDecision)({
+            kind: "insert",
+            el: node,
+            source: side,
+          });
+      }
+      if (node) outputOfUnit.set(su, node);
       return node;
     };
 
@@ -1006,84 +1221,95 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       const inlineOpts = { ignored, remoteWins: o.remoteWins, inlineCache };
       const isInline = (u) =>
         isEl(u) ? isInlineUnit(u, inlineOpts) : u.kind === "text";
-      const segmentsOf = (units) => {
-        const segs = [];
-        let cur = null;
-        for (let i = 0; i < units.length; i++) {
-          const u = units[i];
-          if (isInline(u)) {
-            if (!cur) segs.push((cur = { units: [], start: i }));
-            cur.units.push(u);
-          } else cur = null;
+      const bInline = bUnits.map(isInline);
+      if (!bInline.includes(true)) return;
+      // A side's anchors are the blocks it kept here, in base order. Between
+      // two anchors lies a stretch, and a stretch's base and side units
+      // correspond as a whole, whatever blocks the side deleted or inserted
+      // among them: text on both sides of a block the side deleted is one
+      // run on that side, and a block it inserted splits one run in two.
+      const stretchesOf = (V) => {
+        const units = V.units;
+        const sPos = new Map();
+        for (let j = 0; j < units.length; j++) sPos.set(units[j], j);
+        const anchors = [];
+        let last = -1;
+        for (let i = 0; i < bUnits.length; i++) {
+          if (bInline[i]) continue;
+          const t = V.twin(bUnits[i]);
+          const j = t ? sPos.get(t) : undefined;
+          if (j === undefined || j <= last || isInline(t)) continue;
+          anchors.push([i, j]);
+          last = j;
         }
-        return segs;
-      };
-      const bSegs = segmentsOf(bUnits);
-      if (!bSegs.length) return;
-      // Segments pair through the nearest preceding unit that is paired with
-      // the other side, named as a base unit (or null at the start), so a
-      // deleted, inserted or edited block between two segments does not
-      // break the pairing. A key two segments of one side share is dropped.
-      const keyBefore = (units, start, pairedBase) => {
-        for (let j = start - 1; j >= 0; j--) {
-          const bk = pairedBase(units[j]);
-          if (bk) return bk;
+        const list = [];
+        let pb = -1,
+          ps = -1;
+        for (let k = 0; k <= anchors.length; k++) {
+          const [nb, ns] =
+            k < anchors.length ? anchors[k] : [bUnits.length, units.length];
+          const st = { bLo: -1, bHi: -1, sLo: -1, sHi: -1, next: ns };
+          for (let i = pb + 1; i < nb; i++)
+            if (bInline[i]) {
+              if (st.bLo < 0) st.bLo = i;
+              st.bHi = i;
+            }
+          for (let j = ps + 1; j < ns; j++)
+            if (isInline(units[j])) {
+              if (st.sLo < 0) st.sLo = j;
+              st.sHi = j;
+            }
+          list.push(st);
+          pb = nb;
+          ps = ns;
         }
-        return null;
+        return { units, list };
       };
-      const keyed = (segs, units, pairedBase) => {
-        const m = new Map(),
-          dup = new Set();
-        for (const s of segs) {
-          const k = keyBefore(units, s.start, pairedBase);
-          if (m.has(k)) dup.add(k);
-          else m.set(k, s);
+      const Ls = stretchesOf(Lv),
+        Rs = stretchesOf(Rv);
+      // A group is the base inline content that merges as one sequence: the
+      // union of every stretch, on either side, that holds base text. The
+      // blocks inside a group join it as atoms.
+      const spans = [];
+      for (const S of [Ls, Rs])
+        for (const st of S.list) if (st.bLo >= 0) spans.push([st.bLo, st.bHi]);
+      spans.sort((x, y) => x[0] - y[0]);
+      const groups = [];
+      for (const [lo, hi] of spans) {
+        const g = groups[groups.length - 1];
+        if (g && lo <= g.hi) g.hi = Math.max(g.hi, hi);
+        else groups.push({ lo, hi });
+      }
+      // The side units of a group: from its first to its last stretch, the
+      // side's inline units and the anchors between those stretches.
+      const sideRange = (S, g) => {
+        let k0 = -1,
+          k1 = -1;
+        for (let k = 0; k < S.list.length; k++) {
+          const st = S.list[k];
+          if (st.bLo < g.lo || st.bLo > g.hi) continue;
+          if (k0 < 0) k0 = k;
+          k1 = k;
         }
-        for (const k of dup) m.delete(k);
-        return m;
-      };
-      const pairs = (V) => {
-        if (V.asBase) return null;
-        const bKeyed = keyed(bSegs, bUnits, (bk) => {
-          const t = V.twin(bk);
-          return t && V.here(t) ? bk : null;
-        });
-        const sKeyed = keyed(segmentsOf(V.units), V.units, (su) => {
-          const bk = V.baseOf(su);
-          return bk && bSet.has(bk) ? bk : null;
-        });
-        const m = new Map();
-        for (const [k, seg] of bKeyed) {
-          const s = sKeyed.get(k);
-          m.set(seg, s ? s.units : []);
+        let from = Infinity,
+          to = -1;
+        for (let k = k0; k >= 0 && k <= k1; k++) {
+          const st = S.list[k];
+          if (st.sLo >= 0) {
+            from = Math.min(from, st.sLo);
+            to = Math.max(to, st.sHi);
+          }
+          if (k < k1) {
+            from = Math.min(from, st.next);
+            to = Math.max(to, st.next);
+          }
         }
-        return m;
+        return to < 0 ? [] : S.units.slice(from, to + 1);
       };
-      const lPairs = pairs(Lv),
-        rPairs = pairs(Rv);
-      // The side segment paired with a base segment; null for a side read
-      // as base, or when the pairing is ambiguous on that side.
-      const sideOf = (seg, pairs) =>
-        pairs && pairs.has(seg) ? pairs.get(seg) : null;
       const sameUnits = (a, s) =>
         a.length === s.length &&
         a.every((u, i) => analyzer.unitHash(u) === analyzer.unitHash(s[i]));
-      // A twin outside the segment pair is a cross-block move: the per-unit
-      // path keeps handling those.
-      const crosses = (seg, sideUnits, V) => {
-        if (!sideUnits) return false;
-        const inSide = new Set(sideUnits),
-          inBase = new Set(seg.units);
-        for (const u of seg.units) {
-          const t = V.twin(u);
-          if (t && !inSide.has(t)) return true;
-        }
-        for (const su of sideUnits) {
-          const bk = V.baseOf(su);
-          if (bk && !inBase.has(bk)) return true;
-        }
-        return false;
-      };
+      const isComment = (u) => !isEl(u) && u.kind === "comment";
       // The segment's nodes as they sit in the DOM: the units' nodes plus the
       // ignored elements among and beside them, which the inline merge pins.
       const nodesOf = (units) => {
@@ -1103,28 +1329,34 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         return out;
       };
       const hasPins = (nodes) => nodes.some((n) => isEl(n) && ignored(n));
-      for (const seg of bSegs) {
-        if ((lPairs && !lPairs.has(seg)) || (rPairs && !rPairs.has(seg)))
-          continue;
-        const lu = sideOf(seg, lPairs),
-          ru = sideOf(seg, rPairs);
-        const lNodes = nodesOf(lu || seg.units),
-          rNodes = nodesOf(ru || seg.units);
+      for (const g of groups) {
+        const units = bUnits.slice(g.lo, g.hi + 1);
+        const lu = Lv.asBase ? null : sideRange(Ls, g),
+          ru = Rv.asBase ? null : sideRange(Rs, g);
+        // A comment has no place in an inline sequence: such a group stays
+        // on the per-unit path.
         if (
-          (!lu || sameUnits(seg.units, lu)) &&
-          (!ru || sameUnits(seg.units, ru)) &&
+          units.some(isComment) ||
+          (lu && lu.some(isComment)) ||
+          (ru && ru.some(isComment))
+        )
+          continue;
+        const lNodes = nodesOf(lu || units),
+          rNodes = nodesOf(ru || units);
+        if (
+          (!lu || sameUnits(units, lu)) &&
+          (!ru || sameUnits(units, ru)) &&
           !(lu && hasPins(lNodes))
         )
           continue;
-        if (crosses(seg, lu, Lv) || crosses(seg, ru, Rv)) continue;
         const res = mergeInline({
-          base: nodesOf(seg.units),
+          base: nodesOf(units),
           local: lNodes,
           remote: rNodes,
           out,
           policy,
-          L: lu ? L : identityAlignment(),
-          R: ru ? R : identityAlignment(),
+          L: lu ? L : baseAlignment(L, b),
+          R: ru ? R : baseAlignment(R, b),
           idOf: { local: idLocal, remote: idRemote },
           ignored,
           ignoreAttribute: o.ignoreAttribute,
@@ -1132,20 +1364,23 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           mergeElement: (bk, lk, rk) => mergeElement(bk, lk, rk, false),
           cloneUnit,
           mergeAttrs,
+          atomKey: analyzer.unitHash,
+          moveIn: moveInto,
           provenance,
           textMappers,
           conflicts,
           decisions,
           node: el,
         });
+        segments.push(res.segment);
         const frag = out.createDocumentFragment();
         for (const n of res.nodes) frag.appendChild(n);
-        for (const u of [...seg.units, ...(lu || []), ...(ru || [])]) {
+        for (const u of [...units, ...(lu || []), ...(ru || [])]) {
           emitted.add(u);
           segUnits.add(u);
           outputOfUnit.set(u, frag);
         }
-        segFrags.push({ frag, at: bPos.get(seg.units[0]) });
+        segFrags.push({ frag, at: g.lo });
       }
     }
   }
@@ -1163,9 +1398,11 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     if (p && p.unchanged) return true;
     if (a.tagName !== r.tagName) return false;
     if (!sameAttrs(a, r)) return false;
-    const ac = a.tagName === "TEMPLATE" && a.content ? a.content : a;
-    const rc = r.tagName === "TEMPLATE" && r.content ? r.content : r;
-    return sameChildren(ac, rc);
+    return sameChildren(kidsOf(a), kidsOf(r));
+  }
+
+  function kidsOf(el) {
+    return el.tagName === "TEMPLATE" && el.content ? el.content : el;
   }
 
   function sameAttrs(a, r) {
@@ -1210,20 +1447,20 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         text = text === null ? c.nodeValue : text + c.nodeValue;
         continue;
       }
+      if (c.nodeType === 1 && skip(c)) continue;
       if (text !== null) {
         if (text !== "") items.push(text);
         text = null;
       }
-      if (c.nodeType === 1 && skip(c)) continue;
       items.push(c);
     }
     if (text !== null && text !== "") items.push(text);
     return items;
   }
 
-  function mergeComment(bRun, lRun, rRun) {
+  function mergeComment(bRun, lRun, rRun, lAsBase) {
     const bv = bRun.value,
-      lv = lRun ? lRun.value : "",
+      lv = lAsBase ? bv : lRun ? lRun.value : "",
       rv = rRun ? rRun.value : "";
     emitted.add(bRun);
     if (lRun) emitted.add(lRun);
@@ -1308,6 +1545,21 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
 /**
  * The alignment of a tree with itself, used when local is base (two-way).
  */
+// A side read as base pairs each base node with itself. Under a block that
+// side deleted, a base element it moved elsewhere first pairs with that
+// twin instead, so the inline merge sees it moved out, not kept.
+function baseAlignment(A, b) {
+  if (A.map.get(b)) return identityAlignment();
+  const twin = (x) => (x && x.nodeType === 1 && A.map.get(x)) || x;
+  return {
+    map: { get: twin, has: () => true },
+    reverse: { get: (y) => A.reverse.get(y) || y, has: () => true },
+    moved: new Set(),
+    identical: { has: () => true },
+    pairIdenticalChildren: () => {},
+  };
+}
+
 function identityAlignment() {
   const self = { get: (x) => x, has: () => true };
   return {

@@ -370,6 +370,18 @@ function contentOf(content, doc) {
     return { root: t, first: null };
   }
   if (typeof content === "string") {
+    // A string that is itself a body or html element keeps that element: a
+    // template parse would drop the wrapper and hand back its first child.
+    const m =
+      /^\s*(?:<!--[\s\S]*?-->\s*)*(?:<!doctype[^>]*>\s*)?<(html|body)[\s>]/i.exec(
+        content,
+      );
+    if (m) {
+      const parsed = toDocument(content, doc);
+      const el =
+        m[1].toLowerCase() === "html" ? parsed.documentElement : parsed.body;
+      return { root: el, first: el };
+    }
     const t = doc.createElement("template");
     t.innerHTML = content;
     return { root: t, first: t.content.firstElementChild };

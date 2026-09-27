@@ -206,6 +206,14 @@ function runFuzz(seed, N) {
         );
       }
       const isIns = (h) => h.bs === h.be;
+      // A hunk both sides made (an echo) is neither side's own edit, so an
+      // insertion touching it is not an insertion touching the other side's
+      // replacement.
+      const text = (h) => join(h.toks.map((t) => t.raw));
+      const echoed = (h, others) =>
+        others.some(
+          (o) => o.bs === h.bs && o.be === h.be && text(o) === text(h),
+        );
       const covered = (p, q) => d.conflicts.some((c) => c.bs <= q && p <= c.be);
       for (const l of d.localHunks)
         for (const r of d.remoteHunks) {
@@ -214,6 +222,7 @@ function runFuzz(seed, N) {
           const lo = Math.min(l.bs, r.bs),
             hi = Math.max(l.be, r.be);
           if (isIns(l) !== isIns(r)) {
+            if (echoed(l, d.remoteHunks) || echoed(r, d.localHunks)) continue;
             touching++;
             check(
               "I10 insertion touching a replacement conflicts",

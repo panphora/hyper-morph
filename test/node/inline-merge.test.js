@@ -5,8 +5,9 @@ import {
   flatten,
   flatSig,
   isInlineUnit,
+  steps as inlineSteps,
 } from "../../src/inline-merge.js";
-import { MAX_TOKENS } from "../../src/text-merge.js";
+import { MAX_TOKENS, steps } from "../../src/text-merge.js";
 import { parse, doc } from "./lib/dom.js";
 import { block, mergeBlocks, mergeSegment } from "./lib/inline.js";
 
@@ -922,13 +923,13 @@ test("past the token bound the text merges by line", () => {
   const base = lines.join("\n");
   const local = lines.map((w, i) => (i === 5 ? "LOCAL" : w)).join("\n");
   const remote = lines.map((w, i) => (i === n - 5 ? "REMOTE" : w)).join("\n");
-  const t0 = performance.now();
+  const s0 = steps.diff;
   const x = mergeBlocks(
     `<pre>${base}</pre>`,
     `<pre>${local}</pre>`,
     `<pre>${remote}</pre>`,
   );
-  assert.ok(performance.now() - t0 < 1000);
+  assert.ok(steps.diff - s0 < 4 * n, `${steps.diff - s0} steps`);
   assert.equal(x.res.granularity, "line");
   assert.equal(x.conflicts.length, 0);
   assert.equal(
@@ -942,9 +943,13 @@ test("past the token bound the text merges by line", () => {
 test("a rewrite past the edit bound is one conflict, not a hang", () => {
   const base = Array.from({ length: 6000 }, (_, i) => "w" + i).join(" ");
   const local = Array.from({ length: 6000 }, (_, i) => "L" + i).join(" ");
-  const t0 = performance.now();
+  const d0 = steps.diff,
+    c0 = inlineSteps.caret;
   const x = mergeBlocks(P(base), P(local), P(base + " tail"));
-  assert.ok(performance.now() - t0 < 10000);
+  // Linear work: Myers gives up on a middle that shares nothing, and the
+  // caret map scans the local text once (it was quadratic past the bound).
+  assert.ok(steps.diff - d0 < 4 * 6000, `${steps.diff - d0} diff steps`);
+  assert.ok(inlineSteps.caret - c0 <= 2 * local.length);
   assert.equal(x.conflicts.length, 1);
   assert.equal(x.node.textContent, base + " tail");
 });
@@ -962,11 +967,9 @@ test("a 2k paragraph with twenty marks on each side merges fast", () => {
   const b = P(words.join(" ")),
     l = P(wrap("b", 0)),
     r = P(wrap("i", 3, 17));
-  mergeBlocks(b, l, r);
-  const t0 = performance.now();
+  const s0 = steps.diff;
   const x = mergeBlocks(b, l, r);
-  const ms = performance.now() - t0;
-  assert.ok(ms < 200, `${ms} ms`);
+  assert.ok(steps.diff - s0 < 8 * words.length, `${steps.diff - s0} steps`);
   assert.equal(x.conflicts.length, 0);
   assert.equal(
     x.node.querySelectorAll("b").length,
@@ -1026,7 +1029,9 @@ test("swapped atoms keep their elements through the alignment, as moves", () => 
   assert.equal(x.provenance.get(first).base, x.b.childNodes[2]);
   assert.equal(x.provenance.get(first).local, x.l.childNodes[2]);
   assert.equal(x.provenance.get(second).base, x.b.childNodes[0]);
-  assert.deepEqual(kinds(x, "move"), ["remote", "remote"]);
+  // Atoms key by content (HM-G group F), so the diff reads the swap as one
+  // image moving past the other: one move, the other image kept in place.
+  assert.deepEqual(kinds(x, "move"), ["remote"]);
   assert.equal(x.conflicts.length, 0);
 });
 

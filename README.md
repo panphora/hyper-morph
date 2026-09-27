@@ -5,8 +5,8 @@ Three-way merge of HTML documents, applied to a live DOM.
 HyperMorph does one job: given the document a page started from (**base**),
 what this tab has now (**local**), and what arrived from a peer or from disk
 (**remote**), it produces the merged document and updates the live DOM to
-match it, keeping every live node that has a counterpart. Text merges at the
-character level, elements keep their identity without ids, and every
+match it, keeping every live node that has a counterpart. Text merges word by
+word, elements keep their identity without ids, and every
 decision it made is reported back.
 
 It exists so HTML files can save themselves and be edited by several people
@@ -63,7 +63,7 @@ mutation.
    on tag and class alone.
 3. **Merge.** Every base node is emitted with whatever each side changed:
    attributes per name (class as a token set, style as a declaration map),
-   text as a character-level three-way merge, children ordered by the side
+   text as a word-level three-way merge, children ordered by the side
    that reordered them, insertions anchored to the sibling they followed.
    An edit or move on one side beats a delete on the other.
 4. **Apply.** The live DOM is walked against the merged tree. Live nodes are
@@ -157,8 +157,10 @@ attributes, and a `detail` for structure: `both-reordered`, `both-moved`,
 
 ## Text merging
 
-Text nodes merge at the character level with a Myers diff against base on
-each side. Disjoint edits both apply; overlapping edits resolve by the
+Text merges word by word, with a Myers diff of each side's words against
+base. Inside a paragraph, the text and its formatting and inline elements
+merge as one sequence, so edits to different words both land. Disjoint
+edits both apply; overlapping edits resolve by the
 `conflicts` policy and are reported. The focused element's caret is mapped
 through the merge, so typing while a remote edit lands in the same paragraph
 keeps the cursor where it was.
@@ -170,8 +172,13 @@ merge3Text("the lazy dog", "Note: the lazy dog", "the sleepy dog").text;
 ```
 
 Elements whose text is code rather than prose (`script`, `style`,
-`textarea`, `template`, `iframe`, media) never pair by text and merge as a
-whole value.
+`textarea`, `template`, `iframe`, media) never pair by their text. Executable
+script text, `textarea` text and comments merge as a whole value: the side
+that changed wins, and both changing is a conflict. `<style>` text merges
+word by word like any other text.
+
+A paragraph split or joined on one side while the other side edits it can
+duplicate or drop text; see "Known limitations" in `docs/api.md`.
 
 ## Identity without ids
 
@@ -187,7 +194,7 @@ a `data-id`, or a synthetic map from a collaboration layer), they win.
 import {
   merge3, // the pure merge: (base, local, remote, options) => merged document + provenance
   merge3Text,
-  diff, // character diff
+  diff, // word-level diff
   createIdentityStore,
   importMap,
   tieredIdentity, // synthetic identity helpers

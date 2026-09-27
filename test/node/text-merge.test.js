@@ -5,6 +5,7 @@ import {
   merge3Text,
   MAX_TOKENS,
   MAX_EDITS,
+  steps,
 } from "../../src/text-merge.js";
 
 function apply(base, hunks) {
@@ -138,9 +139,9 @@ test("T-T8 large input falls back within bounds", () => {
   const base = "x".repeat(30000);
   const local = base + "\nlocal";
   const remote = "remote\n" + base;
-  const t0 = performance.now();
+  const s0 = steps.diff;
   const r = merge3Text(base, local, remote);
-  assert.ok(performance.now() - t0 < 200);
+  assert.ok(steps.diff - s0 < 1000, `${steps.diff - s0} steps`);
   assert.equal(r.text, "remote\n" + base + "\nlocal");
 });
 

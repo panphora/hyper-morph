@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parse, doc } from "./lib/dom.js";
 import { createAnalyzer } from "../../src/similarity.js";
-import { align } from "../../src/align.js";
+import { align, steps } from "../../src/align.js";
 import { makeIgnore } from "../../src/ignore.js";
 import { indexByIdentity, defaultIdentity } from "../../src/identity.js";
 
@@ -126,15 +126,16 @@ test("alignment of two identical 3000-element documents is fast", () => {
   const b = parse(doc(`<main><ul>${items}</ul></main>`)).body,
     s = parse(doc(`<main><ul>${items}</ul></main>`)).body;
   const analyzer = createAnalyzer();
-  const t0 = performance.now();
+  const s0 = steps.align;
   const a = align(b, s, {
     analyzer,
     baseIndex: new Map(),
     sideIndex: new Map(),
   });
-  const ms = performance.now() - t0;
   assert.ok(a.identical.has(q(b, "main")));
-  assert.ok(ms < 1000, `took ${ms}ms`); // jsdom is slow; the browser benchmark holds the real target
+  // A step bound, not a wall clock: identical subtrees are never walked
+  // (the browser benchmark holds the real time target).
+  assert.ok(steps.align - s0 < 100, `${steps.align - s0} steps`);
 });
 
 test("HE1 unpaired elements that line up slot for slot pair by position", () => {

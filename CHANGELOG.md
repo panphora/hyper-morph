@@ -44,12 +44,13 @@ the review, the scenarios, and the specification.
   whose root is ignored touches nothing and returns an empty report.
 - `createIdentityStore`, `importMap`, `tieredIdentity` for synthetic
   identities; `createParseCache`. An exported identity map carries the
-  sender's element child counts under the reserved key `"~"`, and
-  `importMap` imports nothing below an element whose child count differs.
+  sender's element child counts under the reserved key `"~"` and their tag
+  names under `"^"`. `importMap` imports nothing below an element whose
+  child count differs, and gives an element whose tag differs no id.
 - `head.preserve(el)`: a live head child the predicate approves is never
   removed, only updated in place.
-- Type declarations in `types/index.d.ts`, and a full contract in
-  `docs/api.md`.
+- Type declarations in `types/index.d.ts` (and one file per subpath
+  export), and a full contract in `docs/api.md`.
 - Node test suite (jsdom) under `test/node`; `npm run perf` profiles a
   3000-element page in Chromium.
 
@@ -74,8 +75,36 @@ the review, the scenarios, and the specification.
   the pantry, `morphStyle`, `ignoreActive`, `policy`, the `head` merge
   styles, and `beforeNodePantried`. The `key` option is
   replaced by `identity`.
-- `scripts/propagate.js`, `packed-contract.json`, and the `hyper` package
-  field.
+- `packed-contract.json`.
+- The named exports `HyperMorph` and `defaults`, and the `./matcher`
+  subpath. `src/hyper-morph.js` is no longer the entry file; import the
+  package root. The default export is now `{ mergeDocument, morphDocument,
+morphElement, merge3, morph }`.
+
+### Compatibility notes for `morph()`
+
+- It returns a Promise of a merge report; 0.5.4 returned the morphed nodes
+  (`Node[]`) synchronously.
+- A root the policy ignores is left alone under `morphStyle: "innerHTML"`
+  too; 0.5.4 morphed its children. A form marked `no-save` or `editor-ui`
+  must be morphed through an unmarked wrapper, or with `policy: "raw"`.
+- An `outerHTML` morph whose content has several top-level nodes morphs the
+  first element only; 0.5.4 also inserted the other nodes around it.
+- With `restoreFocus: false`, a focused control moved to a different depth
+  loses focus; 0.5.4 kept it.
+
+### Known limitations
+
+- A block both sides inserted (an echo) lands twice when one side then
+  moved the block's neighbour or its container, so the two copies sit in
+  different containers. Inserts have no base to pair by, and only inserts
+  in the same place are recognised as one. The structural fuzz
+  (`test/node/structure-fuzz.test.js`) finds this in 4 of 5000 generated
+  cases; the test runs seeds 1 to 1000, which all pass.
+- A paragraph split or joined on one side while the other side edits the
+  paragraphs involved can duplicate or drop text. The merge treats blocks
+  as units and cannot yet read a split as one edit; see
+  `docs/api.md`, "Known limitations".
 
 ## [0.5.4] - 2026-09-23
 

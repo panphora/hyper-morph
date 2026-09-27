@@ -23,6 +23,12 @@
 export const MAX_TOKENS = 20000;
 export const MAX_EDITS = 4000;
 
+/**
+ * Work counters for the tests: a bound on steps holds where a wall clock
+ * would be flaky. `diff` counts Myers diagonal visits and snake steps.
+ */
+export const steps = { diff: 0 };
+
 // ---------------------------------------------------------------------
 // Tokenizer
 // ---------------------------------------------------------------------
@@ -93,10 +99,12 @@ function myers(a, b, maxD) {
         x = v[offset + k + 1];
       else x = v[offset + k - 1] + 1;
       let y = x - k;
+      const x0 = x;
       while (x < n && y < m && a[x].k === b[y].k) {
         x++;
         y++;
       }
+      steps.diff += 1 + x - x0;
       v[offset + k] = x;
       if (x >= n && y >= m) {
         found = true;
@@ -165,31 +173,39 @@ export function diffTokens(B, S, maxD = MAX_EDITS) {
   // A middle that shares few words is a rewrite: one hunk, no Myers. Also
   // the answer when Myers exceeds maxD (prefix and suffix are already trimmed).
   const ops = sharesFew(am, bm) ? null : myers(am, bm, maxD);
-  if (!ops)
+  if (!ops) {
+    const hunks =
+      am.length || bm.length ? [{ bs: p, be: p + am.length, toks: bm }] : [];
     return {
-      hunks:
-        am.length || bm.length ? [{ bs: p, be: p + am.length, toks: bm }] : [],
+      hunks,
       cosmetic,
       coarse: true,
+      parts: hunks.map((h) => ({ ...h, gap: [], group: 0 })),
+      cosmeticEq: cosmetic,
     };
+  }
   // Equal whitespace between two changes is not an anchor: a run of spaces
   // Myers matched inside one edit would split it into two hunks, and a
   // conflict could then swallow one half while the other lands beside it
   // (duplicating the words the second half re-inserts). Such a gap joins
   // the hunks on both sides of it. A newline keeps its anchoring, so edits
-  // on separate lines stay separate.
-  const hunks = [];
+  // on separate lines stay separate. The unjoined hunks are returned too, as
+  // `parts` in groups, so a three-way merge can leave a part identical on
+  // both sides out of the join (an echoed word beside a one-sided edit).
+  const parts = [];
   const cosmeticAt = (ia, ib) => {
     if (am[ia].raw !== bm[ib].raw) cosmetic.push({ bi: p + ia, tok: bm[ib] });
   };
   let cur = null;
   let gap = [];
+  let group = 0;
   let ai = 0;
   const settle = () => {
-    if (cur) hunks.push(cur);
+    if (cur) parts.push(cur);
     cur = null;
     for (const [ia, ib] of gap) cosmeticAt(ia, ib);
     gap = [];
+    group++;
   };
   for (const [op, ia, ib] of ops) {
     if (op === 0) {
@@ -202,20 +218,218 @@ export function diffTokens(B, S, maxD = MAX_EDITS) {
       ai = ia + 1;
       continue;
     }
-    if (!cur) cur = { bs: p + ai, be: p + ai, toks: [] };
-    else
-      for (const [ga, gb] of gap) {
-        cur.be = p + ga + 1;
-        cur.toks.push(bm[gb]);
-      }
-    gap = [];
+    if (!cur || gap.length) {
+      if (cur) parts.push(cur);
+      cur = {
+        bs: p + ai,
+        be: p + ai,
+        toks: [],
+        gap: gap.map(([ga, gb]) => ({ bi: p + ga, tok: bm[gb] })),
+        group,
+      };
+      gap = [];
+    }
     if (op === -1) {
-      cur.be = p + ia + 1;
+      cur.be = p + ai + 1;
       ai = ia + 1;
     } else cur.toks.push(bm[ib]);
   }
   settle();
+  const joined = joinParts(parts);
+  return {
+    hunks: joined.hunks,
+    cosmetic: cosmetic.concat(joined.cosmetic),
+    parts,
+    cosmeticEq: cosmetic,
+  };
+}
+
+/**
+ * Join the parts of each group across their whitespace gaps into hunks.
+ * A part for which `alone` is true stands on its own and joins nothing on
+ * either side. Gap tokens that are not swallowed come back as cosmetic
+ * differences.
+ */
+export function joinParts(parts, alone = () => false) {
+  const hunks = [],
+    cosmetic = [];
+  let cur = null,
+    curGroup = -1;
+  for (const q of parts) {
+    const solo = alone(q);
+    if (cur && !cur.alone && !solo && q.group === curGroup) {
+      cur.be = q.be;
+      for (const g of q.gap) cur.toks.push(g.tok);
+      for (const t of q.toks) cur.toks.push(t);
+      continue;
+    }
+    if (cur) hunks.push({ bs: cur.bs, be: cur.be, toks: cur.toks });
+    for (const g of q.gap) cosmetic.push(g);
+    cur = { bs: q.bs, be: q.be, toks: q.toks.slice(), alone: solo };
+    curGroup = q.group;
+  }
+  if (cur) hunks.push({ bs: cur.bs, be: cur.be, toks: cur.toks });
   return { hunks, cosmetic };
+}
+
+/** The same edit on both sides: same base range, same tokens. */
+export const sameParts = (a, b) =>
+  a.bs === b.bs && a.be === b.be && sameToks(a.toks, b.toks);
+
+/**
+ * Both sides' hunks with the join deferred past the identical parts: a part
+ * both sides made is one "both" edit, never glued to a neighbour that only
+ * one side made.
+ */
+export function pairedHunks(dL, dR, B) {
+  const aloneIn = (others) => (q) => others.some((x) => sameParts(q, x));
+  const jl = joinParts(dL.parts, aloneIn(dR.parts)),
+    jr = joinParts(dR.parts, aloneIn(dL.parts));
+  const cosL = dL.cosmeticEq.concat(jl.cosmetic),
+    cosR = dR.cosmeticEq.concat(jr.cosmetic);
+  const [lh, rh] = B
+    ? splitEchoes(jl.hunks, jr.hunks, B, cosL, cosR)
+    : [jl.hunks, jr.hunks];
+  return {
+    lh,
+    rh,
+    cosL,
+    cosR,
+  };
+}
+
+/**
+ * Text both sides inserted at one point, glued to an edit only one side
+ * made: local inserted " w7" after "w0" while remote replaced "w0" with
+ * "w10 w7". A hunk of one side and a hunk of the other that end at the same
+ * base position with the same tokens (an insertion may slide there across
+ * equal base tokens), or begin at the same position with the same tokens,
+ * split so the shared tokens are an insertion of their own at that point,
+ * which pairs as one edit made on both sides. The rest of an insertion that
+ * precedes the shared tokens leads them (`lead`).
+ */
+function splitEchoes(lh, rh, B, cosL, cosR) {
+  const same = (a, b) => a.k === b.k && a.raw === b.raw;
+  const sides = [
+    { list: lh.map((h) => ({ ...h })), resp: new Set(cosL.map((c) => c.bi)) },
+    { list: rh.map((h) => ({ ...h })), resp: new Set(cosR.map((c) => c.bi)) },
+  ];
+  const isIns = (h) => h.bs === h.be;
+  // The tokens of hunk i placed at base position `to`: a replacement only
+  // where it already sits, an insertion slid there across equal base tokens
+  // no other hunk of its side touches. Null when it cannot go there.
+  const place = (S, i, to, edge) => {
+    const h = S.list[i];
+    if (!isIns(h)) return edge(h) === to ? h.toks : null;
+    const lo = i ? S.list[i - 1].be : 0,
+      hi = i + 1 < S.list.length ? S.list[i + 1].bs : B.length;
+    if (to < lo || to > hi) return null;
+    let toks = h.toks,
+      at = h.bs;
+    while (at > to) {
+      const last = toks[toks.length - 1];
+      if (!same(last, B[at - 1]) || S.resp.has(at - 1)) return null;
+      toks = [last, ...toks.slice(0, -1)];
+      at--;
+    }
+    while (at < to) {
+      if (!same(toks[0], B[at]) || S.resp.has(at)) return null;
+      toks = [...toks.slice(1), toks[0]];
+      at++;
+    }
+    return toks;
+  };
+  const split = (S, i, toks, n, tail, P) => {
+    const h = S.list[i];
+    const shared = tail ? toks.slice(toks.length - n) : toks.slice(0, n),
+      rest = tail ? toks.slice(0, toks.length - n) : toks.slice(n);
+    const sh = { bs: P, be: P, toks: shared };
+    if (isIns(h)) {
+      if (!rest.length) {
+        S.list[i] = sh;
+        return;
+      }
+      const r = { bs: P, be: P, toks: rest };
+      if (tail) r.lead = true;
+      S.list.splice(i, 1, ...(tail ? [r, sh] : [sh, r]));
+      return;
+    }
+    const r = { bs: h.bs, be: h.be, toks: rest };
+    S.list.splice(i, 1, ...(tail ? [r, sh] : [sh, r]));
+  };
+  // Both sides replaced the same base tokens and share a head or tail: the
+  // shared part is one replacement of those tokens (an echo), and what one
+  // side typed beyond it is an insertion beside it.
+  const splitSame = (S, i, toks, n, tail) => {
+    const h = S.list[i];
+    const shared = tail ? toks.slice(toks.length - n) : toks.slice(0, n),
+      rest = tail ? toks.slice(0, toks.length - n) : toks.slice(n);
+    const sh = { bs: h.bs, be: h.be, toks: shared };
+    if (!rest.length) {
+      S.list[i] = sh;
+      return;
+    }
+    const r = tail
+      ? { bs: h.bs, be: h.bs, toks: rest, lead: true }
+      : { bs: h.be, be: h.be, toks: rest };
+    S.list.splice(i, 1, ...(tail ? [r, sh] : [sh, r]));
+  };
+  const X = sides[0],
+    Y = sides[1];
+  for (let guard = 0; guard < 64; guard++) {
+    let changed = false;
+    outer: for (let i = 0; i < X.list.length; i++)
+      for (let j = 0; j < Y.list.length; j++) {
+        const x = X.list[i],
+          y = Y.list[j];
+        if (x.bs === y.bs && x.be === y.be && sameToks(x.toks, y.toks))
+          continue;
+        for (const tail of [true, false]) {
+          const edge = (h) => (tail ? h.be : h.bs);
+          const targets = isIns(x) ? [edge(y), x.bs] : [edge(x)];
+          for (const P of targets) {
+            const xt = place(X, i, P, edge),
+              yt = xt && place(Y, j, P, edge);
+            if (!yt) continue;
+            const at = (t, k) => (tail ? t[t.length - 1 - k] : t[k]);
+            let n = 0;
+            while (
+              n < xt.length &&
+              n < yt.length &&
+              at(xt, n).k === at(yt, n).k
+            )
+              n++;
+            if (!n) continue;
+            // Two sides that each typed something different beyond the
+            // shared part at the same point are two insertions there, and
+            // both land whole (split, the two rests would fuse).
+            if (
+              n < xt.length &&
+              n < yt.length &&
+              ((isIns(x) && isIns(y)) || (x.bs === y.bs && x.be === y.be))
+            )
+              continue;
+            const shared = tail ? xt.slice(xt.length - n) : xt.slice(0, n);
+            if (!shared.some((t) => !isSpace(t))) continue;
+            if (n === xt.length && n === yt.length && isIns(x) && isIns(y)) {
+              if (x.bs === P && y.bs === P) continue;
+              X.list[i] = { bs: P, be: P, toks: xt };
+              Y.list[j] = { bs: P, be: P, toks: yt };
+            } else if (!isIns(x) && x.bs === y.bs && x.be === y.be) {
+              splitSame(X, i, xt, n, tail);
+              splitSame(Y, j, yt, n, tail);
+            } else {
+              split(X, i, xt, n, tail, P);
+              split(Y, j, yt, n, tail, P);
+            }
+            changed = true;
+            break outer;
+          }
+        }
+      }
+    if (!changed) break;
+  }
+  return [X.list, Y.list];
 }
 
 const REWRITE_MIN = 48,
@@ -255,8 +469,7 @@ const sameToks = (a, b) =>
 export function merge3Tokens(B, L, R, policy = "remote") {
   const dL = diffTokens(B, L),
     dR = diffTokens(B, R);
-  const lh = dL.hunks,
-    rh = dR.hunks;
+  const { lh, rh, cosL: cosLList, cosR: cosRList } = pairedHunks(dL, dR, B);
 
   const isInsert = (h) => h.bs === h.be;
   const hasText = (h) => h.toks.some((t) => typeof t.k === "string");
@@ -282,12 +495,27 @@ export function merge3Tokens(B, L, R, policy = "remote") {
     if (r) {
       rUsed.add(r);
       units.push({ bs: l.bs, be: l.be, side: "both", l, r, toks: l.toks });
-    } else units.push({ bs: l.bs, be: l.be, side: "L", l, toks: l.toks });
+    } else
+      units.push({
+        bs: l.bs,
+        be: l.be,
+        side: "L",
+        l,
+        toks: l.toks,
+        lead: !!l.lead,
+      });
   }
   for (const r of rh)
     if (!rUsed.has(r))
-      units.push({ bs: r.bs, be: r.be, side: "R", r, toks: r.toks });
-  units.sort((a, b) => a.bs - b.bs || a.be - b.be);
+      units.push({
+        bs: r.bs,
+        be: r.be,
+        side: "R",
+        r,
+        toks: r.toks,
+        lead: !!r.lead,
+      });
+  units.sort((a, b) => a.bs - b.bs || a.be - b.be || b.lead - a.lead);
   let collapsedDelta = 0,
     samePoint = 0;
   for (const u of units)
@@ -455,7 +683,8 @@ export function merge3Tokens(B, L, R, policy = "remote") {
         return rank(b) - rank(a); // equal: remote's close first (local's open went first)
       }
     }
-    return rank(a) - rank(b) || a.be - b.be;
+    const lead = (e) => (e.u && e.u.lead ? 1 : 0);
+    return lead(b) - lead(a) || rank(a) - rank(b) || a.be - b.be;
   });
 
   const segments = [];
@@ -514,8 +743,8 @@ export function merge3Tokens(B, L, R, policy = "remote") {
   pushBase(B.length);
 
   // cosmetic (nbsp/space) forms on base tokens: three-way per token, no conflict
-  const cosL = new Map(dL.cosmetic.map((c) => [c.bi, c.tok])),
-    cosR = new Map(dR.cosmetic.map((c) => [c.bi, c.tok]));
+  const cosL = new Map(cosLList.map((c) => [c.bi, c.tok])),
+    cosR = new Map(cosRList.map((c) => [c.bi, c.tok]));
   const tokens = [];
   for (const seg of segments) {
     if (seg.source === "base") {

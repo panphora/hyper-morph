@@ -268,7 +268,8 @@ synced.
   is honored (a script-set value on a node that also carries the
   attribute).
 - `"property"` (for script-built content): properties are copied from the
-  original remote node, attributes are not written. `value`, `checked`,
+  original remote node. The `value` attribute still follows the merge, as
+  in attribute mode; the other attributes are not written. `value`, `checked`,
   `selected`, `disabled`, `indeterminate`; a textarea's child text is left
   alone and its `value` property is set.
 
@@ -511,7 +512,8 @@ Per side, in order; a node pairs at most once.
    whatever their content. Per parent, over its alignment units (elements,
    and adjacent text nodes coalesced into one run):
    1. same index and equal subtree (`isEqualNode`);
-   2. the only unpaired element of a tag on both sides at the same index;
+   2. the only unpaired element of a tag on both sides in the same slot
+      (the same index, or after the same paired element);
    3. identical subtree hash, unique on both sides;
    4. equal signature (tag, class set, key attributes) and equal text hint
       (first 64 collapsed characters), unique on both sides;
@@ -520,9 +522,13 @@ Per side, in order; a node pairs at most once.
    6. same position, when the elements have similar text or both have an
       empty hint.
       Text runs pair by the element that precedes them.
-3. **Moves.** Elements still unpaired on both sides pair across parents by
-   identical hash, else by equal signature and similar text, under a
-   budget of 2000 similarity evaluations per side.
+3. **Moves.** Elements still unpaired on both sides, and the elements
+   inside an unpaired element (content wrapped in a new container or
+   unwrapped from a deleted one), pair across parents by identical hash,
+   else by equal signature and similar text, under a budget of 2000
+   similarity evaluations per side. A side element paired only by its slot
+   (step 2.2 or 4) is still a candidate: a move with content evidence takes
+   it, and its slot partner is unpaired.
 4. **Slots.** Per parent, when every element still unpaired sits at the
    same index with the same tag on both sides, the slots were rewritten in
    place and each pairs with the element in its slot. Any count or index
@@ -609,17 +615,29 @@ against base, hunks applied where they do not overlap. Two edits to the
 same word, or an insertion touching the other side's edit, conflict and
 resolve by policy; two replacements that only touch both land; identical
 edits land once; two insertions at the same point both land, local first.
+An insertion both sides made lands once even where one side typed more
+around it or joined it to an edit of its own (an echo the side kept typing
+into): the shared text is one edit made on both sides, and the rest merges
+around it.
 Formatting merges per character as a set, with the rule class tokens use,
 and never conflicts with formatting. A text edit strictly inside a range
 the other side formatted takes that formatting; one that crosses the
-range's edge conflicts. Atoms pair by position, or by the alignment when a
-side swapped or moved one; deleting or replacing an atom the other side
+range's edge conflicts. Atoms pair by what they are (tag, attributes and
+content), so a side that swapped or moved one moves it rather than
+deleting and re-inserting it; deleting or replacing an atom the other side
 changed conflicts. A segment over 20,000 word tokens on any side merges by
 line.
 
-A text run outside a segment (its block had no inline content in base, or
-a formatting element in it moved across blocks) merges with `merge3Text`
-under the same word rules. A run with no base counterpart on both sides
+Text crossing a block boundary: when one side deleted or inserted a block
+between two runs of inline content, the runs and the block merge as one
+segment, with the block as an atom, so the other side's edits to either
+run land once. A block one side deleted and the other side changed is kept
+between the runs and records `edit-beats-delete`. An inline element or a
+formatting element one side moved into another block leaves its old place
+and merges at its destination, carrying the other side's changes to it.
+
+A text run outside a segment (its block had no inline content in base)
+merges with `merge3Text` under the same word rules. A run with no base counterpart on both sides
 (text both sides inserted at the same anchor) merges with an empty base,
 lands local first and records `insert-collision`.
 
@@ -736,7 +754,11 @@ tieredIdentity(tiers: IdOf[]): IdOf; // first non-empty string wins
 twins `toLive` returns, and produces the path-keyed map the `identity.*.map`
 option consumes. Paths count element children only, so both ends must walk
 the same shape; a snapshot that added or removed elements must be exported
-from the same clone that is sent.
+from the same clone that is sent. The map carries the sender's element
+child counts under the reserved key `"~"` and their tag names under `"^"`.
+`importMap` imports nothing below an element whose child count differs, and
+an element whose tag differs from the sender's (a parser-added `<tbody>`)
+gets no id and imports nothing below it. A malformed shape imports nothing.
 
 ## Text merge
 
@@ -850,3 +872,15 @@ Deprecated. `morph(oldNode, newContent, config)` keeps 0.5.x callers working and
 | `morphStyle: "innerHTML"`              | `children: true`                                                                                                                                         |
 
 A `Document` or `<html>` target goes through `mergeDocument`; any other element goes through `morphElement`. New code should call those directly.
+
+Behaviour that differs from 0.5.4:
+
+- The return value is a Promise of a merge report, not the morphed nodes.
+- A root the policy ignores is a no-op under `morphStyle: "innerHTML"` too; 0.5.4 morphed its children.
+- An `outerHTML` morph morphs the first element of the content; other top-level nodes are dropped.
+- With `restoreFocus: false`, a focused control that moves to a different depth loses focus.
+
+## Known limitations
+
+- **Paragraph split and join.** A merge treats each block as a unit. When one side splits a paragraph in two (or joins two) and the other side edits the paragraphs involved, the split is read as edits to one block plus a new block, so text near the split can land twice, or the other side's edit to a joined paragraph can be lost. The loss records a `text` conflict; the duplication records nothing.
+- **An echoed block whose neighbour moved.** When both sides insert the same block and one side then moves the block's neighbour or its container, the two copies end up in different containers and both land. Inserts have no base element to pair by, and two inserts are read as one only when they sit in the same place.

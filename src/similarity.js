@@ -203,18 +203,32 @@ export function createAnalyzer({
     return u.hash;
   }
 
-  function similar(a, b) {
+  /**
+   * How alike two nodes' hints are: `coef`, the overlap coefficient (shared
+   * tokens over the smaller set), and `share`, the same over the larger
+   * set. Jaccard alone would reject a container that merely gained content
+   * ("Team" vs "Team Pricing plans"), which is the normal shape of a
+   * concurrent insertion; `share` still ranks the fuller match first when
+   * two candidates contain the same tokens. Null when only one side has
+   * tokens.
+   */
+  function score(a, b) {
     const ta = tokensOf(meta(a)),
       tb = tokensOf(meta(b));
-    if (ta.size === 0 && tb.size === 0) return true;
-    if (ta.size === 0 || tb.size === 0) return false;
-    // Overlap coefficient: shared tokens over the smaller set. Jaccard would
-    // reject a container that merely gained content ("Team" vs "Team Pricing
-    // plans"), which is the normal shape of a concurrent insertion.
+    if (ta.size === 0 && tb.size === 0) return { coef: 1, share: 1 };
+    if (ta.size === 0 || tb.size === 0) return null;
     let inter = 0;
     for (const t of ta) if (tb.has(t)) inter++;
-    return inter / Math.min(ta.size, tb.size) >= 0.5;
+    return {
+      coef: inter / Math.min(ta.size, tb.size),
+      share: inter / Math.max(ta.size, tb.size),
+    };
   }
 
-  return { meta, unitsOf, unitHash, similar, childrenOf };
+  function similar(a, b) {
+    const s = score(a, b);
+    return !!s && s.coef >= 0.5;
+  }
+
+  return { meta, unitsOf, unitHash, similar, score, childrenOf };
 }

@@ -131,13 +131,62 @@ test("H19a a parse that reshaped the tree imports no ids below the divergence", 
   assert.equal(imported.get(received.body), store.idOf(body));
   for (const el of received.body.querySelectorAll("*"))
     assert.equal(imported.get(el), undefined, el.outerHTML);
-  const same = parse(
+  // The same shape with the <p> renamed: the counts agree, but the tag
+  // check (Opus 16) stops the import at the renamed element.
+  const renamed = parse(
     "<!DOCTYPE html>" +
       live.outerHTML.replace("<p", "<div").replace("</p>", "</div>"),
   );
-  const ok = importMap(same.documentElement, map);
+  const off = importMap(renamed.documentElement, map);
+  assert.equal(off.get(renamed.querySelector("#P")), undefined);
+  assert.equal(off.get(renamed.querySelector("#INNER")), undefined);
+  assert.equal(off.get(renamed.querySelector("#AFTER")), store.idOf(after));
+  // A sender whose markup the parser keeps as it is imports everywhere.
+  p.replaceWith(
+    Object.assign(body.ownerDocument.createElement("div"), { id: "P" }),
+  );
+  body.querySelector("#P").appendChild(inner);
+  const map2 = store.exportMap(live, (n) => n);
+  const same = parse("<!DOCTYPE html>" + live.outerHTML);
+  const ok = importMap(same.documentElement, map2);
   assert.equal(ok.get(same.querySelector("#INNER")), store.idOf(inner));
   assert.equal(ok.get(same.querySelector("#AFTER")), store.idOf(after));
+});
+
+test("importMap survives a malformed or hostile shape", () => {
+  const received = parse(doc("<p>x</p>"));
+  const deep = { "~": "5," + Array(200000).fill("1").join(",") };
+  assert.doesNotThrow(() => importMap(received.documentElement, deep));
+  for (const shape of ["2,x,1", "-1", "", "9999999"])
+    assert.doesNotThrow(() =>
+      importMap(received.documentElement, { "~": shape, "": "a:1" }),
+    );
+  // A subtree the receiver skips holds a malformed entry: nothing after it
+  // imports, since the rest of the shape can no longer be trusted.
+  const skipped = parse(doc("<p><i></i></p><div></div>"));
+  const got2 = importMap(skipped.documentElement, {
+    "~": "2,0,2,3,x,0",
+    "1.0": "A:8",
+    1.1: "A:9",
+  });
+  assert.equal(got2.get(skipped.querySelector("p")), "A:8");
+  assert.equal(got2.get(skipped.querySelector("div")), undefined);
+  // A table built by DOM calls has no <tbody>; the parsed copy does. The
+  // counts agree, the tags do not, so no row id lands on the tbody.
+  const live = parse(doc("")).documentElement;
+  const d = live.ownerDocument;
+  const table = d.createElement("table");
+  const tr = d.createElement("tr");
+  tr.appendChild(d.createElement("td"));
+  table.appendChild(tr);
+  live.querySelector("body").appendChild(table);
+  const store = createIdentityStore("A");
+  const map = store.exportMap(live, (n) => n);
+  const got = parse("<!DOCTYPE html>" + live.outerHTML);
+  const imported = importMap(got.documentElement, map);
+  assert.equal(imported.get(got.querySelector("tbody")), undefined);
+  assert.equal(imported.get(got.querySelector("tr")), undefined);
+  assert.equal(imported.get(got.querySelector("table")), store.idOf(table));
 });
 
 test("H11 makeIgnore tells the predicate which element is a merge root", () => {

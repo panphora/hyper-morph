@@ -766,8 +766,9 @@ test("H17 a run that merges to nothing still records its conflict", () => {
   assert.equal(segText[0].remote, "");
   assert.equal(segText[0].node, seg.res.doc.querySelector("div"));
   assert.equal(seg.res.localDiverged, true);
-  // Per-unit path (a mark moved out of the segment): mergeRun's empty
-  // result still records the conflict, with no node.
+  // A mark moved out of the segment: the segment still merges inline (HM-G
+  // group F; this was the per-unit path before), so the conflict names the
+  // block as above.
   const run = (policy) =>
     mergeBodies(
       `<div>hello <b id="k">w</b> world<p>X</p></div>`,
@@ -781,7 +782,7 @@ test("H17 a run that merges to nothing still records its conflict", () => {
   assert.equal(text.length, 1);
   assert.equal(text[0].local, "hello big world");
   assert.equal(text[0].remote, "");
-  assert.equal(text[0].node, null);
+  assert.equal(text[0].node, res.doc.querySelector("div"));
   assert.ok(
     res.decisions.some((d) => d.kind === "text" && d.source === "both"),
   );

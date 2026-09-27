@@ -9,7 +9,9 @@ export type IdOf = (el: Element) => string | null | undefined;
  * ("" for the root, "0.2.1" for root > child 0 > child 2 > child 1, element
  * children only) applied after the side is parsed, with `then` answering
  * for elements the map does not name. The reserved key "~" carries the
- * sender's element child counts; below a count mismatch nothing is imported.
+ * sender's element child counts and "^" their tag names; below a count
+ * mismatch nothing is imported, and an element whose tag differs from the
+ * sender's gets no id and imports nothing below it.
  * The authored identity (the function, or `first`, else `then`) keeps
  * elements with different values apart in alignment; synthetic ids from the
  * map never do.
@@ -82,8 +84,8 @@ export interface CommonOptions {
 
 export interface MergeDocumentOptions extends CommonOptions {
   live: Document;
-  /** The document both sides started from; null, undefined or "" for two-way. */
-  base: string | Document | null | undefined;
+  /** The document both sides started from; omitted, null or "" for two-way. */
+  base?: string | Document | null | undefined;
   remote: string | Document;
   /** The local side when it is not the live DOM: a snapshot clone plus provenance. */
   local?: { root: Element; toLive: (n: Node) => Node | null };
@@ -374,6 +376,6 @@ export default HyperMorph;
  */
 export function morph(
   oldNode: Element | Document,
-  newContent: string | Element | Document,
+  newContent: ElementContent,
   config?: Record<string, unknown>,
 ): Promise<MergeReport>;

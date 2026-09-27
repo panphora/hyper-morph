@@ -14,9 +14,14 @@
  * key "~". Where the receiver's count differs (the parser reshaped the
  * markup, or the frame and the map are from different snapshots) that
  * element keeps its own id and nothing below it is imported, on either side.
- * A map without "~" (an older sender) imports by path alone.
+ * The reserved key "^" carries the sender's tag names in the same order: a
+ * receiver element whose tag differs (a parser-inserted <tbody> where the
+ * sender had a <tr>, say) takes no id, and nothing below it is imported. A map without "~" (an
+ * older sender) imports by path alone, and one without "^" skips the tag
+ * check. A malformed shape stops the import where it goes wrong.
  */
 export const SHAPE_KEY = "~";
+export const TAGS_KEY = "^";
 
 /**
  * @typedef {object} IdentityStore
@@ -47,17 +52,20 @@ export function createIdentityStore(clientId) {
   };
   const exportMap = (cloneRoot, toLive) => {
     const map = {};
-    const counts = [];
+    const counts = [],
+      tags = [];
     const visit = (clone, path) => {
       const live = toLive(clone);
       if (live) map[path] = ensure(live);
       const kids = clone.children;
       counts.push(kids.length);
+      tags.push(clone.tagName.toLowerCase());
       for (let i = 0; i < kids.length; i++)
         visit(kids[i], path === "" ? String(i) : `${path}.${i}`);
     };
     visit(cloneRoot, "");
     map[SHAPE_KEY] = counts.join(",");
+    map[TAGS_KEY] = tags.join(",");
     return map;
   };
   return { idOf, ensure, adopt, exportMap };
@@ -76,22 +84,45 @@ export function importMap(root, map) {
   const shape = map[SHAPE_KEY];
   const counts =
     typeof shape === "string" ? shape.split(",").map(Number) : null;
-  let at = 0;
-  // Advance past the sender's subtree of a node with n children.
+  const tagList =
+    counts && typeof map[TAGS_KEY] === "string"
+      ? map[TAGS_KEY].split(",")
+      : null;
+  const valid = (n) => Number.isInteger(n) && n >= 0;
+  let at = 0,
+    broken = false;
+  // Advance past the sender's subtree of a node with n children: one entry
+  // per sender element, never more than the shape holds, so a malformed map
+  // costs at most one pass over it.
   const skipSender = (n) => {
-    for (let k = 0; k < n; k++) skipSender(counts[at++]);
+    let pending = n;
+    while (pending > 0) {
+      const c = counts[at++];
+      if (at > counts.length || !valid(c)) return false;
+      pending += c - 1;
+    }
+    return true;
   };
   const visit = (el, path) => {
-    const id = map[path];
-    if (typeof id === "string" && id) out.set(el, id);
-    const kids = el.children;
+    if (broken) return;
     if (counts) {
-      const sent = counts[at++];
-      if (sent !== kids.length) {
-        skipSender(sent);
+      const i = at++;
+      const sent = counts[i];
+      if (i >= counts.length || !valid(sent)) {
+        broken = true;
+        return;
+      }
+      const sameTag = !tagList || tagList[i] === el.tagName.toLowerCase();
+      if (!sameTag || sent !== el.children.length) {
+        const id = sameTag && map[path];
+        if (typeof id === "string" && id) out.set(el, id);
+        if (!skipSender(sent)) broken = true;
         return;
       }
     }
+    const id = map[path];
+    if (typeof id === "string" && id) out.set(el, id);
+    const kids = el.children;
     for (let i = 0; i < kids.length; i++)
       visit(kids[i], path === "" ? String(i) : `${path}.${i}`);
   };

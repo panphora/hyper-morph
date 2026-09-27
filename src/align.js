@@ -6,8 +6,11 @@
  *   2. structure, top-down over paired elements: per parent, children pair by
  *      identical subtree hash, then signature plus hint, then signature plus
  *      similar text (nearest index), then position.
- *   3. moves, global: what is still unpaired on both sides pairs by identical
- *      hash, else by signature and similar text, bounded by a budget.
+ *   3. moves, global: what is still unpaired on both sides, and what sits
+ *      inside an unpaired element (wrapped or unwrapped content), pairs by
+ *      identical hash, else by signature and similar text, bounded by a
+ *      budget. A side element paired by position alone is still a
+ *      candidate.
  *   4. slots, per parent: when every element still unpaired under a parent
  *      sits at the same index with the same tag on both sides, the slots
  *      were rewritten in place and pair positionally.
@@ -45,12 +48,20 @@ const POSITIONAL_LOOKAHEAD = 3;
  * @param {(el: Element) => string | null} [o.sideId] - identity of a side element
  * @returns {Alignment}
  */
+/**
+ * Work counters for the tests: a bound on steps holds where a wall clock
+ * would be flaky. `align` counts the child units the passes examine.
+ */
+export const steps = { align: 0 };
+
 export function align(baseRoot, sideRoot, o) {
-  const { meta, unitsOf, unitHash, similar } = o.analyzer;
+  const { meta, unitsOf, unitHash, similar, score } = o.analyzer;
   const baseId = o.baseId || (() => null),
     sideId = o.sideId || (() => null);
   const map = new Map(),
     reverse = new Map();
+  const weak = new Set(); // base units paired with no content evidence
+  const banned = new Map(); // base unit -> side units it may not pair with again
   const moved = new Set(),
     identical = new Set();
   const visited = new Set();
@@ -67,6 +78,10 @@ export function align(baseRoot, sideRoot, o) {
     reverse.set(s, b);
   };
   const isEl = (u) => !!u && u.nodeType === 1;
+  const isBanned = (b, s) => {
+    const set = banned.get(b);
+    return !!set && set.has(s);
+  };
   const codeLike = (el) => CODE_LIKE.has(el.tagName);
   // Elements with different identities are different elements, whatever
   // their content or position says.
@@ -99,15 +114,82 @@ export function align(baseRoot, sideRoot, o) {
   for (const [b, s] of map) if (isEl(b) && b !== baseRoot) queue.push([b, s]);
   drain();
 
-  // Pass 3: moves, then the children of moved pairs.
-  moves();
-  drain();
-  // Pass 4: slots, then the children of the new pairs.
-  pairSlots();
-  drain();
+  movesAndSlots();
   if (prof) prof.align = (prof.align || 0) + (performance.now() - t0);
 
-  return { map, reverse, moved, identical, pairIdenticalChildren };
+  return {
+    map,
+    reverse,
+    moved,
+    identical,
+    pairIdenticalChildren,
+    weak,
+    unpair,
+    rematch: movesAndSlots,
+    insertedByHash,
+  };
+
+  // Pass 3: moves, then the children of moved pairs. Pass 4: slots, then the
+  // children of the new pairs. Those children can open slots of their own,
+  // so the two passes repeat until a round finds no new slot parent, moves
+  // keeping their priority over slots each round.
+  function movesAndSlots() {
+    moves();
+    drain();
+    for (let from = 0; from < slotParents.length; ) {
+      const to = slotParents.length;
+      pairSlots(from, to);
+      from = to;
+      drain();
+      moves();
+      drain();
+    }
+  }
+
+  /**
+   * Undo a pair and the pairs beneath it, and forbid it from forming again;
+   * both units are free for the next moves and slots round.
+   */
+  function unpair(b) {
+    const s = map.get(b);
+    if (!s) return;
+    if (!banned.has(b)) banned.set(b, new Set());
+    banned.get(b).add(s);
+    const drop = (x, y) => {
+      map.delete(x);
+      reverse.delete(y);
+      moved.delete(x);
+      identical.delete(x);
+      weak.delete(x);
+      visited.delete(x);
+    };
+    const walk = (bEl, sEl) => {
+      for (const u of unitsOf(bEl)) {
+        const t = map.get(u);
+        if (!t) continue;
+        const within = isEl(t) ? sEl.contains(t) : sEl.contains(t.nodes[0]);
+        if (!within) continue;
+        drop(u, t);
+        if (isEl(u)) walk(u, t);
+      }
+    };
+    drop(b, s);
+    if (isEl(b)) walk(b, s);
+    unpairedBase.push(b);
+    unpairedSide.push(s);
+  }
+
+  /** The side elements no base unit is paired with, by hash. */
+  function insertedByHash() {
+    const m = new Map();
+    for (const s of new Set(unpairedSide)) {
+      if (reverse.has(s)) continue;
+      const h = meta(s).hash;
+      if (!m.has(h)) m.set(h, []);
+      m.get(h).push(s);
+    }
+    return m;
+  }
 
   function drain() {
     while (queue.length) {
@@ -117,10 +199,23 @@ export function align(baseRoot, sideRoot, o) {
     }
   }
 
+  // The elements inside an unpaired element are move candidates too: an
+  // element wrapped in a new container, or unwrapped from a deleted one,
+  // moved rather than being deleted and inserted.
+  function within(el, list) {
+    if (codeLike(el)) return;
+    for (const u of unitsOf(el))
+      if (isEl(u)) {
+        list.push(u);
+        within(u, list);
+      }
+  }
+
   function alignKids(bEl, sEl) {
     visited.add(bEl);
     const bUnits = unitsOf(bEl),
       sUnits = unitsOf(sEl);
+    steps.align += bUnits.length + sUnits.length;
     // Positions are looked up many times per pass; never scan for them.
     posB = new Map();
     posS = new Map();
@@ -162,6 +257,7 @@ export function align(baseRoot, sideRoot, o) {
       if (!map.has(u)) {
         if (isEl(u)) {
           unpairedBase.push(u);
+          within(u, unpairedBase);
           openB = true;
         }
         continue;
@@ -171,6 +267,7 @@ export function align(baseRoot, sideRoot, o) {
     for (const u of sUnits)
       if (!reverse.has(u) && isEl(u)) {
         unpairedSide.push(u);
+        within(u, unpairedSide);
         openS = true;
       }
     if (openB && openS) slotParents.push([bEl, sEl]);
@@ -185,8 +282,9 @@ export function align(baseRoot, sideRoot, o) {
    * away and was replaced in its slot is a move, not a rewrite. With any
    * count or index mismatch nothing pairs: the difference could be a shift.
    */
-  function pairSlots() {
-    for (const [bEl, sEl] of slotParents) {
+  function pairSlots(from, to) {
+    for (let n = from; n < to; n++) {
+      const [bEl, sEl] = slotParents[n];
       const bu = unitsOf(bEl),
         su = unitsOf(sEl);
       const leftB = [],
@@ -201,12 +299,14 @@ export function align(baseRoot, sideRoot, o) {
           ([b, i], k) =>
             leftS[k][1] === i &&
             leftS[k][0].tagName === b.tagName &&
-            keysAgree(b, leftS[k][0]),
+            keysAgree(b, leftS[k][0]) &&
+            !isBanned(b, leftS[k][0]),
         )
       )
         continue;
       for (let k = 0; k < leftB.length; k++) {
         pair(leftB[k][0], leftS[k][0]);
+        weak.add(leftB[k][0]);
         queue.push([leftB[k][0], leftS[k][0]]);
       }
     }
@@ -273,6 +373,10 @@ export function align(baseRoot, sideRoot, o) {
     }
   }
 
+  // Similar elements pair by the best score across the whole parent, not
+  // first come first served: an emptied list and the grown list it fed
+  // both contain the grown list's items, and only the fuller match keeps
+  // the grown list from reading as a rewrite of the wrong one.
   function passSigSimilar(freeB, freeS, bUnits, sUnits) {
     const buckets = new Map();
     for (const s of freeS) {
@@ -281,23 +385,30 @@ export function align(baseRoot, sideRoot, o) {
       if (!buckets.has(sig)) buckets.set(sig, []);
       buckets.get(sig).push({ el: s, index: posS.get(s) });
     }
+    const cands = [];
     for (const b of freeB) {
       if (map.has(b) || !isEl(b) || codeLike(b)) continue;
       const bucket = buckets.get(meta(b).sig);
       if (!bucket || !bucket.length) continue;
       const bi = posB.get(b);
-      let cands = bucket
+      let near = bucket
         .filter((c) => !reverse.has(c.el))
         .map((c) => ({ c, d: Math.abs(c.index - bi) }));
-      cands.sort((x, y) => x.d - y.d);
-      if (cands.length > NEAREST_WINDOW) cands = cands.slice(0, NEAREST_WINDOW);
-      for (const { c } of cands) {
-        if (keysAgree(b, c.el) && similar(b, c.el)) {
-          pair(b, c.el);
-          break;
-        }
+      near.sort((x, y) => x.d - y.d);
+      if (near.length > NEAREST_WINDOW) near = near.slice(0, NEAREST_WINDOW);
+      for (const { c, d } of near) {
+        if (!keysAgree(b, c.el)) continue;
+        const sc = score(b, c.el);
+        if (sc && sc.coef >= 0.5)
+          cands.push({ b, s: c.el, coef: sc.coef, share: sc.share, d, bi });
       }
     }
+    cands.sort(
+      (x, y) =>
+        y.coef - x.coef || y.share - x.share || x.d - y.d || x.bi - y.bi,
+    );
+    for (const c of cands)
+      if (!map.has(c.b) && !reverse.has(c.s)) pair(c.b, c.s);
   }
 
   function compatible(b, s) {
@@ -359,8 +470,10 @@ export function align(baseRoot, sideRoot, o) {
         const s = sUnits[i];
         if (reverse.has(s)) continue;
         looked++;
-        if (compatible(b, s)) {
+        if (compatible(b, s) && !isBanned(b, s)) {
           pair(b, s);
+          if (isEl(b) && (meta(b).hint === "" || meta(s).hint === ""))
+            weak.add(b);
           cursor = i + 1;
           break;
         }
@@ -371,10 +484,11 @@ export function align(baseRoot, sideRoot, o) {
 
   /**
    * Unambiguous replacement: exactly one element of a tag is unpaired on
-   * each side and both sit at the same index. That is the same slot with
-   * rewritten content (a heading retitled, a container whose insides
-   * changed). With any second candidate the shift could be an insertion,
-   * so no pair. Runs before the hash passes because it needs no hashing,
+   * each side and both sit in the same slot: the same index, or after the
+   * same paired element. That is the same slot with rewritten content (a
+   * heading retitled, a container whose insides changed). With any second
+   * candidate the shift could be an insertion, so no pair. The pair is weak:
+   * a move with content evidence takes the side element over. Runs before the hash passes because it needs no hashing,
    * which keeps an ordinary edit from hashing the whole document.
    */
   function pairUnambiguous(bUnits, sUnits) {
@@ -383,6 +497,21 @@ export function align(baseRoot, sideRoot, o) {
     if (!leftB.length || !leftS.length) return;
     const byTagB = countBy(leftB, (u) => u.tagName),
       byTagS = countBy(leftS, (u) => u.tagName);
+    // The same slot: the same index, or the same paired element before it
+    // (an insertion or deletion further up shifts the index, not the slot).
+    const anchor = (units, i, has) => {
+      for (let j = i - 1; j >= 0; j--)
+        if (isEl(units[j]) && has(units[j])) return units[j];
+      return null;
+    };
+    const sameSlot = (b, s) => {
+      const bi = posB.get(b),
+        si = posS.get(s);
+      if (bi === si) return true;
+      const ab = anchor(bUnits, bi, (u) => map.has(u)),
+        as = anchor(sUnits, si, (u) => reverse.has(u));
+      return ab ? map.get(ab) === as : !as;
+    };
     for (const b of leftB) {
       const tag = b.tagName;
       if (byTagB.get(tag) !== 1 || byTagS.get(tag) !== 1) continue;
@@ -390,18 +519,64 @@ export function align(baseRoot, sideRoot, o) {
       if (
         s &&
         !reverse.has(s) &&
-        posB.get(b) === posS.get(s) &&
-        keysAgree(b, s)
-      )
+        sameSlot(b, s) &&
+        keysAgree(b, s) &&
+        !isBanned(b, s)
+      ) {
         pair(b, s);
+        weak.add(b);
+      }
     }
   }
 
   function moves() {
+    // A base element paired only by its slot whose exact copy sits unpaired
+    // elsewhere on the side moved there: the copy is the stronger evidence.
+    const weakByHash = new Map();
+    for (const b of weak)
+      if (isEl(b) && isEl(map.get(b))) {
+        const h = meta(b).hash;
+        if (!weakByHash.has(h)) weakByHash.set(h, []);
+        weakByHash.get(h).push(b);
+      }
+    if (weakByHash.size)
+      for (const s of unpairedSide) {
+        if (reverse.has(s) || !isEl(s)) continue;
+        const list = weakByHash.get(meta(s).hash);
+        const b =
+          list &&
+          list.find((x) => weak.has(x) && !isBanned(x, s) && keysAgree(x, s));
+        if (!b) continue;
+        unpair(b);
+        lockstep(b, s);
+        moved.add(b);
+      }
     const byHash = new Map(),
       bySig = new Map();
-    for (const s of unpairedSide) {
-      if (reverse.has(s)) continue;
+    // A side element paired only by position (a weak pair) is still free for
+    // a move: content evidence beats a slot. Its base partner goes back to
+    // the unpaired.
+    const weakOf = new Map();
+    for (const b of weak) {
+      const s = map.get(b);
+      if (isEl(b) && isEl(s)) weakOf.set(s, b);
+    }
+    // Never from a weak pair's own descendant: that would pair the side
+    // container with a piece of its base twin.
+    const free = (s, b) => {
+      if (!reverse.has(s)) return true;
+      const w = weakOf.get(s);
+      return w === reverse.get(s) && w !== b && !w.contains(b);
+    };
+    const take = (s) => {
+      if (reverse.has(s)) {
+        const w = weakOf.get(s);
+        weakOf.delete(s);
+        unpair(w);
+      }
+    };
+    for (const s of [...unpairedSide, ...weakOf.keys()]) {
+      if (reverse.has(s) && !weakOf.has(s)) continue;
       const h = meta(s).hash;
       if (!byHash.has(h)) byHash.set(h, []);
       byHash.get(h).push(s);
@@ -414,8 +589,9 @@ export function align(baseRoot, sideRoot, o) {
       if (map.has(b)) continue;
       const same = byHash.get(meta(b).hash);
       if (same) {
-        const s = same.find((x) => !reverse.has(x));
+        const s = same.find((x) => free(x, b) && !isBanned(b, x));
         if (s) {
+          take(s);
           lockstep(b, s);
           moved.add(b);
           continue;
@@ -427,7 +603,7 @@ export function align(baseRoot, sideRoot, o) {
       let hit = null,
         count = 0;
       for (const s of bucket) {
-        if (reverse.has(s) || !keysAgree(b, s)) continue;
+        if (!free(s, b) || !keysAgree(b, s) || isBanned(b, s)) continue;
         if (budget-- <= 0) break;
         if (similar(b, s)) {
           count++;
@@ -436,6 +612,7 @@ export function align(baseRoot, sideRoot, o) {
         }
       }
       if (count === 1) {
+        take(hit);
         pair(b, hit);
         moved.add(b);
         queue.push([b, hit]);

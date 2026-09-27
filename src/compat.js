@@ -4,6 +4,7 @@
  * directly. Option mapping: docs/api.md, "Compatibility: morph()".
  */
 import { mergeDocument, morphElement } from "./index.js";
+import { mergeIdentityOf } from "./scripts.js";
 
 const SYNC_IGNORE =
   '[editor-ui],[clay~="editor-ui"],[save-ignore],[snapshot-remove],[no-snapshot],[no-save],[save-remove],[freeze],[save-freeze],[clay~="no-save"],[clay~="no-snapshot"],[clay~="freeze"]';
@@ -19,17 +20,54 @@ function isExtensionNode(el) {
 }
 
 // The old scripts.mergeBase accepted any shape that contained the base
-// script tags. An element-level three-way merge needs a base that
-// corresponds to the element, so wrap what does not.
-function baseFor(oldEl, mergeBase) {
+// script tags. An element-level three-way merge needs the base element that
+// corresponds to the target: in a Document, the element with the target's id,
+// else its body or html for a body or html target, else its first body
+// child. A base that corresponds to nothing (a lone script tag, say) still
+// carries the base of each mergeable script: the base is then the target
+// itself with those scripts' base text, so everything else morphs two-way
+// and the scripts merge three-way. Never a wrapped base, which would read
+// every child as inserted.
+function baseFor(oldEl, mergeBase, children, mergeTags) {
   if (mergeBase == null) return undefined;
   if (typeof mergeBase === "string") return mergeBase;
-  if (mergeBase.nodeType === 9)
-    mergeBase = mergeBase.body.firstElementChild || mergeBase.documentElement;
-  if (mergeBase.tagName === oldEl.tagName) return mergeBase;
-  const wrap = oldEl.ownerDocument.createElement(oldEl.tagName);
-  wrap.appendChild(mergeBase.cloneNode(true));
-  return wrap;
+  let el = mergeBase;
+  if (el.nodeType === 9) {
+    const id = oldEl.getAttribute("id");
+    el =
+      (id && el.getElementById(id)) ||
+      (oldEl.tagName === "BODY"
+        ? el.body
+        : oldEl.tagName === "HTML"
+          ? el.documentElement
+          : el.body && el.body.firstElementChild);
+  }
+  if (!el || el.nodeType !== 1 || el.tagName !== oldEl.tagName)
+    el = scriptsBase(oldEl, mergeBase, mergeTags);
+  if (!el) return undefined;
+  return children ? Array.from(el.childNodes) : el;
+}
+
+function scriptsBase(oldEl, mergeBase, mergeTags) {
+  const root = mergeBase.nodeType === 9 ? mergeBase.documentElement : mergeBase;
+  if (!root || root.nodeType !== 1) return null;
+  const baseText = new Map();
+  const scripts = [root, ...root.querySelectorAll("script")];
+  for (const s of scripts) {
+    const id = mergeIdentityOf(s, mergeTags);
+    if (id && !baseText.has(id.key)) baseText.set(id.key, s.textContent);
+  }
+  if (!baseText.size) return null;
+  const copy = oldEl.cloneNode(true);
+  let found = false;
+  for (const s of [copy, ...copy.querySelectorAll("script")]) {
+    const id = mergeIdentityOf(s, mergeTags);
+    if (id && baseText.has(id.key)) {
+      s.textContent = baseText.get(id.key);
+      found = true;
+    }
+  }
+  return found ? copy : null;
 }
 
 /**
@@ -68,6 +106,19 @@ function remoteDocument(newContent, live) {
 
 export function morph(oldNode, newContent, config = {}) {
   const cfg = config || {};
+  // 0.5.4 ran a head-blocking morph after the stylesheets loaded, so a hook
+  // that threw rejected the returned Promise. The merge now runs first, so
+  // the same error is turned into a rejection here. Without head.block the
+  // morph was synchronous and threw, and still does.
+  if (!cfg.head?.block) return morphNow(oldNode, newContent, cfg);
+  try {
+    return morphNow(oldNode, newContent, cfg);
+  } catch (e) {
+    return Promise.reject(e);
+  }
+}
+
+function morphNow(oldNode, newContent, cfg) {
   const policy = cfg.policy || "sync";
   // As 0.5.4: the history policy morphs a no-undo root (only its no-undo
   // descendants are exempt), unless that root is editor UI.
@@ -122,7 +173,12 @@ export function morph(oldNode, newContent, config = {}) {
     return mergeDocument(o);
   }
   if (cfg.morphStyle === "innerHTML") options.children = true;
-  const base = baseFor(oldNode, cfg.scripts?.mergeBase);
+  const base = baseFor(
+    oldNode,
+    cfg.scripts?.mergeBase,
+    !!options.children,
+    options.scripts.mergeTags,
+  );
   if (base !== undefined) options.base = base;
   return morphElement(oldNode, newContent, options);
 }
