@@ -418,3 +418,16 @@ test("HM-H1 Astra fixtures: joins, concurrent splits and the nested div", () => 
     assert.equal(res.conflicts.length, 0, b);
   }
 });
+
+test("HM-H1 a remote split applies to the live page at every split point, the first half keeping the live paragraph", async () => {
+  const base = `<p>a1 b1 c1 d1</p>`;
+  for (const remote of [
+    `<p>a1</p><p>b1 c1 d1</p>`,
+    `<p>a1 b1</p><p>c1 d1</p>`,
+    `<p>a1 b1 c1</p><p>d1</p>`,
+  ]) {
+    const x = await live(base, base, remote);
+    assert.equal(x.html, remote);
+    assert.deepEqual(x.kept, [0, -1]);
+  }
+});

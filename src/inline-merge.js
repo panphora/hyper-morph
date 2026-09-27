@@ -1372,6 +1372,7 @@ export function mergeInline(o) {
   };
   const movedOut = new Set();
   const opened = new Map();
+  const claimedLocal = new Set();
   const openMark = (u) => {
     const el = out.createElement(u.tag);
     if (u.block) blockEls.add(el);
@@ -1402,6 +1403,14 @@ export function mergeInline(o) {
           el,
           source: u.local && u.remote ? "both" : u.local ? "local" : "remote",
         });
+      // A live element holds one output element. When two claim it (a
+      // block the other side split, whose halves both trace back to it),
+      // the first keeps it and the later one is built new.
+      const p = provenance.get(el);
+      if (p.local) {
+        if (claimedLocal.has(p.local)) p.local = null;
+        else claimedLocal.add(p.local);
+      }
     } else {
       // A later piece of the same element (a block split in two, a mark cut
       // by another) copies its attributes but not its authored identity,
