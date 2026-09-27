@@ -398,8 +398,16 @@ export function pairedHunks(dL, dR, B) {
 function splitEchoes(lh, rh, B, cosL, cosR) {
   const same = (a, b) => a.k === b.k && a.raw === b.raw;
   const sides = [
-    { list: lh.map((h) => ({ ...h })), resp: new Set(cosL.map((c) => c.bi)) },
-    { list: rh.map((h) => ({ ...h })), resp: new Set(cosR.map((c) => c.bi)) },
+    {
+      list: lh.map((h) => ({ ...h })),
+      resp: new Set(cosL.map((c) => c.bi)),
+      raw: new Map(cosL.map((c) => [c.bi, c.tok])),
+    },
+    {
+      list: rh.map((h) => ({ ...h })),
+      resp: new Set(cosR.map((c) => c.bi)),
+      raw: new Map(cosR.map((c) => [c.bi, c.tok])),
+    },
   ];
   const isIns = (h) => h.bs === h.be;
   // The tokens of hunk i placed at base position `to`: a replacement only
@@ -461,6 +469,60 @@ function splitEchoes(lh, rh, B, cosL, cosR) {
       : { bs: h.be, be: h.be, toks: rest };
     S.list.splice(i, 1, ...(tail ? [r, sh] : [sh, r]));
   };
+  // Hunk a of A ends at P1 and hunk c of C begins at P2 > P1, with only
+  // spaces (no newline) between: the diff can put one echoed phrase at the
+  // tail of a and at the head of c, a copy on each side of the spaces. They
+  // pair only when one copy is the whole of one side's insertion, which
+  // slides across the spaces onto the other side's edit (as `place` slides
+  // an insertion onto an edge), and the other side's rest does not stand
+  // for words it deleted. Two replacements that share text stay two edits.
+  const acrossGap = (A, a, C, c) => {
+    const E = A.list[a],
+      F = C.list[c];
+    const P1 = E.be,
+      P2 = F.bs;
+    if (P1 >= P2) return false;
+    if (a + 1 < A.list.length && A.list[a + 1].bs <= F.be) return false;
+    if (c > 0 && C.list[c - 1].be >= E.bs) return false;
+    for (let g = P1; g < P2; g++)
+      if (!isSpace(B[g]) || B[g].k.includes("\n")) return false;
+    // each side's own spelling of the gap (a space where base has NBSP)
+    const gapOf = (S) => B.slice(P1, P2).map((t, k) => S.raw.get(P1 + k) || t);
+    const aSeq = [...E.toks, ...gapOf(A)],
+      cSeq = [...gapOf(C), ...F.toks];
+    const at = (s, o, t) =>
+      o >= 0 &&
+      o + t.length <= s.length &&
+      t.every((x, k) => s[o + k].k === x.k);
+    const deleted = (toks, bs, be) =>
+      plain(toks) && B.slice(bs, be).some((t) => !isSpace(t));
+    const word = (toks) => toks.some((t) => !isSpace(t));
+    let Q, sA, sC, rest;
+    if (isIns(E) && word(E.toks) && at(cSeq, 0, E.toks)) {
+      const cRest = cSeq.slice(E.toks.length);
+      if (!deleted(cRest, P1, F.be)) {
+        Q = P1;
+        sA = E.toks;
+        sC = cSeq.slice(0, E.toks.length);
+        rest = [null, { bs: P1, be: F.be, toks: cRest }];
+      }
+    }
+    if (Q === undefined && isIns(F) && word(F.toks)) {
+      const cut = aSeq.length - F.toks.length;
+      const aRest = aSeq.slice(0, cut);
+      if (at(aSeq, cut, F.toks) && !deleted(aRest, E.bs, P2)) {
+        Q = P2;
+        sA = aSeq.slice(cut);
+        sC = F.toks;
+        rest = [{ bs: E.bs, be: P2, toks: aRest }, null];
+      }
+    }
+    if (Q === undefined) return false;
+    const kept = (h) => h && (h.bs < h.be || h.toks.length);
+    A.list.splice(a, 1, ...[rest[0], { bs: Q, be: Q, toks: sA }].filter(kept));
+    C.list.splice(c, 1, ...[{ bs: Q, be: Q, toks: sC }, rest[1]].filter(kept));
+    return true;
+  };
   const X = sides[0],
     Y = sides[1];
   for (let guard = 0; guard < 64; guard++) {
@@ -516,6 +578,10 @@ function splitEchoes(lh, rh, B, cosL, cosR) {
             changed = true;
             break outer;
           }
+        }
+        if (acrossGap(X, i, Y, j) || acrossGap(Y, j, X, i)) {
+          changed = true;
+          break outer;
         }
       }
     if (!changed) break;
