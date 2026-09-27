@@ -1395,12 +1395,16 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           o.remoteWins(c) &&
           MARK_TAGS.has(c.tagName) &&
           isInlineUnit(c, plainOpts));
-      const textBlock = (u) =>
-        isEl(u) &&
-        TEXT_BLOCK_TAGS.has(u.tagName) &&
-        !ignored(u) &&
-        !o.remoteWins(u) &&
-        unitsOf(u).every(inlineIn);
+      const tbCache = new Map();
+      const textBlock = (u) => {
+        if (!isEl(u) || !TEXT_BLOCK_TAGS.has(u.tagName)) return false;
+        let t = tbCache.get(u);
+        if (t === undefined) {
+          t = !ignored(u) && !o.remoteWins(u) && unitsOf(u).every(inlineIn);
+          tbCache.set(u, t);
+        }
+        return t;
+      };
       const isText = (u) => !isEl(u) && u.kind === "text";
       let out = null;
       const tokCache = new Map();
@@ -1532,8 +1536,8 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         };
         // Base text blocks with no twin here on this side (deleted or moved
         // out), and side text blocks with no base twin (inserted).
-        const bOrphans = bUnits.filter((u) => textBlock(u) && !V.twin(u));
-        const sOrphans = su.filter((u) => textBlock(u) && !V.baseOf(u));
+        const bOrphans = bUnits.filter((u) => !V.twin(u) && textBlock(u));
+        const sOrphans = su.filter((u) => !V.baseOf(u) && textBlock(u));
         const pairedHere = (u, list) =>
           list === bUnits ? !!twinHere(u) : bSet.has(V.baseOf(u));
         // For each index of a list, the index of the nearest paired unit
