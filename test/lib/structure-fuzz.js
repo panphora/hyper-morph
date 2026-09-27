@@ -3,8 +3,8 @@
 // both sides still hold must appear exactly once. The generator makes echo
 // inserts (both sides insert the same block at the same place, as a relayed
 // edit does), nested slots (lists inside containers, blocks rewritten in
-// place), and cross-block moves of blocks and of inline elements. Paragraph
-// splits and joins are left out: they are a documented limitation.
+// place), cross-block moves of blocks and of inline elements, paragraph
+// splits and joins, and rewrites a peer relayed back beside an insertion.
 //
 // Shared by the node test and the browser test; `merge(base, local, remote)`
 // returns the merged body HTML.
@@ -20,6 +20,7 @@ function rng(seed) {
 }
 
 let fresh = 0;
+let nextId = 0;
 let echoing = false;
 const word = () => "w" + fresh++;
 const words = (r, n) => Array.from({ length: n }, word);
@@ -34,7 +35,9 @@ function block(r, tag = "p") {
     });
   if (r() < 0.3)
     parts.splice(Math.floor(r() * parts.length), 0, { img: "i" + fresh++ });
-  return echoing ? { tag, parts, echo: true } : { tag, parts };
+  const b = { id: nextId++, tag, parts };
+  if (echoing) b.echo = true;
+  return b;
 }
 
 function baseTree(r) {
@@ -87,31 +90,91 @@ const pick = (r, a) => a[Math.floor(r() * a.length)];
 
 // Ops choose their targets by index, so the same op replays on another
 // clone of the same tree (the echo).
-function op(r, t, echo = false) {
+// A block one side moved while the other side split or joined it, or moved
+// an inline element into or out of it, has no single right merge (which
+// block did the words follow?), and the merge keeps the move. The claims
+// map records what each side did to a block by id, so the other side's own
+// ops skip it: `claim(b, kind)` is false when the other side did something
+// else to the block.
+function op(r, t, echo = false, claims = null, side = 0) {
   const { containers } = walk(t);
+  const claim = (b, kind) => {
+    if (!claims) return true;
+    const c = claims.get(b.id);
+    if (c && c.kind !== kind) return false;
+    claims.set(b.id, { side, kind });
+    return true;
+  };
   // A side's own edits leave echoed blocks alone: with no base to pair
   // them by, two diverging copies of one are two inserts by design.
   const blocks = walk(t).blocks.filter((b) => !b.echo);
-  const k = echo ? r() * 0.6 : r();
-  if (k < 0.25 && blocks.length) {
+  const k = echo ? r() * 0.68 : r();
+  if (k < 0.2 && blocks.length) {
     const b = pick(r, blocks);
     const i = b.parts.findIndex((p) => typeof p === "string");
     if (i >= 0) b.parts[i] = word();
-  } else if (k < 0.35 && blocks.length) {
+    if (echoing) b.hot = true;
+  } else if (k < 0.28 && blocks.length) {
     const b = pick(r, blocks);
     b.parts.splice(Math.floor(r() * (b.parts.length + 1)), 0, word());
-  } else if (k < 0.45 && blocks.length > 2) {
+    if (echoing) b.hot = true;
+  } else if (k < 0.36 && blocks.length > 2) {
     const b = pick(r, blocks);
     const p = parentOf(t, b);
     p.kids.splice(p.kids.indexOf(b), 1);
-  } else if (k < 0.6) {
+  } else if (k < 0.46) {
     const c = pick(r, containers);
     c.kids.splice(
       Math.floor(r() * (c.kids.length + 1)),
       0,
       block(r, c.tag === "ul" ? "li" : "p"),
     );
-  } else if (k < 0.72 && blocks.length > 1) {
+  } else if (k < 0.54 && blocks.length) {
+    // A paragraph split: Enter inside a block moves its tail into a new
+    // block of the same tag right after it.
+    const b =
+      pick(
+        r,
+        blocks.filter((x) => x.parts.length > 1 && !x.hot),
+      ) || null;
+    if (b && claim(b, "reshape")) {
+      const i = 1 + Math.floor(r() * (b.parts.length - 1));
+      const tail = { id: nextId++, tag: b.tag, parts: b.parts.splice(i) };
+      if (echoing) b.echo = tail.echo = true;
+      const p = parentOf(t, b);
+      p.kids.splice(p.kids.indexOf(b) + 1, 0, tail);
+    }
+  } else if (k < 0.6 && blocks.length && !echoing) {
+    // A join: Backspace at the start of a block pulls it into the block
+    // before it. Not echoed: a relayed join beside a block the other side
+    // moved into the same container is a residual (see the plan).
+    const b = pick(r, blocks);
+    const p = parentOf(t, b);
+    const i = p.kids.indexOf(b);
+    const prev = i > 0 ? p.kids[i - 1] : null;
+    if (
+      prev &&
+      prev.parts &&
+      prev.tag === b.tag &&
+      !prev.echo &&
+      !prev.hot &&
+      !b.hot &&
+      claim(b, "reshape") &&
+      claim(prev, "reshape")
+    ) {
+      prev.parts.push(...b.parts);
+      p.kids.splice(i, 1);
+      if (echoing) prev.echo = true;
+    }
+  } else if (k < 0.68 && blocks.length) {
+    // A block rewritten in place: same tag, same slot, new words. Relayed
+    // back by a peer, the rewrite is an echo the other side then edits
+    // around (a sibling inserted after it), which the slot pass alone
+    // cannot pair.
+    const b = pick(r, blocks);
+    b.parts = words(r, 2 + Math.floor(r() * 3));
+    if (echoing) b.echo = true;
+  } else if (k < 0.78 && blocks.length > 1) {
     // A block moved to another container (nested slots included).
     const b = pick(r, blocks);
     const from = parentOf(t, b);
@@ -121,23 +184,25 @@ function op(r, t, echo = false) {
         (c) => c !== from && (c.tag === "ul") === (b.tag === "li"),
       ),
     );
-    if (to) {
+    if (to && claim(b, "move")) {
       from.kids.splice(from.kids.indexOf(b), 1);
       to.kids.splice(Math.floor(r() * (to.kids.length + 1)), 0, b);
     }
-  } else if (k < 0.84 && blocks.length > 1) {
+  } else if (k < 0.9 && blocks.length > 1) {
     // An inline element moved into another block.
     const src = pick(
       r,
-      blocks.filter((b) => b.parts.some((p) => typeof p !== "string")),
+      blocks.filter(
+        (b) => !b.hot && b.parts.some((p) => typeof p !== "string"),
+      ),
     );
     const dst =
       src &&
       pick(
         r,
-        blocks.filter((b) => b !== src),
+        blocks.filter((b) => b !== src && !b.hot),
       );
-    if (src && dst) {
+    if (src && dst && claim(src, "inline") && claim(dst, "inline")) {
       const i = src.parts.findIndex((p) => typeof p !== "string");
       const [el] = src.parts.splice(i, 1);
       if (!src.parts.length) src.parts.push(word());
@@ -151,9 +216,7 @@ function op(r, t, echo = false) {
 }
 
 // An echo is an ordinary edit a peer relayed back: word edits, inserted and
-// deleted blocks. Moves and whole rewrites are not echoed (a rewritten block
-// has no identity to pair by, so two diverging copies of one are two
-// inserts by design).
+// deleted blocks, splits and rewrites. Moves are not echoed.
 // Replay ops on two identical trees with one random stream each, both
 // seeded alike, so the echo lands the same edit on both sides.
 function echo(seed, a, b, n) {
@@ -184,8 +247,9 @@ async function run(seed, merge) {
   if (r() < 0.6) echo(seed * 7 + 1, local, remote, 1 + Math.floor(r() * 2));
   const nl = Math.floor(r() * 3),
     nr = Math.floor(r() * 3);
-  for (let i = 0; i < nl; i++) op(r, local);
-  for (let i = 0; i < nr; i++) op(r, remote);
+  const claims = new Map();
+  for (let i = 0; i < nl; i++) op(r, local, false, claims, 1);
+  for (let i = 0; i < nr; i++) op(r, remote, false, claims, 2);
   const [b, l, rm] = [base, local, remote].map(html);
   const out = await merge(b, l, rm);
   const got = tally(out),
@@ -204,6 +268,7 @@ export async function fuzz(from, to, merge) {
   const fails = [];
   for (let seed = from; seed <= to; seed++) {
     fresh = 0;
+    nextId = 0;
     const f = await run(seed, merge);
     if (f) fails.push(f);
   }

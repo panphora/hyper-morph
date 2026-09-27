@@ -213,6 +213,7 @@ import {
 ```bash
 npm test            # Node (jsdom) unit tests + Chromium behavioral suite
 npm run test:node
+npm run test:fuzz  # structural fuzz, seeds 1 to 5000
 npm run test:chrome
 npm run perf        # CPU profile of a 3000-element page, clean and dirty tab
 npm run build       # dist/hyper-morph.min.js

@@ -8,7 +8,7 @@ import { fuzz as run } from "../lib/structure-fuzz.js";
 const merge = (b, l, r) => mergeBodies(b, l, r).html;
 export const fuzz = (from, to) => run(from, to, merge);
 
-test("O18 structural fuzz: echoes, nested slots and cross-block moves never duplicate or lose shared content", async () => {
+test("O18 structural fuzz: echoes, nested slots, cross-block moves, splits and joins never duplicate or lose shared content", async () => {
   const fails = await fuzz(1, 1000);
   assert.equal(fails.length, 0, JSON.stringify(fails.slice(0, 3), null, 1));
 });
