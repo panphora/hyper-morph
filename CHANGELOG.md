@@ -35,11 +35,18 @@ the review, the scenarios, and the specification.
 - Paragraph splits and joins merge as edits: when one side splits a text
   block in two or joins two, and the other side edits the blocks involved,
   the blocks merge as one word sequence with a block break where each
-  block ends, so every word lands once and live elements are reused.
+  block ends, so every word lands once and live elements are reused. This
+  holds in any script, for a split inside a word, around an inline
+  `remoteWins` region, and for a join that fuses two words: an edit to
+  either word still lands, and the caret keeps its character.
 - A block both sides inserted (an echo) lands once even when one side then
-  moved its neighbour or its container, and a block both sides rewrote
-  alike pairs with its base even when one side also inserted a sibling
-  beside it.
+  moved its neighbour or its container, when each side reads it as a
+  rewrite of a different neighbour, and when one side also inserted a
+  sibling beside it. Identical blocks two sides added under different
+  parents stay two blocks unless something moved.
+- A block moved to another container and edited there leaves its old slot
+  to a block typed in it: both land, and the other side's edits reach the
+  moved block.
 - A report per call: `applied`, `decisions`, `conflicts`, `localDiverged`,
   `identities`, `moved`, `replaced`. `localDiverged` is true exactly when
   the merged document differs from the remote one, compared directly after
@@ -104,16 +111,18 @@ morphElement, merge3, morph }`.
 
 ### Known limitations
 
-These shapes can still duplicate text. Each needs several edits at one
-point, or a move combined with a split; `docs/api.md`, "Known
-limitations", has an example of each.
+These shapes can still duplicate or lose text. Each needs several edits at
+one point, or a move of blocks between containers combined with a split
+or join; `docs/api.md`, "Known limitations", has an example of each.
 
 - A word both sides typed, then a split right after it on one side plus
   more typing in the new block.
 - An inline element moved from one block to another while the other side
-  splits or joins those blocks.
-- A block moved to another container while the other side splits or
-  joins it.
+  joins those blocks.
+- A word both sides typed where the other side removed an inline element
+  and replaced the word beside it.
+- Blocks moved between containers on one side, with a split or join in the
+  same stretch on the other, several at once.
 
 ## [0.5.4] - 2026-09-23
 
