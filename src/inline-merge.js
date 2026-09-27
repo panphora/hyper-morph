@@ -379,6 +379,61 @@ function sideDiff(fs, bToks, sToks, d) {
   return { hunks, respell };
 }
 
+/**
+ * A hunk whose base and side text differ only in block breaks and
+ * whitespace (a split or a join, which fuses or parts words) becomes the
+ * character hunks that change just those, so a break never overlaps the
+ * other side's edit to a word beside it.
+ */
+function refineBreaks(hunks, baseText, sideText) {
+  const soft = (c) => c === BREAK || /\s/.test(c);
+  const hard = (t) => t.replace(/[\u001E\s]/g, "");
+  const out = [];
+  for (const h of hunks) {
+    const B = baseText.slice(h.bs, h.be),
+      S = sideText.slice(h.ss, h.se);
+    if (
+      (!B.includes(BREAK) && !S.includes(BREAK)) ||
+      B.includes(ATOM) ||
+      S.includes(ATOM) ||
+      hard(B) !== hard(S)
+    ) {
+      out.push(h);
+      continue;
+    }
+    let i = 0,
+      j = 0;
+    for (;;) {
+      let i2 = i,
+        j2 = j;
+      while (i2 < B.length && soft(B[i2])) i2++;
+      while (j2 < S.length && soft(S[j2])) j2++;
+      let a = i,
+        b = j;
+      while (a < i2 && b < j2 && B[a] === S[b]) (a++, b++);
+      let ae = i2,
+        be = j2;
+      while (ae > a && be > b && B[ae - 1] === S[be - 1]) (ae--, be--);
+      if (ae > a || be > b) {
+        const text = S.slice(b, be);
+        out.push({
+          bs: h.bs + a,
+          be: h.bs + ae,
+          ss: h.ss + b,
+          se: h.ss + be,
+          text,
+          toks: [...text].map((c) => ({ k: c, raw: c, len: 1 })),
+          lead: h.lead,
+        });
+      }
+      if (i2 >= B.length) break;
+      i = i2 + 1;
+      j = j2 + 1;
+    }
+  }
+  return out;
+}
+
 /** base <-> side character maps from the hunks; -1 where a character is not kept. */
 function charMaps(hunks, baseLen, sideLen) {
   const bTo = new Int32Array(baseLen + 1).fill(-1);
@@ -651,6 +706,8 @@ export function mergeInline(o) {
       hunks: paired.rh,
       cosmetic: paired.cosR,
     });
+  Ld.hunks = refineBreaks(Ld.hunks, fb.text, fl.text);
+  Rd.hunks = refineBreaks(Rd.hunks, fb.text, fr.text);
   const ML = charMaps(Ld.hunks, fb.text.length, fl.text.length),
     MR = charMaps(Rd.hunks, fb.text.length, fr.text.length);
   const n = fb.text.length;
@@ -836,9 +893,9 @@ export function mergeInline(o) {
   };
   const isInsert = (h) => h.bs === h.be;
   // A hunk that only puts in or takes out block breaks (whitespace aside):
-  // a split or a join. A text insertion touching it is not a conflict
-  // (Decision 2 is about replacements of words): it lands beside the break,
-  // in the block its own position names.
+  // a split or a join. Touching the other side's edit is not a conflict
+  // (Decision 2 is about replacements of words): each lands beside the
+  // break, in the block its own position names.
   const structural = (h, fs) => {
     let brk = false;
     for (let i = h.bs; i < h.be; i++) {
@@ -858,9 +915,7 @@ export function mergeInline(o) {
     a.bs <= b.be && b.bs <= a.be && isInsert(a) !== isInsert(b);
   const textConflict = (l, r) =>
     overlaps(l, r) ||
-    (touches(l, r) &&
-      !(isInsert(l) && structural(r, fr)) &&
-      !(isInsert(r) && structural(l, fl)));
+    (touches(l, r) && !structural(l, fl) && !structural(r, fr));
   const sameHunk = (l, r) => {
     if (l.bs !== r.bs || l.be !== r.be || l.toks.length !== r.toks.length)
       return false;

@@ -1,9 +1,9 @@
 // Round 3 review fixes (HM-I).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parse, doc } from "./lib/dom.js";
+import { parse, doc, document } from "./lib/dom.js";
 import { mergeBodies } from "./lib/merge.js";
-import { mergeDocument } from "../../src/index.js";
+import { mergeDocument, morphElement } from "../../src/index.js";
 
 async function onLivePage(base, local, remote) {
   const live = parse(doc(local));
@@ -94,5 +94,82 @@ test("HM-I2 a split or join beside a block the other side reordered lands every 
   for (const [b, l, r, want] of cases) {
     assert.equal(mergeBodies(b, l, r).html, want, l);
     assert.equal(await onLivePage(b, l, r), want, l);
+  }
+});
+
+test("HM-I3 a block break beside the other side's word edit merges as two edits", async () => {
+  const cases = [
+    [
+      `<div>hello there big world</div>`,
+      `<div>hello there<div>big world</div></div>`,
+      `<div>hello there big WORLD</div>`,
+      `<div>hello there<div>big WORLD</div></div>`,
+    ],
+    [
+      `<div>hello there big world</div>`,
+      `<div>hello there big WORLD</div>`,
+      `<div>hello there<div>big world</div></div>`,
+      `<div>hello there<div>big WORLD</div></div>`,
+    ],
+    [
+      `<div>hello there big world</div>`,
+      `<div>hello there<div>big world</div></div>`,
+      `<div>hello there big</div>`,
+      `<div>hello there<div>big</div></div>`,
+    ],
+    [
+      `<p>alpha bravo</p><p>charlie delta</p>`,
+      `<p>alpha bravo</p><p>CHARLIE delta</p>`,
+      `<p>alpha bravocharlie delta</p>`,
+      `<p>alpha bravoCHARLIE delta</p>`,
+    ],
+    [
+      `<p>alpha bravo</p><p>charlie delta</p>`,
+      `<p>alpha bravocharlie delta</p>`,
+      `<p>alpha bravo</p><p>CHARLIE delta</p>`,
+      `<p>alpha bravoCHARLIE delta</p>`,
+    ],
+    [
+      `<p>alpha bravo</p><p>charlie delta</p>`,
+      `<p>alpha BRAVO</p><p>charlie delta</p>`,
+      `<p>alpha bravocharlie delta</p>`,
+      `<p>alpha BRAVOcharlie delta</p>`,
+    ],
+  ];
+  for (const [base, local, remote, expected] of cases) {
+    const m = mergeBodies(base, local, remote);
+    assert.equal(m.html, expected, local + " | " + remote);
+    assert.equal(m.res.conflicts.length, 0, local + " | " + remote);
+    assert.equal(await onLivePage(base, local, remote), expected);
+  }
+});
+
+test("HM-I3 the caret keeps its character through a join that fuses two words", async () => {
+  for (const [at, want] of [
+    [0, 11],
+    [5, 16],
+    [7, 18],
+  ]) {
+    const ed = document.createElement("div");
+    ed.setAttribute("contenteditable", "true");
+    ed.innerHTML = "<p>alpha bravo</p><p>charlie delta</p>";
+    document.body.appendChild(ed);
+    ed.focus();
+    const r = document.createRange();
+    r.setStart(ed.querySelectorAll("p")[1].firstChild, at);
+    r.collapse(true);
+    document.getSelection().removeAllRanges();
+    document.getSelection().addRange(r);
+    await morphElement(
+      ed,
+      `<div contenteditable="true"><p>alpha bravocharlie delta</p></div>`,
+      {
+        base: `<div contenteditable="true"><p>alpha bravo</p><p>charlie delta</p></div>`,
+      },
+    );
+    const s = document.getSelection();
+    assert.equal(s.anchorNode, ed.querySelector("p").firstChild);
+    assert.equal(s.anchorOffset, want, "offset " + at);
+    ed.remove();
   }
 });
