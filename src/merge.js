@@ -1482,6 +1482,22 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         ) &&
           V.units.every((u) => !isEl(u) || V.baseOf(u)));
       if (untouched(Lv, L) && untouched(Rv, R)) return null;
+      // A side that reordered the blocks here: a split or join beside the
+      // move merges block by block, since the kept order is the anchor the
+      // sequence needs.
+      const reordered = (V) => {
+        if (V.asBase) return false;
+        let last = -1;
+        for (const u of V.units) {
+          const bk = isEl(u) ? V.baseOf(u) : null;
+          if (!bk || !bSet.has(bk)) continue;
+          const at = bPos.get(bk);
+          if (at < last) return true;
+          last = at;
+        }
+        return false;
+      };
+      if (reordered(Lv) || reordered(Rv)) return null;
       for (const [V, A] of [
         [Lv, L],
         [Rv, R],

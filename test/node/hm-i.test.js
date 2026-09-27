@@ -57,3 +57,42 @@ test("HM-I1 identical short inserts in two different containers are two inserts"
     assert.equal(await onLivePage(b, l, r), want, l);
   }
 });
+
+test("HM-I2 a split or join beside a block the other side reordered lands every word once", async () => {
+  const cases = [
+    [
+      `<p>x1 y1</p><p>a1 b1 c1 d1</p>`,
+      `<p>x1 y1</p><p>a1 b1</p><p>c1 d1</p>`,
+      `<p>a1 b1 c1 d1</p><p>x1 y1</p>`,
+      `<p>a1 b1</p><p>c1 d1</p><p>x1 y1</p>`,
+    ],
+    [
+      `<ul><li>x1 y1</li><li>a1 b1 c1 d1</li></ul>`,
+      `<ul><li>x1 y1</li><li>a1 b1</li><li>c1 d1</li></ul>`,
+      `<ul><li>a1 b1 c1 d1</li><li>x1 y1</li></ul>`,
+      `<ul><li>a1 b1</li><li>c1 d1</li><li>x1 y1</li></ul>`,
+    ],
+    [
+      `<p>a1 b1 c1 d1</p><p>x1 y1</p>`,
+      `<p>a1 b1</p><p>c1 d1</p><p>x1 y1</p>`,
+      `<p>x1 y1</p><p>a1 b1 c1 d1</p>`,
+      `<p>x1 y1</p><p>a1 b1</p><p>c1 d1</p>`,
+    ],
+    [
+      `<p>x1 y1</p><p>a1 b1</p><p>c1 d1</p>`,
+      `<p>x1 y1</p><p>a1 b1 c1 d1</p>`,
+      `<p>c1 d1</p><p>x1 y1</p><p>a1 b1</p>`,
+      `<p>x1 y1</p><p>a1 b1 c1 d1</p>`,
+    ],
+    [
+      `<p>x1 y1</p><p>a1 b1 c1 d1</p>`,
+      `<p>a1 b1 c1 d1</p><p>x1 y1</p>`,
+      `<p>x1 y1</p><p>a1 b1</p><p>c1 d1</p>`,
+      `<p>a1 b1</p><p>c1 d1</p><p>x1 y1</p>`,
+    ],
+  ];
+  for (const [b, l, r, want] of cases) {
+    assert.equal(mergeBodies(b, l, r).html, want, l);
+    assert.equal(await onLivePage(b, l, r), want, l);
+  }
+});
