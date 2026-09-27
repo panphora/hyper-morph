@@ -71,9 +71,12 @@ export function apply(liveRoot, mergedRoot, result, o) {
           mergedOf.set(lv, m);
         }
       } else if (Array.isArray(p.local)) {
-        const nodes = p.local
-          .map((n) => o.toLive(n))
-          .filter((n) => n && inRoot(n) && n.nodeType === m.nodeType);
+        const nodes = withSplits(
+          p.local,
+          p.local
+            .map((n) => o.toLive(n))
+            .filter((n) => n && inRoot(n) && n.nodeType === m.nodeType),
+        );
         if (nodes.length) {
           liveOf.set(m, nodes[0]);
           mergedOf.set(nodes[0], m);
@@ -157,13 +160,44 @@ export function apply(liveRoot, mergedRoot, result, o) {
       text: h.text.slice(p, h.text.length - s),
     };
   }
+  // A text node the browser split off a live twin after the snapshot (an
+  // edit command, typing) has no snapshot twin of its own. It joins the run
+  // of the twin it follows, so its text is read as typing and the node is
+  // dropped with the rest of the run, instead of its text counting as
+  // deleted.
+  function withSplits(localNodes, lives) {
+    if (!lives.length) return lives;
+    const twins = new Set();
+    for (const ln of localNodes) {
+      const parent = ln.parentNode;
+      if (!parent) continue;
+      for (let c = parent.firstChild; c; c = c.nextSibling)
+        if (c.nodeType === 3) twins.add(o.toLive(c));
+    }
+    const out = [];
+    for (const n of lives) {
+      out.push(n);
+      for (
+        let x = n.nextSibling;
+        x && x.nodeType === 3 && !twins.has(x) && !out.includes(x);
+        x = x.nextSibling
+      )
+        out.push(x);
+    }
+    return out;
+  }
+
   function replayTyping(seg) {
-    const lives = [];
+    const twinsOf = [];
     for (const ln of seg.localNodes) {
       const n = o.toLive(ln.node);
       if (!n || !inRoot(n) || n.nodeType !== 3) return;
-      lives.push(n);
+      twinsOf.push(n);
     }
+    const lives = withSplits(
+      seg.localNodes.map((ln) => ln.node),
+      twinsOf,
+    );
     if (!lives.length) return;
     const current = lives.map((n) => n.nodeValue).join("");
     const { flatLocal, lToM, mapLocal } = seg;
@@ -173,10 +207,25 @@ export function apply(liveRoot, mergedRoot, result, o) {
       ms: t.ms,
       me: t.me,
     }));
+    const liveStart = [];
+    let acc = 0;
+    for (const n of lives) {
+      liveStart.push(acc);
+      acc += n.nodeValue.length;
+    }
+    // The live node an insertion was typed into: the one holding all of it.
+    const typedInto = (at, len) =>
+      lives.find(
+        (n, k) =>
+          liveStart[k] <= at && at + len <= liveStart[k] + n.nodeValue.length,
+      ) || null;
     const edits = [];
+    let delta = 0;
     for (const h of diff(flatLocal, current).map((h) =>
       trimHunk(flatLocal, h),
     )) {
+      const at = h.bs + delta;
+      delta += h.text.length - (h.be - h.bs);
       let ms, me;
       if (h.be > h.bs) {
         ms = lToM[h.bs];
@@ -191,13 +240,27 @@ export function apply(liveRoot, mergedRoot, result, o) {
         if (before < 0 || after < 0) continue;
         ms = me = mapLocal(h.bs);
       }
-      edits.push({ ms, me, text: h.text });
+      edits.push({
+        ms,
+        me,
+        text: h.text,
+        live: me === ms ? typedInto(at, h.text.length) : null,
+      });
     }
     // From the end, so the offsets of the edits still to come stay valid.
     edits.sort((a, b) => b.ms - a.ms);
+    const holds = (x, live) =>
+      (runOf.get(x.node) || [liveOf.get(x.node)]).includes(live);
     const isMark = (n) => !!n && n.nodeType === 1 && MARK_TAGS.has(n.tagName);
     for (const e of edits) {
       let t = nodes.find((x) => x.ms <= e.ms && e.me <= x.me && e.ms < x.me);
+      // An insertion where one output node ends and the next starts belongs
+      // to the node holding the live node it was typed into: replayed into
+      // the neighbour, it would land there and stay in its own node too.
+      if (t && e.live && t.ms === e.ms && !holds(t, e.live)) {
+        const own = nodes.find((x) => x.me === e.ms && holds(x, e.live));
+        if (own) t = own;
+      }
       if (!t && e.me === e.ms) {
         // An insertion at a node boundary goes outside the marks that end
         // or start there, as the inline merge places an edge insertion.
