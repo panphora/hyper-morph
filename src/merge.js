@@ -1460,17 +1460,19 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           ? whole
           : (!Lv.asBase && Lv.baseOf(whole)) ||
             (!Rv.asBase && Rv.baseOf(whole));
-        // A piece whose own side still has the whole block is new text
-        // typed beside it, not half split off it.
+        // A piece its own side's twin still holds at that end, as often as
+        // the base block did, is new text typed beside it: a split takes
+        // the piece out of the twin.
+        const count = (t) => (piece ? t.split(piece).length - 1 : 0);
         if (bk && isEl(part) && !bSet.has(part)) {
-          const was = flatText(bk);
+          const was = count(flatText(bk));
           for (const x of [L.map.get(bk), R.map.get(bk)]) {
             if (!x || x === part || x.ownerDocument !== part.ownerDocument)
               continue;
             const t = flatText(x);
             if (
               t.length > piece.length &&
-              t.includes(was) &&
+              count(t) >= was &&
               (t.startsWith(piece) || t.endsWith(piece))
             )
               return false;
@@ -1484,9 +1486,10 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         if (!piece || piece.length > SPLIT_SCAN_MAX) return false;
         const kin = bk ? [whole, bk, L.map.get(bk), R.map.get(bk)] : [whole];
         // A base block a side joined away may carry the other side's edit:
-        // its twins' text is the piece too.
+        // when the block it joined into gained text, its twins' text is the
+        // piece too.
         const pieces = [piece];
-        if (bSet.has(part))
+        if (bSet.has(part) && bk && flatText(whole) !== flatText(bk))
           for (const x of [L.map.get(part), R.map.get(part)]) {
             const t = x && flatText(x);
             if (t && t !== piece) pieces.push(t);

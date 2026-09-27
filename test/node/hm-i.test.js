@@ -674,3 +674,42 @@ test("R6 a join beside the other side's split of the same block keeps the split 
       assert.equal(await onLivePage(base, local, remote), expected);
     }
 });
+
+test("R6 a new block repeating a word its edited neighbour kept is new text, not a split half", async () => {
+  const base = `<p id="a">Buy milk</p>`;
+  const a = `<p id="a">Buy eggs</p><p>eggs</p>`;
+  const b = `<p id="a"><a href="/shop">Buy milk</a></p>`;
+  const expected = `<p id="a"><a href="/shop">Buy eggs</a></p><p>eggs</p>`;
+  for (const [local, remote] of [
+    [a, b],
+    [b, a],
+  ]) {
+    const m = mergeBodies(base, local, remote);
+    assert.equal(m.html, expected, local + " | " + remote);
+    assert.equal(m.res.conflicts.length, 0);
+    assert.equal(await onLivePage(base, local, remote), expected);
+  }
+});
+
+test("R6 an edited block deleted beside a neighbour that ends with the edit keeps edit-beats-delete", async () => {
+  const cases = [
+    [
+      `<p>Pending</p><p>Undone</p>`,
+      `<p>Done</p><p>Undone</p>`,
+      `<p>Undone</p>`,
+      `<p>Done</p><p>Undone</p>`,
+    ],
+    [
+      `<p>Total: 120</p><p>tbd</p>`,
+      `<p>Total: 120</p><p>20</p>`,
+      `<p>Total: 120</p>`,
+      `<p>Total: 120</p><p>20</p>`,
+    ],
+  ];
+  for (const [base, local, remote, expected] of cases) {
+    const m = mergeBodies(base, local, remote);
+    assert.equal(m.html, expected, local + " | " + remote);
+    assert.equal(m.res.conflicts[0].kind, "structure");
+    assert.equal(await onLivePage(base, local, remote), expected);
+  }
+});
