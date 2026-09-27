@@ -900,4 +900,11 @@ Two shapes lose nothing but report a conflict:
 - **A join of two fully formatted paragraphs with different authored ids,** while the other side edits the second one. The words land once in the joined paragraph, an empty second paragraph remains, and an `edit-beats-delete` structure conflict is reported.
 - **A block both sides deleted and retyped alike** reports a `both-reordered` structure conflict, though the result equals both sides.
 
+These keep every word but lose structure or an edit the conflict names:
+
+- **A paragraph typed between two blocks the other side joined** is a text conflict. The remote side wins, so when remote joined, local's new paragraph is dropped and the conflict reports it.
+- **A join against the other side deleting the next block and typing a relayed paragraph in its place** (an echo) resolves to remote's text but fuses it into the first block: base `<p>alpha bravo</p><p>charlie delta</p>`, local `<p>alpha bravocharlie delta</p><p>new para text</p>`, remote `<p>alpha bravo</p><p>new para text</p>` gives `<p>alpha bravonew para text</p>` with a text conflict.
+- **A join beside the other side's Enter, when that side also retyped the next block's first word,** undoes the join and rebuilds the next block without its attributes: `<li class="done">eggs today</li>` joined into the item before, against Enter and `EGGS`, gives `<li>milk </li><li><br></li><li>EGGS today</li>`, no conflict.
+- **Two joins at adjacent boundaries, one per side,** keep one block with every word, but its attributes come from the block the local side joined away (`<li id="t2">milk eggs ham</li>` where both sides kept `t1`).
+
 - **Typing after the snapshot into a new text node.** With `local` given and typing that lands after the snapshot was taken, text typed into a text node the browser created where no snapshot text node precedes it (before a `<b>` at the start of a paragraph) is lost. A text node split off an existing one keeps its text. Callers that snapshot and merge in one synchronous call cannot hit this.
