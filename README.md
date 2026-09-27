@@ -177,8 +177,9 @@ script text, `textarea` text and comments merge as a whole value: the side
 that changed wins, and both changing is a conflict. `<style>` text merges
 word by word like any other text.
 
-A paragraph split or joined on one side while the other side edits it can
-duplicate or drop text; see "Known limitations" in `docs/api.md`.
+A paragraph split or joined on one side while the other side edits it
+merges as one word sequence, so every word lands once; see "Paragraph
+splits and joins" in `docs/api.md`.
 
 ## Identity without ids
 

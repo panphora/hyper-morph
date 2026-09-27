@@ -28,9 +28,18 @@ the review, the scenarios, and the specification.
   its merged text.
 - Alignment that pairs elements without ids: identical subtrees, unique
   signatures, signature plus similar text, position, cross-parent moves,
-  then slots rewritten in place (every unpaired element under a parent at
-  the same index with the same tag on both sides). Never on tag and class
-  alone, and never across two different authored identities.
+  then slots rewritten in place (unpaired elements between the same two
+  paired neighbours, in equal number with the same tags on both sides).
+  Never on tag and class alone, and never across two different authored
+  identities.
+- Paragraph splits and joins merge as edits: when one side splits a text
+  block in two or joins two, and the other side edits the blocks involved,
+  the blocks merge as one word sequence with a block break where each
+  block ends, so every word lands once and live elements are reused.
+- A block both sides inserted (an echo) lands once even when one side then
+  moved its neighbour or its container, and a block both sides rewrote
+  alike pairs with its base even when one side also inserted a sibling
+  beside it.
 - A report per call: `applied`, `decisions`, `conflicts`, `localDiverged`,
   `identities`, `moved`, `replaced`. `localDiverged` is true exactly when
   the merged document differs from the remote one, compared directly after
@@ -95,16 +104,16 @@ morphElement, merge3, morph }`.
 
 ### Known limitations
 
-- A block both sides inserted (an echo) lands twice when one side then
-  moved the block's neighbour or its container, so the two copies sit in
-  different containers. Inserts have no base to pair by, and only inserts
-  in the same place are recognised as one. The structural fuzz
-  (`test/node/structure-fuzz.test.js`) finds this in 4 of 5000 generated
-  cases; the test runs seeds 1 to 1000, which all pass.
-- A paragraph split or joined on one side while the other side edits the
-  paragraphs involved can duplicate or drop text. The merge treats blocks
-  as units and cannot yet read a split as one edit; see
-  `docs/api.md`, "Known limitations".
+These shapes can still duplicate text. Each needs several edits at one
+point, or a move combined with a split; `docs/api.md`, "Known
+limitations", has an example of each.
+
+- A word both sides typed, then a split right after it on one side plus
+  more typing in the new block.
+- An inline element moved from one block to another while the other side
+  splits or joins those blocks.
+- A block moved to another container while the other side splits or
+  joins it.
 
 ## [0.5.4] - 2026-09-23
 

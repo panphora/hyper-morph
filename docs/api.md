@@ -880,7 +880,17 @@ Behaviour that differs from 0.5.4:
 - An `outerHTML` morph morphs the first element of the content; other top-level nodes are dropped.
 - With `restoreFocus: false`, a focused control that moves to a different depth loses focus.
 
+## Paragraph splits and joins
+
+A text block (`p`, `h1` to `h6`, `div`, `li`, `dd`, `dt`, `blockquote`, `figcaption`, `summary`, `address` holding only text and inline elements) that one side split in two, or joined with its neighbour, merges with its siblings as one word sequence. A block break marks where each block ends, and the break carries its block: the words after a split follow the new block, and a join moves the second block's words into the first. So a split on one side and an edit to the tail on the other gives the split with the edit in it, and a join on one side with an edit on the other gives the joined block with the edit. Text typed right at the split point is not a conflict; an edit that replaces the words on both sides of it still is. Only blocks with evidence of a split or join take this path (a block with no base twin whose words another block holds, or a block whose words moved to its neighbour), so independent paragraphs merge block by block as before. A later piece of a split block copies its attributes except `id` and `data-id`. A block edge can keep a space that sat at the split point; a browser collapses it in normal flow.
+
 ## Known limitations
 
-- **Paragraph split and join.** A merge treats each block as a unit. When one side splits a paragraph in two (or joins two) and the other side edits the paragraphs involved, the split is read as edits to one block plus a new block, so text near the split can land twice, or the other side's edit to a joined paragraph can be lost. The loss records a `text` conflict; the duplication records nothing.
-- **An echoed block whose neighbour moved.** When both sides insert the same block and one side then moves the block's neighbour or its container, the two copies end up in different containers and both land. Inserts have no base element to pair by, and two inserts are read as one only when they sit in the same place.
+These shapes can still duplicate text. Each needs edits by both sides at one point, or a block move combined with a split:
+
+- **An echoed word, then a split after it.** Base `<li>w0 w1 w2</li>`; local `<li>w0 w1 w2</li><li>w7 w8</li>` (typed `w7`, pressed Enter before it, typed `w8`); remote `<li>w0 w1 w2 w7</li>` (the relayed `w7`). `w7` lands twice. The same holds when a replacement of the preceding word joins the two.
+- **An inline element moved between blocks during a split or join.** Base `<p>w0 <b>w4</b> w1 w2 w3</p><p>w5 <b>w8</b> w6 w7</p>`; local joins the two and moves `<b>w8</b>` into the first half; remote edits `w5`. `<b>w8</b>` lands twice.
+- **A block moved to another container while the other side splits or joins it.** The moved copy and the split halves both land.
+- **An echoed word where the other side removed an inline element, plus a replacement beside it.** Three edits at one point; the echoed word can land twice.
+- **Container pairing when a child moved between sibling containers.** Nothing is duplicated or lost, but an inserted block can land in the other container.
+- **Typing after the snapshot into a new text node.** With `local` given and typing that lands after the snapshot was taken, text typed into a text node the browser created where no snapshot text node precedes it (before a `<b>` at the start of a paragraph) is lost. A text node split off an existing one keeps its text. Callers that snapshot and merge in one synchronous call cannot hit this.
