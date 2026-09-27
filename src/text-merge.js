@@ -61,6 +61,13 @@ export function words(s) {
 const SPACE_LIKE = /^[  ]+$/;
 export const normKey = (w) => (SPACE_LIKE.test(w) ? " ".repeat(w.length) : w);
 export const isSpace = (t) => typeof t.k === "string" && /^\s+$/.test(t.k);
+// The block break of the inline merge (src/inline-merge.js flattens a run
+// of sibling blocks with this character after each block). It is a token
+// of its own, and in an echo it counts as whitespace: text both sides
+// typed at one point is one insertion even when one side then pressed
+// Enter there.
+export const BREAK = "\u001E";
+const plain = (ts) => ts.every((t) => isSpace(t) || t.k === BREAK);
 
 const ASCII = /^[\x00-\x7f\u00A0]*$/;
 const FAST = /[A-Za-z0-9_']+|[ \u00A0]+|\s|./g;
@@ -403,9 +410,13 @@ function splitEchoes(lh, rh, B, cosL, cosR) {
             // Two sides that each typed something different beyond the
             // shared part at the same point are two insertions there, and
             // both land whole (split, the two rests would fuse).
+            const restX = tail ? xt.slice(0, xt.length - n) : xt.slice(n),
+              restY = tail ? yt.slice(0, yt.length - n) : yt.slice(n);
             if (
               n < xt.length &&
               n < yt.length &&
+              !plain(restX) &&
+              !plain(restY) &&
               ((isIns(x) && isIns(y)) || (x.bs === y.bs && x.be === y.be))
             )
               continue;

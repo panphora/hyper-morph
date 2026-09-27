@@ -37,9 +37,17 @@ import {
   diffTokens,
   pairedHunks,
   MAX_TOKENS,
+  BREAK,
 } from "./text-merge.js";
 
 export const ATOM = "￼";
+
+/**
+ * A block boundary inside a flat sequence: a text block flattened as a mark
+ * (see `blocks` in flatten) ends with one. A split is then the replacement
+ * of a space by a break, a join the reverse, and the words merge as words.
+ */
+export { BREAK };
 
 /**
  * Work counters for the tests: a bound on steps holds where a wall clock
