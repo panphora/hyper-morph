@@ -1403,8 +1403,12 @@ export function mergeInline(o) {
           source: u.local && u.remote ? "both" : u.local ? "local" : "remote",
         });
     } else {
+      // A later piece of the same element (a block split in two, a mark cut
+      // by another) copies its attributes but not its authored identity,
+      // which stays unique on the first piece.
       const src = opened.get(u);
-      for (const a of src.attributes) setAttr(el, a, a.value);
+      for (const a of src.attributes)
+        if (a.name !== "id" && a.name !== "data-id") setAttr(el, a, a.value);
       provenance.set(el, { base: null, local: null, remote: null });
     }
     append(el);
