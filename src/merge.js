@@ -148,6 +148,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   const localDecision = (d) => decisions.push(d);
   const remoteDecision = (d) => decisions.push(d);
   const conflict = (c) => conflicts.push(c);
+  const crossEcho = pairCrossEchoes();
 
   const html = mergeElement(
     bRoot,
@@ -225,6 +226,84 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       }
       if (hit) A.adopt(bk, hit);
     }
+  }
+
+  // A block both sides inserted (an echo) whose copies sit under parents
+  // that do not correspond: one side moved the block or its neighbour, or
+  // the alignment paired the containers apart. The copies pair by identical
+  // markup, outermost first; the per-parent echo step handles copies under
+  // one parent, and of the rest the policy side's copy lands (with both
+  // copies in its provenance, so apply moves the live one there) and the
+  // other is dropped, recorded as a both-moved conflict.
+  function pairCrossEchoes() {
+    const partner = new Map(),
+      drop = new Set();
+    if (o.localIsBase || !L.insertedByHash) return { partner, drop };
+    const lIns = L.insertedByHash(),
+      rIns = R.insertedByHash();
+    if (!lIns.size || !rIns.size) return { partner, drop };
+    const inlineOpts = { ignored, remoteWins: o.remoteWins, inlineCache };
+    const depth = (el) => {
+      let d = 0;
+      for (let p = el.parentNode; p; p = p.parentNode) d++;
+      return d;
+    };
+    const cands = [];
+    for (const [h, ls] of lIns) {
+      const rs = rIns.get(h);
+      if (!rs) continue;
+      for (const lu of ls)
+        if (!isInlineUnit(lu, inlineOpts)) cands.push([lu, rs, depth(lu)]);
+    }
+    if (!cands.length) return { partner, drop };
+    cands.sort((a, b) => a[2] - b[2]);
+    const covered = new Set(),
+      taken = new Set();
+    const cover = (el) => {
+      for (const d of el.querySelectorAll("*")) covered.add(d);
+    };
+    const baseParentOf = (A, el) => A.reverse.get(el.parentNode) || null;
+    for (const [lu, rs] of cands) {
+      if (covered.has(lu)) continue;
+      const bp = baseParentOf(L, lu);
+      const free = (x) =>
+        !taken.has(x) && !covered.has(x) && x.tagName === lu.tagName;
+      const ru =
+        rs.find((x) => free(x) && bp && baseParentOf(R, x) === bp) ||
+        rs.find(free);
+      if (!ru) continue;
+      taken.add(ru);
+      cover(lu);
+      cover(ru);
+      if (bp && baseParentOf(R, ru) === bp) continue;
+      partner.set(lu, ru);
+      partner.set(ru, lu);
+      drop.add(policy === "local" ? ru : lu);
+    }
+    return { partner, drop };
+  }
+
+  function emitCrossEcho(su, side, partner) {
+    emitted.add(su);
+    if (crossEcho.drop.has(su)) return null;
+    emitted.add(partner);
+    const lu = side === "local" ? su : partner,
+      ru = side === "local" ? partner : su;
+    let node;
+    if (analyzer.unitHash(lu) === analyzer.unitHash(ru)) {
+      node = cloneUnit(lu, "local", true);
+      provenance.get(node).remote = ru;
+    } else node = mergeEchoPair(lu, ru);
+    conflict({
+      kind: "structure",
+      el: node,
+      detail: "both-moved",
+      base: null,
+      local: lu,
+      remote: ru,
+    });
+    localDecision({ kind: "insert", el: node, source: "both" });
+    return node;
   }
 
   // A weak pair (made with no content evidence) whose side element the
@@ -668,6 +747,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       const node = cloneUnit(
         fromLocal ? lu : ru,
         fromLocal ? "local" : "remote",
+        true,
       );
       const p = provenance.get(node);
       if (fromLocal) p.remote = ru;
@@ -714,7 +794,11 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   // ---------------------------------------------------------------------
   // Insertions: a clone of one side's unit, with provenance on every node.
   // ---------------------------------------------------------------------
-  function cloneUnit(su, side) {
+  function cloneUnit(su, side, plain = false) {
+    if (!plain && isEl(su)) {
+      const partner = crossEcho.partner.get(su);
+      if (partner) return emitCrossEcho(su, side, partner);
+    }
     if (!isEl(su)) {
       if (su.value === "") return null;
       const t =
@@ -860,10 +944,14 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     // Step 1: pair insertions across sides (echoes), by identity then hash.
     const lIns = Lv.asBase
       ? []
-      : Lv.units.filter((u) => !Lv.baseOf(u) && !segUnits.has(u));
+      : Lv.units.filter(
+          (u) => !Lv.baseOf(u) && !segUnits.has(u) && !crossEcho.partner.has(u),
+        );
     const rIns = Rv.asBase
       ? []
-      : Rv.units.filter((u) => !Rv.baseOf(u) && !segUnits.has(u));
+      : Rv.units.filter(
+          (u) => !Rv.baseOf(u) && !segUnits.has(u) && !crossEcho.partner.has(u),
+        );
     const echo = new Map(); // remote unit -> local unit (and reverse)
     if (lIns.length && rIns.length) {
       const rById = new Map(),
