@@ -892,6 +892,8 @@ These shapes can still duplicate or lose text. Each needs several edits at one p
 - **An inline element moved between blocks during a join.** Base `<p>w0 <b>w4</b> w1 w2 w3</p><p>w5 <b>w8</b> w6 w7</p>`; local joins the two and moves `<b>w8</b>` into the first half; remote edits `w5`. `<b>w8</b>` lands twice.
 - **An echoed word where the other side removed an inline element, plus a replacement beside it.** Base `<p>a1 <b>b1</b> c1 d1</p>`; local `<p>a1 X c1 d1</p>`; remote `<p>a1 <b>b1</b> X C1 d1</p>`. `X` lands twice.
 - **Blocks moved between containers on one side, and a split or join in the same stretch on the other.** With several such edits at once the split text can land twice or be lost. A move alone with a split or join merges: the halves land together at the move's destination.
+- **Blocks reordered on one side, and a join or split of the moved blocks' neighbours on the other.** The joined or split paragraph merges block by block, so its words can land twice, usually with a text conflict reported. Base `<p>w0 w1 w2</p><p>w3 w4</p>`; local `<p>w0 w1 w2 w3 w4 w5</p>` (joined, then typed `w5`); remote `<p>w3</p><p>w0 w1 w2</p>` (deleted `w4`, moved the paragraph up). `w3` lands twice, with a text conflict.
+- **A new block both sides received and then placed in different containers.** Two inserts with the same markup and three or more words under different parents read as one insertion one side moved, since that is what a relayed paragraph dragged elsewhere looks like. When two people really typed the same sentence into two sections, one copy is kept and a `both-moved` structure conflict is reported.
 
 Two shapes lose nothing but report a conflict:
 
