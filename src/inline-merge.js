@@ -663,7 +663,11 @@ export function mergeInline(o) {
   const atomKeys = (fs, A) => {
     const keyOf = new Map();
     for (const a of fs.atoms) {
-      if (!byTwin) keyOf.set(a, a.key);
+      // A remote-wins span holds whatever remote has: its content is no
+      // edit of either side, and it keys by what it is.
+      if (o.remoteWins && o.remoteWins(a.el) && MARK_TAGS.has(a.el.tagName))
+        keyOf.set(a, "w" + a.el.tagName);
+      else if (!byTwin) keyOf.set(a, a.key);
       else if (fs === fb) keyOf.set(a, "=" + contentKey(a.el));
       else {
         const b = A.reverse.get(a.el);
@@ -732,7 +736,8 @@ export function mergeInline(o) {
   // A block element joined to the segment (see merge.js) keeps the per-unit
   // rule that an edit beats a delete: one side deleting it while the other
   // changed it is no text conflict, and the rebuild keeps the block.
-  const isBlock = (el) => !isInlineUnit(el, o);
+  // A remote-wins span is an atom of the text, not a block.
+  const isBlock = (el) => !isInlineUnit(el, { ...o, remoteWins: null });
   const soft = new Set();
   if (byTwin)
     for (const a of fb.atoms) {

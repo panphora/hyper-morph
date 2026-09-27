@@ -307,3 +307,54 @@ test("HM-I13 a block both sides typed, read as rewrites of two different neighbo
     assert.equal(await onLivePage(base, local, remote), expected);
   }
 });
+
+test("HM-I5 a paragraph with an inline remote-wins region still splits and joins as text", async () => {
+  const remoteWins = (el) => el.hasAttribute("no-watch");
+  const base = `<p>alpha bravo <span no-watch>LIVE</span> charlie delta</p>`;
+  const split = (span) =>
+    `<p>alpha bravo <span no-watch>${span}</span></p><p>charlie delta</p>`;
+  const edit = (span) =>
+    `<p>alpha bravo <span no-watch>${span}</span> charlie DELTA</p>`;
+  const cases = [
+    [
+      split("LIVE"),
+      edit("LIVE"),
+      `<p>alpha bravo <span no-watch="">LIVE</span></p><p>charlie DELTA</p>`,
+    ],
+    [
+      split("LIVE"),
+      edit("LIVE2"),
+      `<p>alpha bravo <span no-watch="">LIVE2</span></p><p>charlie DELTA</p>`,
+    ],
+    [
+      split("MINE"),
+      edit("LIVE2"),
+      `<p>alpha bravo <span no-watch="">LIVE2</span></p><p>charlie DELTA</p>`,
+    ],
+    [
+      edit("LIVE2"),
+      split("LIVE"),
+      `<p>alpha bravo <span no-watch="">LIVE</span></p><p>charlie DELTA</p>`,
+    ],
+    [
+      `<p>alpha bravo <span no-watch>LIVE</span> charlie delta</p>`,
+      `<p>alpha bravo</p><p><span no-watch>LIVE2</span> charlie delta</p>`,
+      `<p>alpha bravo</p><p><span no-watch="">LIVE2</span> charlie delta</p>`,
+    ],
+  ];
+  for (const [local, remote, expected] of cases) {
+    const m = mergeBodies(base, local, remote, { remoteWins });
+    assert.equal(m.html, expected, local + " | " + remote);
+    assert.equal(m.res.conflicts.length, 0, local + " | " + remote);
+    const live = parse(doc(local));
+    const span = live.querySelector("[no-watch]");
+    await mergeDocument({
+      live,
+      base: doc(base),
+      remote: doc(remote),
+      remoteWins,
+    });
+    assert.equal(live.body.innerHTML, expected);
+    assert.ok(live.contains(span), "the live remote-wins span is kept");
+  }
+});

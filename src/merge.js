@@ -23,7 +23,7 @@
 import { createAnalyzer } from "./similarity.js";
 import { align } from "./align.js";
 import { merge3Text, diff, words } from "./text-merge.js";
-import { mergeInline, isInlineUnit } from "./inline-merge.js";
+import { mergeInline, isInlineUnit, MARK_TAGS } from "./inline-merge.js";
 import { indexByIdentity, defaultIdentity } from "./identity.js";
 import { headSignature } from "./head-merge.js";
 import { isHtmlScript, mergeIdentityOf } from "./scripts.js";
@@ -1436,12 +1436,21 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     // inside, or the paired blocks that bound it. A block a side moved to
     // another parent never qualifies: its destination merges it.
     function splitJoinBlocks(inline0) {
+      // An inline remote-wins region inside the block is one atom of its
+      // text, which the remote's copy fills.
+      const plainOpts = { ignored, remoteWins: () => false };
+      const inlineIn = (c) =>
+        inline0(c) ||
+        (isEl(c) &&
+          o.remoteWins(c) &&
+          MARK_TAGS.has(c.tagName) &&
+          isInlineUnit(c, plainOpts));
       const textBlock = (u) =>
         isEl(u) &&
         TEXT_BLOCK_TAGS.has(u.tagName) &&
         !ignored(u) &&
         !o.remoteWins(u) &&
-        unitsOf(u).every(inline0);
+        unitsOf(u).every(inlineIn);
       const isText = (u) => !isEl(u) && u.kind === "text";
       let out = null;
       const tokCache = new Map();
