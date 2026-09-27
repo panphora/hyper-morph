@@ -40,10 +40,22 @@
       "types": "./types/index.d.ts",
       "default": "./src/index.js"
     },
-    "./json-merge": "./src/hyper-morph-json-merge.js",
-    "./json-parse": "./src/hyper-morph-json-parse.js",
-    "./splice": "./src/legacy-splice.js",
-    "./text-merge": "./src/text-merge.js"
+    "./json-merge": {
+      "types": "./types/json-merge.d.ts",
+      "default": "./src/hyper-morph-json-merge.js"
+    },
+    "./json-parse": {
+      "types": "./types/json-parse.d.ts",
+      "default": "./src/hyper-morph-json-parse.js"
+    },
+    "./splice": {
+      "types": "./types/splice.d.ts",
+      "default": "./src/legacy-splice.js"
+    },
+    "./text-merge": {
+      "types": "./types/text-merge.d.ts",
+      "default": "./src/text-merge.js"
+    }
   },
   "scripts": {
     "build": "esbuild src/index.js --bundle --minify --format=iife --global-name=HyperMorph --outfile=dist/hyper-morph.min.js",
