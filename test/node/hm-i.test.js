@@ -639,3 +639,38 @@ test("R5 a join beside the other side's new line keeps the second block's own el
     assert.equal(await onLivePage(base, local, remote), remote);
   }
 });
+
+test("R6 a join beside the other side's split of the same block keeps the split half's own element", async () => {
+  const cases = [
+    [
+      `<ul><li class="a">milk tea</li><li class="done">eggs</li></ul>`,
+      `<ul><li class="a">milk teaeggs</li></ul>`,
+      `<ul><li class="a">milk</li><li class="a">tea</li><li class="done">eggs</li></ul>`,
+      `<ul><li class="a">milk</li><li class="a">teaeggs</li></ul>`,
+    ],
+    [
+      `<h2>Title words</h2><p>body text</p>`,
+      `<h2>Title wordsbody text</h2>`,
+      `<h2>Title</h2><h2>words</h2><p>body text</p>`,
+      `<h2>Title</h2><h2>wordsbody text</h2>`,
+    ],
+    [
+      `<p>alpha bravo</p><blockquote>charlie</blockquote>`,
+      `<p>alpha bravocharlie</p>`,
+      `<p>alpha</p><p>bravo</p><blockquote>charlie</blockquote>`,
+      `<p>alpha</p><p>bravocharlie</p>`,
+    ],
+  ];
+  for (const [base, a, b, expected] of cases)
+    for (const [local, remote] of [
+      [a, b],
+      [b, a],
+    ]) {
+      assert.equal(
+        mergeBodies(base, local, remote).html,
+        expected,
+        local + " | " + remote,
+      );
+      assert.equal(await onLivePage(base, local, remote), expected);
+    }
+});

@@ -1302,8 +1302,9 @@ export function mergeInline(o) {
     const at = (f, i) => (i >= 0 ? blockU(f.stackAt[i]) : null);
     // A block closes one run when it can: when the three-way pick already
     // closed an earlier run (a join's block, kept by the side that joined),
-    // a base break keeps its own block if no other break picks it. Two
-    // splits of one block still share it, and the second run gets a copy.
+    // a base break keeps its own block if no other break picks it. Two runs
+    // that both start with the block's own words are a split of it: they
+    // share it, and the second run gets a copy.
     const picks = new Map();
     for (let i = 0; i < m; i++) {
       if (text[i] !== BREAK) continue;
@@ -1313,14 +1314,30 @@ export function mergeInline(o) {
       picks.set(i, [B, ob[i] >= 0 ? threeWay(B, Ls, Rs) : Ls || Rs]);
     }
     const picked = new Set([...picks.values()].map((p) => p[1]));
-    const closed = new Set();
+    const wordy = (c) => c !== BREAK && c !== ATOM && !/\s/.test(c);
+    const firstFrom = (s, e) => {
+      let k = s;
+      while (k < e && !wordy(text[k])) k++;
+      return k < e && ob[k] >= 0 ? at(fb, ob[k]) : null;
+    };
+    const closedBy = new Map();
     let runStart = 0;
     for (let i = 0; i < m; i++) {
       if (text[i] !== BREAK) continue;
       const [B, pick] = picks.get(i);
+      const from = firstFrom(runStart, i);
       let u = pick;
-      if (u && closed.has(u) && B && !closed.has(B) && !picked.has(B)) u = B;
-      if (u) closed.add(u);
+      const split = closedBy.get(u) === u && from === u;
+      if (
+        u &&
+        closedBy.has(u) &&
+        !split &&
+        B &&
+        !closedBy.has(B) &&
+        !picked.has(B)
+      )
+        u = B;
+      if (u && !closedBy.has(u)) closedBy.set(u, from);
       for (let k = runStart; k <= i; k++) blockOf[k] = u;
       runStart = i + 1;
     }
@@ -1328,7 +1345,6 @@ export function mergeInline(o) {
     // break every side's reading dropped (a join beside the other side's
     // break edit) lands in the block its words came from, or when another
     // run holds that block, continues the block before it or the one after.
-    const wordy = (c) => c !== BREAK && c !== ATOM && !/\s/.test(c);
     const loose = (f) => {
       for (let i = 0; i < f.text.length; i++)
         if (wordy(f.text[i]) && !at(f, i)) return true;
