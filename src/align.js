@@ -55,7 +55,7 @@ const POSITIONAL_LOOKAHEAD = 3;
 export const steps = { align: 0 };
 
 export function align(baseRoot, sideRoot, o) {
-  const { meta, unitsOf, unitHash, similar, score, childrenOf } = o.analyzer;
+  const { meta, unitsOf, unitHash, similar, score } = o.analyzer;
   const baseId = o.baseId || (() => null),
     sideId = o.sideId || (() => null);
   const map = new Map(),
@@ -103,26 +103,10 @@ export function align(baseRoot, sideRoot, o) {
 
   // Pass 1: identity.
   pair(baseRoot, sideRoot);
-  const byIdentity = [];
   for (const [id, b] of o.baseIndex) {
     const s = o.sideIndex.get(id);
-    if (s && s.tagName === b.tagName && !map.has(b) && !reverse.has(s)) {
+    if (s && s.tagName === b.tagName && !map.has(b) && !reverse.has(s))
       pair(b, s);
-      byIdentity.push(b);
-    }
-  }
-  // Pass 1b: an identity pair whose subtrees are equal, and whose identity
-  // pairs all stay inside it, is identical: nothing below it needs comparing,
-  // as for a pair Pass 0 makes by position. A pair with an identity that
-  // escapes (a copy left in place of an element that moved out) is not: the
-  // subtree reads equal while its elements do not correspond.
-  for (const b of byIdentity) {
-    if (identical.has(b) || underIdentical(b)) continue;
-    const s = map.get(b);
-    if (b.isEqualNode(s) && identityClosed(b, s)) {
-      identical.add(b);
-      visited.add(b);
-    }
   }
 
   // Pass 2: structure, from the root and from every identity pair.
@@ -131,7 +115,6 @@ export function align(baseRoot, sideRoot, o) {
   drain();
 
   movesAndSlots();
-  completeIdentical();
   if (prof) prof.align = (prof.align || 0) + (performance.now() - t0);
 
   return {
@@ -206,39 +189,6 @@ export function align(baseRoot, sideRoot, o) {
       m.get(h).push(s);
     }
     return m;
-  }
-
-  function underIdentical(b) {
-    for (let p = b.parentNode; p && p !== baseRoot; p = p.parentNode)
-      if (identical.has(p)) return true;
-    return false;
-  }
-
-  function identityClosed(b, s) {
-    const inside = (el, other, m) => {
-      for (const c of childrenOf(el)) {
-        if (c.nodeType !== 1) continue;
-        const t = m.get(c);
-        if (t && !other.contains(t)) return false;
-        if (!inside(c, other, m)) return false;
-      }
-      return true;
-    };
-    return inside(b, s, map) && inside(s, b, reverse);
-  }
-
-  /**
-   * Pair everything under the identical identity pairs, level by level, so
-   * the map is as complete as an eager alignment leaves it: nothing later
-   * reads a twin that a lazy pairing had not made yet.
-   */
-  function completeIdentical() {
-    const walk = (b) => {
-      pairIdenticalChildren(b);
-      for (const u of unitsOf(b)) if (isEl(u) && map.has(u)) walk(u);
-    };
-    for (const b of byIdentity)
-      if (identical.has(b) && !underIdentical(b)) walk(b);
   }
 
   function drain() {
@@ -430,7 +380,7 @@ export function align(baseRoot, sideRoot, o) {
     const bu = unitsOf(b),
       su = unitsOf(s);
     for (let i = 0; i < bu.length && i < su.length; i++)
-      if (!map.has(bu[i]) && !reverse.has(su[i])) lockstep(bu[i], su[i]);
+      if (!map.has(bu[i])) lockstep(bu[i], su[i]);
   }
 
   function passSigHint(freeB, freeS) {

@@ -1,7 +1,6 @@
 // 1.0.2 speed fixes, pinned: identity alignment when base and local are the
-// same tree (fix 1), the guarded identity pass (fix 2) and the cached text
-// twin sets (fix 6). Every expectation was taken from 1.0.1, except S4's
-// surviving-node list, which is the known improvement.
+// same tree (fix 1) and the cached text twin sets (fix 6). Every expectation
+// was taken from 1.0.1.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parse, doc } from "./lib/dom.js";
@@ -210,7 +209,7 @@ const SYNC = {
   S4: {
     remote: SYNC_BODY,
     permute: true,
-    survivors: "0,1,2,3,4,5,6,7,8,9,10,11,12,13,14",
+    survivors: "0,1,2,3,9,10,11,12,13,4,5,6,7,8,14",
   },
 };
 
@@ -273,7 +272,7 @@ async function syncCase({ remote: remoteHtml, movedPath, permute }) {
 }
 
 for (const [name, c] of Object.entries(SYNC)) {
-  test(`H102 sync ${name}: bytes equal the frame, ${name === "S4" ? "every node survives in order" : "as 1.0.1"}`, async () => {
+  test(`H102 sync ${name}: bytes equal the frame, as 1.0.1`, async () => {
     const got = await syncCase(c);
     assert.equal(got.html, got.frame);
     assert.equal(got.survivors, c.survivors);
@@ -293,3 +292,106 @@ test("H102 clean tab never reports a conflict across fuzz seeds 1-300", async ()
     [],
   );
 });
+
+const LOSS_BASE =
+  "<section><div><p>A</p><p>B</p></div><div><p>C</p><p>D</p></div></section>";
+const LOSS_LOCAL = LOSS_BASE.replace("<p>D</p>", "<p>D local</p>");
+const LOSS_MAP = {
+  "1.0": "section",
+  "1.0.0": "left",
+  "1.0.1": "right",
+  "1.0.0.0": "a",
+  "1.0.0.1": "b",
+  "1.0.1.0": "c",
+  "1.0.1.1": "d",
+};
+// The remote keeps the element that moved as a copy where it was, so the two
+// paragraphs the ids pair are A/B in one container and C/D local in the other.
+const LOSS_REMOTE_MAP = {
+  "1.0": "section",
+  "1.0.0": "new-left",
+  "1.0.1": "new-right",
+  "1.0.0.0": "a",
+  "1.0.0.1": "new-b",
+  "1.0.1.0": "b",
+  "1.0.1.1": "d",
+};
+
+test("H102 identity moved across sibling containers keeps every local paragraph, as 1.0.1", async () => {
+  const live = parse(doc(LOSS_LOCAL));
+  await mergeDocument({
+    ...OPTS,
+    live,
+    base: parse(doc(LOSS_BASE)),
+    remote: parse(doc(LOSS_BASE)),
+    identity: {
+      base: { first: () => null, map: LOSS_MAP },
+      local: { first: () => null, map: LOSS_MAP },
+      remote: { first: () => null, map: LOSS_REMOTE_MAP },
+    },
+  });
+  assert.equal(live.body.innerHTML, LOSS_LOCAL);
+});
+
+// A paragraph whose <b> text the browser had already split in two when the
+// snapshot was taken; after the snapshot the user types into one half.
+async function textTwin(bodyHtml, remoteBody, splitAt, type) {
+  const live = parse(doc(bodyHtml));
+  const b = live.querySelector("b");
+  b.firstChild.splitText(splitAt);
+  const cap = live.cloneNode(true);
+  const toLive = lockstepMap(cap.documentElement, live.documentElement);
+  type(live);
+  const report = await mergeDocument({
+    ...OPTS,
+    live,
+    base: cap,
+    local: { root: cap.documentElement, toLive: (n) => toLive.get(n) || null },
+    remote: doc(remoteBody),
+  });
+  return { html: live.body.innerHTML, conflicts: report.conflicts.length };
+}
+
+const TEXT_TWIN_CASES = [
+  {
+    name: "typed into the first half",
+    body: "<p>one <b>two three</b> four</p>",
+    remote: "<p>one <b>two three</b> four five</p>",
+    splitAt: 4,
+    edit: (live) => {
+      live.querySelector("b").firstChild.nodeValue = "twoZ ";
+    },
+    html: "<p>one <b>twoZ three</b> four five</p>",
+    conflicts: 0,
+  },
+  {
+    name: "typed into the second half",
+    body: "<p>one <b>two three</b> four</p>",
+    remote: "<p>one <b>two three</b> four five</p>",
+    splitAt: 4,
+    edit: (live) => {
+      live.querySelector("b").lastChild.nodeValue = "threeZ";
+    },
+    html: "<p>one <b>two threeZ</b> four five</p>",
+    conflicts: 0,
+  },
+  {
+    name: "typed into a text node before the split one",
+    body: "<p>one <b>two three</b> four</p><p>six</p>",
+    remote: "<p>one <b>two three</b> four five</p><p>six</p>",
+    splitAt: 4,
+    edit: (live) => {
+      live.querySelector("p").firstChild.nodeValue = "oneZ ";
+    },
+    html: "<p>oneZ <b>two three</b> four five</p><p>six</p>",
+    conflicts: 0,
+  },
+];
+
+for (const c of TEXT_TWIN_CASES) {
+  test(`H102 text twin, ${c.name}: as 1.0.1`, async () => {
+    const got = await textTwin(c.body, c.remote, c.splitAt, c.edit);
+    assert.equal(got.html, c.html);
+    assert.equal(got.conflicts, c.conflicts);
+  });
+}
