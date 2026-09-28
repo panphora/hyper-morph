@@ -42,6 +42,7 @@ export function apply(liveRoot, mergedRoot, result, o) {
   const claimed = new Set();
   const leftovers = [];
   const identities = [];
+  const twinsByParent = new Map();
   const mergedScriptsLive = new Set();
   const heldBy = new Map(); // merged text node -> live text node holding its text
 
@@ -167,13 +168,20 @@ export function apply(liveRoot, mergedRoot, result, o) {
   // deleted.
   function withSplits(localNodes, lives) {
     if (!lives.length) return lives;
-    const twins = new Set();
+    const sets = [];
     for (const ln of localNodes) {
       const parent = ln.parentNode;
       if (!parent) continue;
-      for (let c = parent.firstChild; c; c = c.nextSibling)
-        if (c.nodeType === 3) twins.add(o.toLive(c));
+      let set = twinsByParent.get(parent);
+      if (!set) {
+        set = new Set();
+        for (let c = parent.firstChild; c; c = c.nextSibling)
+          if (c.nodeType === 3) set.add(o.toLive(c));
+        twinsByParent.set(parent, set);
+      }
+      if (!sets.includes(set)) sets.push(set);
     }
+    const twins = { has: (x) => sets.some((s) => s.has(x)) };
     const out = [];
     for (const n of lives) {
       out.push(n);

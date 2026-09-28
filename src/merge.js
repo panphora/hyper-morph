@@ -110,7 +110,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   const fastSel = "[id],[data-id],script,head>*";
   const fast = (fn) => (fn === defaultIdentity ? fastSel : null);
   const bIndex = indexByIdentity(bRoot, idBase, ignored, fast(o.identity.base));
-  const L = o.localIsBase
+  const L = o.localIsBase || bRoot === lRoot
     ? identityAlignment()
     : align(bRoot, lRoot, {
         analyzer,
