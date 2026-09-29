@@ -29,6 +29,7 @@ import { indexByIdentity, defaultIdentity } from "./identity.js";
 import { headSignature } from "./head-merge.js";
 import { isHtmlScript, mergeIdentityOf } from "./scripts.js";
 import { mergeScriptText } from "./hyper-morph-json-merge.js";
+import { createRecovery } from "./recovery.js";
 
 const isEl = (u) => !!u && u.nodeType === 1;
 
@@ -189,7 +190,18 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   const policy = o.conflicts || "remote";
   const localDecision = (d) => decisions.push(d);
   const remoteDecision = (d) => decisions.push(d);
-  const conflict = (c) => conflicts.push(c);
+  const recovery = createRecovery({
+    roots: { base: bRoot, local: lRoot, remote: rRoot },
+    L,
+    R,
+    unitsOf,
+    provenance,
+    policy,
+  });
+  const conflict = (c, meta) => {
+    conflicts.push(c);
+    if (meta) recovery.note(c, meta);
+  };
   const crossEcho = pairCrossEchoes();
 
   const html = mergeElement(
@@ -205,6 +217,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   const localDiverged = o.childrenOnly
     ? !sameChildren(kidsOf(html), kidsOf(rRoot))
     : !sameElement(html, rRoot);
+  const recoveryLinks = recovery.finish(html);
 
   return {
     doc: out,
@@ -213,6 +226,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     textMappers,
     decisions,
     conflicts,
+    recoveryLinks,
     localDiverged,
     mergedScripts,
     segments,
@@ -328,14 +342,17 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       node = cloneUnit(lu, "local", true);
       provenance.get(node).remote = ru;
     } else node = mergeEchoPair(lu, ru);
-    conflict({
-      kind: "structure",
-      el: node,
-      detail: "both-moved",
-      base: null,
-      local: lu,
-      remote: ru,
-    });
+    conflict(
+      {
+        kind: "structure",
+        el: node,
+        detail: "both-moved",
+        base: null,
+        local: lu,
+        remote: ru,
+      },
+      { unit: { b: null, l: lu, r: ru } },
+    );
     localDecision({ kind: "insert", el: node, source: "both" });
     return node;
   }
@@ -420,18 +437,24 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
 
   function moveInto(bk, side, sideEl) {
     if (placed.has(bk) || building.has(bk)) {
-      conflict({ kind: "structure", el: null, detail: "both-moved", base: bk });
+      conflict(
+        { kind: "structure", el: null, detail: "both-moved", base: bk },
+        { subject: bk },
+      );
       return placed.has(bk) ? null : cloneUnit(sideEl, side);
     }
     const lk = twinIn(L, bk),
       rk = twinIn(R, bk);
     if (!lk || !rk)
-      conflict({
-        kind: "structure",
-        el: null,
-        detail: "move-beats-delete",
-        base: bk,
-      });
+      conflict(
+        {
+          kind: "structure",
+          el: null,
+          detail: "move-beats-delete",
+          base: bk,
+        },
+        { subject: bk, deleted: lk ? "remote" : "local" },
+      );
     const node = mergeElement(bk, lk, rk, false);
     (side === "local" ? localDecision : remoteDecision)({
       kind: "move",
@@ -547,7 +570,10 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       return lv;
     }
     const resolved = policy === "local" ? lv : rv;
-    conflict({ kind, node, base: bv, local: lv, remote: rv, resolved });
+    conflict(
+      { kind, node, base: bv, local: lv, remote: rv, resolved },
+      { site: "whole", el: node },
+    );
     decisions.push({ kind, node, source: "both" });
     return resolved;
   }
@@ -616,15 +642,18 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         v = mergeTokenAttr(name, bv, lv, rv);
         if (v === undefined) {
           v = policy === "local" ? lv : rv;
-          conflict({
-            kind: "attr",
-            el,
-            name,
-            base: bv,
-            local: lv,
-            remote: rv,
-            resolved: v,
-          });
+          conflict(
+            {
+              kind: "attr",
+              el,
+              name,
+              base: bv,
+              local: lv,
+              remote: rv,
+              resolved: v,
+            },
+            { el, sample },
+          );
         }
         decisions.push({ kind: "attr", el, name, source: "both" });
       }
@@ -737,14 +766,17 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     else if (rv !== bv)
       remoteDecision({ kind: "text", node, source: "remote" });
     for (const c of res.conflicts)
-      conflict({
-        kind: "text",
-        node,
-        base: bv.slice(c.bs, c.be),
-        local: c.local,
-        remote: c.remote,
-        resolved: c.resolved,
-      });
+      conflict(
+        {
+          kind: "text",
+          node,
+          base: bv.slice(c.bs, c.be),
+          local: c.local,
+          remote: c.remote,
+          resolved: c.resolved,
+        },
+        { site: "run", bRun, lRun, rRun, node, c },
+      );
     return node;
   }
 
@@ -765,14 +797,17 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     else if (extendsText(rv, lv)) text = lv;
     else {
       text = policy === "local" ? lv : policy === "both" ? lv + rv : rv;
-      conflict({
-        kind: "structure",
-        el: null,
-        detail: "insert-collision",
-        local: lv,
-        remote: rv,
-        resolved: text,
-      });
+      conflict(
+        {
+          kind: "structure",
+          el: null,
+          detail: "insert-collision",
+          local: lv,
+          remote: rv,
+          resolved: text,
+        },
+        { unit: { b: null, l: lRun, r: rRun }, localLost: policy === "remote" },
+      );
     }
     if (lRun) emitted.add(lRun);
     if (rRun) emitted.add(rRun);
@@ -823,14 +858,17 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       const p = provenance.get(node);
       if (fromLocal) p.remote = ru;
       else p.local = lu;
-      conflict({
-        kind: "structure",
-        el: node,
-        detail: "insert-collision",
-        local: lu,
-        remote: ru,
-        resolved: fromLocal ? lu : ru,
-      });
+      conflict(
+        {
+          kind: "structure",
+          el: node,
+          detail: "insert-collision",
+          local: lu,
+          remote: ru,
+          resolved: fromLocal ? lu : ru,
+        },
+        { unit: { b: null, l: lu, r: ru }, localLost: !fromLocal },
+      );
       return node;
     }
     const el =
@@ -854,6 +892,9 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       provenance,
       textMappers,
       conflicts,
+      conflict,
+      scope: { base: null, local: lu, remote: ru, units: [], at: 0 },
+      synthetic: true,
       decisions,
       node: el,
     });
@@ -909,12 +950,15 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       if (bk && placed.has(bk)) {
         // Already merged elsewhere: both sides moved it, the first place
         // wins.
-        conflict({
-          kind: "structure",
-          el: null,
-          detail: "both-moved",
-          base: bk,
-        });
+        conflict(
+          {
+            kind: "structure",
+            el: null,
+            detail: "both-moved",
+            base: bk,
+          },
+          { subject: bk },
+        );
         continue;
       }
       if (bk && !building.has(bk)) {
@@ -964,26 +1008,30 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     const segFrags = [];
     mergeSegments();
 
-    // Kept children on each side, in that side's order, as base indices.
-    const keptOrder = (V) => {
-      const idx = [];
+    // Kept children on each side, in that side's order, as base units.
+    const keptUnits = (V) => {
+      const kept = [];
       for (const su of V.units) {
         if (segUnits.has(su)) continue;
         const bk = V.baseOf(su);
-        if (bk && bSet.has(bk)) idx.push(bPos.get(bk));
+        if (bk && bSet.has(bk)) kept.push(bk);
       }
-      return idx;
+      return kept;
     };
+    const keptOrder = (V) => keptUnits(V).map((bk) => bPos.get(bk));
     const mono = (xs) => xs.every((x, i) => i === 0 || x >= xs[i - 1]);
     const lRe = !Lv.asBase && !mono(keptOrder(Lv)),
       rRe = !Rv.asBase && !mono(keptOrder(Rv));
     if (lRe && rRe)
-      conflict({
-        kind: "structure",
-        el: null,
-        detail: "both-reordered",
-        base: b,
-      });
+      conflict(
+        {
+          kind: "structure",
+          el,
+          detail: "both-reordered",
+          base: b,
+        },
+        { subject: b, lKept: keptUnits(Lv), rKept: keptUnits(Rv) },
+      );
     const O =
       rRe || !lRe
         ? {
@@ -1114,22 +1162,28 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         rOut = rk && !Rv.asBase && !Rv.here(rk);
       if (lOut || rOut) {
         if (!lk || !rk)
-          conflict({
-            kind: "structure",
-            el: null,
-            detail: "move-beats-delete",
-            base: bk,
-          });
+          conflict(
+            {
+              kind: "structure",
+              el: null,
+              detail: "move-beats-delete",
+              base: bk,
+            },
+            { subject: bk, deleted: lk ? "remote" : "local" },
+          );
         if (!moveCycle(bk)) {
           emitted.add(bk);
           return null;
         }
-        conflict({
-          kind: "structure",
-          el: null,
-          detail: "both-moved",
-          base: bk,
-        });
+        conflict(
+          {
+            kind: "structure",
+            el: null,
+            detail: "both-moved",
+            base: bk,
+          },
+          { subject: bk },
+        );
       }
       // Deleted by a side: gone unless the other side edited it.
       if (!lk && !rk) {
@@ -1163,12 +1217,15 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         if (lk) outputOfUnit.set(lk, node);
         if (rk) outputOfUnit.set(rk, node);
         if (resurrected) {
-          conflict({
-            kind: "structure",
-            el: node,
-            detail: "edit-beats-delete",
-            base: bk,
-          });
+          conflict(
+            {
+              kind: "structure",
+              el: node,
+              detail: "edit-beats-delete",
+              base: bk,
+            },
+            { subject: bk, deleted: lk ? "remote" : "local" },
+          );
           if (!lk)
             remoteDecision({ kind: "insert", el: node, source: "remote" });
           else localDecision({ kind: "insert", el: node, source: "local" });
@@ -1258,36 +1315,48 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         otherTwin && !otherParentIsHere && !isAtBaseParent(bk, otherTwin);
       if (otherMovedElsewhere && side === O.otherSide) {
         // Both moved to different parents: the order side's destination wins.
-        conflict({
-          kind: "structure",
-          el: null,
-          detail: "both-moved",
-          base: bk,
-        });
+        conflict(
+          {
+            kind: "structure",
+            el: null,
+            detail: "both-moved",
+            base: bk,
+          },
+          { subject: bk },
+        );
         return null;
       }
       if (otherMovedElsewhere)
-        conflict({
-          kind: "structure",
-          el: null,
-          detail: "both-moved",
-          base: bk,
-        });
+        conflict(
+          {
+            kind: "structure",
+            el: null,
+            detail: "both-moved",
+            base: bk,
+          },
+          { subject: bk },
+        );
       if (!otherTwin)
-        conflict({
-          kind: "structure",
-          el: null,
-          detail: "move-beats-delete",
-          base: bk,
-        });
+        conflict(
+          {
+            kind: "structure",
+            el: null,
+            detail: "move-beats-delete",
+            base: bk,
+          },
+          { subject: bk, deleted: side === "local" ? "remote" : "local" },
+        );
       if (building.has(bk)) {
         // Moving an ancestor into its own descendant: keep a copy here instead.
-        conflict({
-          kind: "structure",
-          el: null,
-          detail: "both-moved",
-          base: bk,
-        });
+        conflict(
+          {
+            kind: "structure",
+            el: null,
+            detail: "both-moved",
+            base: bk,
+          },
+          { subject: bk },
+        );
         const node = cloneUnit(myTwin, side);
         if (node) outputOfUnit.set(su, node);
         return node;
@@ -1328,12 +1397,15 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       ) {
         const bk = O.V.baseOf(su);
         if (bk && !bSet.has(bk))
-          conflict({
-            kind: "structure",
-            el: null,
-            detail: "both-moved",
-            base: bk,
-          });
+          conflict(
+            {
+              kind: "structure",
+              el: null,
+              detail: "both-moved",
+              base: bk,
+            },
+            { subject: bk },
+          );
         continue;
       }
       const node = emitSideUnit(su, O.V, O.A, O.side);
@@ -1374,12 +1446,15 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           // order side kept or moved it somewhere else.
           const bk = P.baseOf(su);
           if (bk && !bSet.has(bk))
-            conflict({
-              kind: "structure",
-              el: null,
-              detail: "both-moved",
-              base: bk,
-            });
+            conflict(
+              {
+                kind: "structure",
+                el: null,
+                detail: "both-moved",
+                base: bk,
+              },
+              { subject: bk },
+            );
           continue;
         }
         const node = emitSideUnit(su, P, pA, pSide);
@@ -1914,6 +1989,14 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           provenance,
           textMappers,
           conflicts,
+          conflict,
+          scope: {
+            base: b,
+            local: Lv.asBase ? null : Lv.el,
+            remote: Rv.asBase ? null : Rv.el,
+            units: bUnits,
+            at: g.lo,
+          },
           decisions,
           node: el,
         });
@@ -2051,17 +2134,22 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
             : policy === "local"
               ? lv
               : rv;
+    const meta = { site: "comment", bRun, lRun, rRun, node: null };
     if (lv !== bv && rv !== bv && lv !== rv)
-      conflict({
-        kind: "text",
-        node: null,
-        base: bv,
-        local: lv,
-        remote: rv,
-        resolved: text,
-      });
+      conflict(
+        {
+          kind: "text",
+          node: null,
+          base: bv,
+          local: lv,
+          remote: rv,
+          resolved: text,
+        },
+        meta,
+      );
     if (!lRun && !rRun) return null;
     const node = out.createComment(text);
+    meta.node = node;
     provenance.set(node, {
       base: bRun.nodes,
       local: lRun ? lRun.nodes : null,

@@ -123,6 +123,7 @@ export function flatten(units, o = {}) {
     stackAt: [],
     pins: [],
     placeholder: null,
+    via: null,
   };
   const walk = (list, stack) => {
     for (const node of list) {
@@ -140,6 +141,10 @@ export function flatten(units, o = {}) {
         continue;
       }
       if (o.skip && o.skip.has(node)) continue;
+      // An element read through another (an unchanged stand-in through the
+      // subtree it stands for): the walk descends into that one instead.
+      const src = (o.via && o.via(node)) || node;
+      if (src !== node) (f.via || (f.via = new Map())).set(src, node);
       const tag = node.tagName;
       if (o.blocks && o.blocks.has(node)) {
         // A block starts after a break: text before it never fuses with
@@ -158,13 +163,13 @@ export function flatten(units, o = {}) {
         };
         f.marks.push(m);
         const inner = stack.concat([m]);
-        walk(node.childNodes, inner);
+        walk(src.childNodes, inner);
         f.stackAt.push(inner);
         f.text += BREAK;
         m.to = f.text.length;
         continue;
       }
-      const empty = MARK_TAGS.has(tag) && isEmptyMark(node);
+      const empty = MARK_TAGS.has(tag) && isEmptyMark(src);
       if (
         ATOM_TAGS.has(tag) ||
         !MARK_TAGS.has(tag) ||
@@ -190,7 +195,7 @@ export function flatten(units, o = {}) {
         depth: stack.length,
       };
       f.marks.push(m);
-      walk(node.childNodes, stack.concat([m]));
+      walk(src.childNodes, stack.concat([m]));
       m.to = f.text.length;
     }
   };
@@ -501,6 +506,18 @@ export function mergeInline(o) {
   const conflicts = o.conflicts || [];
   const decisions = o.decisions || [];
   const firstConflict = conflicts.length;
+  const record = o.conflict || ((c) => conflicts.push(c));
+  // What the recovery of a text clash needs from this segment: the three
+  // flats now, the merged text and its output nodes once they exist.
+  const segMeta = {
+    textNodes: null,
+    text: "",
+    out: null,
+    atomOut: new Map(),
+    breakOut: new Map(),
+    node: o.node || null,
+  };
+  const textMetas = [];
   // Atoms pair by tag and position in the diff; the rebuild lets the
   // alignment override that pairing where it names a different element.
   const byTwin = !!(L && L.reverse && L.map && R && R.reverse && R.map);
@@ -577,6 +594,15 @@ export function mergeInline(o) {
       skip: skip.remote,
     });
   const baseAtomOf = new Map(fb.atoms.map((a) => [a.el, a]));
+  // For the conflict report: a side's whole segment, an atom the other side
+  // moved out of it included, so its scope reads as the DOM between its ends.
+  const fullFlats = {};
+  const full = (sd) => {
+    if (!skip[sd].size) return null;
+    if (!fullFlats[sd])
+      fullFlats[sd] = flatten(o[sd], { ...o, atomize: atomizers[sd] });
+    return fullFlats[sd];
+  };
 
   const setAttr = (el, sample, v) => {
     if (sample.namespaceURI)
@@ -605,15 +631,18 @@ export function mergeInline(o) {
         decisions.push({ kind: "attr", el, name, source: "local" });
       } else {
         v = policy === "local" ? lv : rv;
-        conflicts.push({
-          kind: "attr",
-          el,
-          name,
-          base: bv,
-          local: lv,
-          remote: rv,
-          resolved: v,
-        });
+        record(
+          {
+            kind: "attr",
+            el,
+            name,
+            base: bv,
+            local: lv,
+            remote: rv,
+            resolved: v,
+          },
+          { el, sample },
+        );
         decisions.push({ kind: "attr", el, name, source: "both" });
       }
       if (v != null) setAttr(el, sample, v);
@@ -1117,7 +1146,18 @@ export function mergeInline(o) {
       pieces.push({ src: "local", from: lss, to: lse, conflict: rec });
     if (policy !== "local")
       pieces.push({ src: "remote", from: rss, to: rse, conflict: rec });
-    conflicts.push(rec);
+    const meta = {
+      site: "inline",
+      fb,
+      fl,
+      fr,
+      scope: o.scope || null,
+      synthetic: !!o.synthetic,
+      full,
+      merged: segMeta,
+    };
+    textMetas.push(meta);
+    record(rec, meta);
     pos = be;
     dL += lLen - (be - bs);
     dR += rLen - (be - bs);
@@ -1784,12 +1824,15 @@ export function mergeInline(o) {
       movedOut.add(a);
       const el = mergeAtom(a.el, lt, rt);
       if (edited) {
-        conflicts.push({
-          kind: "structure",
-          el,
-          detail: "edit-beats-delete",
-          base: a.el,
-        });
+        record(
+          {
+            kind: "structure",
+            el,
+            detail: "edit-beats-delete",
+            base: a.el,
+          },
+          { subject: a.el, deleted: lt ? "remote" : "local" },
+        );
         decisions.push({
           kind: "insert",
           el,
@@ -1800,6 +1843,7 @@ export function mergeInline(o) {
     }
   };
   const blockEls = new Set();
+  const track = conflicts.length > firstConflict;
   for (let i = 0; i < m; i++) {
     const at = atomsAt(i);
     const atomBlock = !!at && isBlock((at.ab || at.al || at.ar).el);
@@ -1831,11 +1875,13 @@ export function mergeInline(o) {
       flush(i);
       let k = stack.length;
       while (k > 0 && !stack[k - 1].u.block) k--;
-      if (k > 0)
+      if (k > 0) {
+        if (track) segMeta.breakOut.set(i, stack[k - 1].el);
         while (stack.length >= k) {
           stack.pop();
           container = stack.length ? stack[stack.length - 1].el : null;
         }
+      }
       continue;
     }
     if (at) {
@@ -1843,12 +1889,15 @@ export function mergeInline(o) {
       const ch = choices.get(i);
       let el;
       if (ch.dup) {
-        conflicts.push({
-          kind: "structure",
-          el: null,
-          detail: "both-moved",
-          base: ch.dup,
-        });
+        record(
+          {
+            kind: "structure",
+            el: null,
+            detail: "both-moved",
+            base: ch.dup,
+          },
+          { subject: ch.dup },
+        );
         continue;
       }
       if (ch.moveIn) {
@@ -1863,12 +1912,15 @@ export function mergeInline(o) {
             rk = R.map.get(bk.el) || null;
           el = mergeAtom(bk.el, lk, rk);
           if (!lk || !rk)
-            conflicts.push({
-              kind: "structure",
-              el: null,
-              detail: "move-beats-delete",
-              base: bk.el,
-            });
+            record(
+              {
+                kind: "structure",
+                el: null,
+                detail: "move-beats-delete",
+                base: bk.el,
+              },
+              { subject: bk.el, deleted: lk ? "remote" : "local" },
+            );
           decisions.push({ kind: "move", el, source: ch.from });
         }
       } else if (ch.al) {
@@ -1883,6 +1935,7 @@ export function mergeInline(o) {
         el = cloneAtom(ch.ar.el, "remote");
         decisions.push({ kind: "insert", el, source: "remote" });
       }
+      if (track) segMeta.atomOut.set(i, el);
       append(el);
       continue;
     }
@@ -2141,6 +2194,17 @@ export function mergeInline(o) {
   const ia = o.ignoreAttribute || (() => false);
   const localDiverged =
     flatSig(flatten(nodes, outOpts), ia) !== flatSig(fr, ia);
+  if (textMetas.length) {
+    // For the conflict report: the output as it will read once applied, an
+    // unchanged stand-in read through the remote subtree apply fills it from.
+    const standIn = (el) => {
+      const p = provenance.get(el);
+      return p && p.unchanged ? p.remote : null;
+    };
+    segMeta.text = text;
+    segMeta.textNodes = textNodes;
+    segMeta.out = flatten(nodes, { ...outOpts, via: standIn });
+  }
   return {
     nodes,
     text,
