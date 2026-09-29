@@ -316,6 +316,7 @@ function run({
       vetoedAttrs: ap.vetoedAttrs,
       liveAttr,
       ignored: o.ignored,
+      liveRoot,
     });
   }
   const report = {
@@ -529,10 +530,14 @@ export function morphElement(oldEl, newContent, options = {}) {
         : doc.importNode(remoteRoot, false);
       if (!isHtmlScript(fresh))
         while (oldEl.firstChild) fresh.appendChild(oldEl.firstChild);
-      if (o.hooks.beforeNodeAdded(fresh) === false)
+      if (o.hooks.beforeNodeAdded(fresh) === false) {
+        remapLive(inner.report.conflicts, oldEl, oldEl);
         return Promise.resolve(inner.report);
-      if (o.hooks.beforeNodeRemoved(oldEl) === false)
+      }
+      if (o.hooks.beforeNodeRemoved(oldEl) === false) {
+        remapLive(inner.report.conflicts, oldEl, oldEl);
         return Promise.resolve(inner.report);
+      }
       oldEl.replaceWith(fresh);
       remapLive(inner.report.conflicts, oldEl, fresh);
       o.hooks.afterNodeRemoved(oldEl);

@@ -266,3 +266,134 @@ for (const policy of ["local", "remote"]) {
     });
   }
 }
+
+const moveBodies = [
+  '<div id="a"><p id="p">P</p></div><div id="b"></div><div id="c"></div>',
+  '<div id="a"></div><div id="b"><p id="p">P</p></div><div id="c"></div>',
+  '<div id="a"></div><div id="b"></div><div id="c"><p id="p">P</p></div>',
+];
+for (const prefix of ["ABCDfast ", "ZZZZfast "]) {
+  test(`F4: repeated prefix ${prefix} invalidates stale replay offsets`, async () => {
+    const { live, recoveries } = await merge(
+      '<p id="p">One quick fox.</p>',
+      '<p id="p">One slow fox.</p>',
+      '<p id="p">One fast fox.</p>',
+      {},
+      (d) => {
+        d.querySelector("p").firstChild.nodeValue = prefix + "One slow fox.";
+      },
+    );
+    assert.equal(live.body.innerHTML, `<p id="p">${prefix}One fast fox.</p>`);
+    assert.equal(recoveries.length, 1);
+    assert.equal(recoveries[0].unavailable, "missing-output");
+    assert.equal(recoveries[0].localLost, true);
+    assert.equal(recoveries[0].text.liveSpan, null);
+    assert.equal(recoveries[0].text.liveScope, null);
+  });
+}
+for (const [name, b, l, r, rewrite] of [
+  [
+    "comment",
+    '<div id="d"><!--old--></div>',
+    '<div id="d"><!--mine--></div>',
+    '<div id="d"><!--theirs--></div>',
+    (d) => {
+      d.querySelector("#d").firstChild.nodeValue = "X";
+    },
+  ],
+  [
+    "atom",
+    '<p id="p">a old z</p>',
+    '<p id="p">a mine z</p>',
+    '<p id="p">a <img src="r">theirs z</p>',
+    (d) => {
+      d.querySelector("#p").lastChild.nodeValue = "X";
+    },
+  ],
+  [
+    "empty",
+    '<p id="p">old</p>',
+    '<p id="p">mine</p>',
+    '<p id="p"></p>',
+    (d) => {
+      d.querySelector("#p").textContent = "X";
+    },
+  ],
+  [
+    "repeated scope",
+    '<p id="p">One quick fox.</p>',
+    '<p id="p">One slow fox.</p>',
+    '<p id="p">One fast fox.</p>',
+    (d) => {
+      d.querySelector("#p").textContent = "ABCDfast One fast fox.";
+    },
+  ],
+]) {
+  test(`F4: beforeApply ${name} rewrite cannot claim the old output`, async () => {
+    const { recoveries } = await merge(b, l, r, { beforeApply: rewrite });
+    assert.equal(recoveries.length, 1);
+    assert.equal(recoveries[0].applied, false);
+    assert.equal(recoveries[0].unavailable, "missing-output");
+    assert.equal(recoveries[0].localLost, true);
+    assert.equal(recoveries[0].text.liveSpan, null);
+    assert.equal(recoveries[0].text.liveScope, null);
+  });
+}
+test("F4: beforeApply moving the subject to a different parent invalidates placement", async () => {
+  const { live, recoveries } = await merge(...moveBodies, {
+    beforeApply: (d) =>
+      d.querySelector("#b").appendChild(d.querySelector("#p")),
+  });
+  assert.equal(live.querySelector("#p").parentElement.id, "b");
+  assert.equal(recoveries.length, 2);
+  for (const rv of recoveries) {
+    assert.equal(rv.applied, false);
+    assert.equal(rv.unavailable, "missing-output");
+    assert.equal(rv.localLost, true);
+  }
+});
+for (const hook of ["beforeNodeAdded", "beforeNodeRemoved"]) {
+  test(`F5: differing-tag ${hook} veto never advertises detached spans`, async () => {
+    const live = parse(doc('<div id="s">One slow fox.</div>'));
+    const old = live.querySelector("#s");
+    const report = await morphElement(
+      old,
+      '<section id="s">One fast fox.</section>',
+      {
+        base: '<div id="s">One quick fox.</div>',
+        scripts: { execute: false },
+        hooks: { [hook]: () => false },
+      },
+    );
+    assert.equal(report.conflicts.length, 1);
+    const rv = report.conflicts[0].recovery;
+    assert.equal(rv.applied, false);
+    assert.equal(rv.unavailable, "missing-output");
+    assert.equal(rv.localLost, true);
+    assert.equal(rv.text.liveSpan, null);
+    assert.ok(rv.subject.live.every((n) => old === n || old.contains(n)));
+  });
+}
+test("F5: differing-tag script spans point at the replacement text", async () => {
+  const live = parse(doc('<div id="s">One slow fox.</div>'));
+  const old = live.querySelector("#s");
+  const report = await morphElement(
+    old,
+    '<script id="s" type="application/json">One fast fox.</script>',
+    { base: '<div id="s">One quick fox.</div>', scripts: { execute: false } },
+  );
+  assert.equal(report.conflicts.length, 1);
+  const rv = report.conflicts[0].recovery,
+    script = live.querySelector("script");
+  assert.equal(rv.applied, true);
+  assert.deepEqual(rv.subject.live, [script]);
+  assert.equal(rv.text.liveSpan.startContainer, script.firstChild);
+  assert.equal(rv.text.liveSpan.endContainer, script.firstChild);
+  assert.equal(
+    script.firstChild.nodeValue.slice(
+      rv.text.liveSpan.startOffset,
+      rv.text.liveSpan.endOffset,
+    ),
+    "fast",
+  );
+});

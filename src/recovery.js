@@ -14,6 +14,7 @@
 
 import { BREAK } from "./text-merge.js";
 import { MARK_TAGS, sliceHtml } from "./inline-merge.js";
+import { projectSpan, orderedSpan, resolvePoint } from "./recovery-dom.js";
 
 export const RECOVERY_VERSION = 1;
 
@@ -830,6 +831,20 @@ export function createRecovery(ctx) {
           S0,
           S1,
         );
+        const linked = links.spans.get(merged);
+        linked.flat = fo;
+        if (!fo.text.length) {
+          const p = staticPoint(S0);
+          const resolved = resolvePoint(outRoot, p);
+          const container = resolved[0],
+            at = resolved[1];
+          linked.empty = {
+            parent:
+              container.nodeType === 11 ? outOwners.get(container) : container,
+            previous: container.childNodes[at - 1] || null,
+            next: container.childNodes[at] || null,
+          };
+        }
         anchor = Ds ? Ds.node : M.node;
       }
       const subject = refOf(U);
@@ -1016,6 +1031,8 @@ export function resolveLive(conflicts, links, o) {
   if (!links) return;
   const { lookup, vetoed, vetoedAttrs, liveAttr } = o;
   const ignored = o.ignored || (() => false);
+  const livePaths = pathsInto(o.liveRoot);
+  const contained = (n) => !!n && livePaths.containerPath(n) !== null;
   const parentOut = (n) => {
     const p = n.parentNode;
     return p && p.nodeType === 11 ? links.outOwners.get(p) || null : p;
@@ -1077,8 +1094,14 @@ export function resolveLive(conflicts, links, o) {
   };
   const find = (m) => {
     const v = lookup(m);
-    if (v) return { nodes: Array.isArray(v) ? v : [v], lead: 0 };
-    return links.via.size ? virtual(m) : null;
+    const result = v
+      ? { nodes: Array.isArray(v) ? v : [v], lead: 0 }
+      : links.via.size
+        ? virtual(m)
+        : null;
+    if (!result) return null;
+    const nodes = result.nodes.filter(contained);
+    return nodes.length ? { nodes, lead: result.lead } : null;
   };
   const one = (m) => {
     const f = find(m);
@@ -1095,7 +1118,7 @@ export function resolveLive(conflicts, links, o) {
       for (let i = 0; i < run.length; i++) {
         const len = run[i].nodeValue.length;
         if (off <= cum + len || i === run.length - 1)
-          return [run[i], Math.max(0, Math.min(off - cum, len))];
+          return off >= cum && off <= cum + len ? [run[i], off - cum] : null;
         cum += len;
       }
       return null;
@@ -1115,34 +1138,88 @@ export function resolveLive(conflicts, links, o) {
     const idx = Array.prototype.indexOf.call(parent.childNodes, el);
     return [parent, pt.kind === "after" ? idx + 1 : idx];
   };
-  // The output apply copied may have changed since the merge measured it
-  // (`beforeApply`, typing replayed after the snapshot): a span that no
-  // longer holds the clash's resolved characters is no span. Judged where
-  // the clash is plain text through marks; an atom, a break or another
-  // element in the way leaves the span as mapped.
-  const holdsClash = (ls, M) => {
-    const want = M.text.slice(M.start, M.end);
-    if (/[\uFFFC\u001E]/.test(want)) return true;
-    const sc = ls.startContainer,
-      ec = ls.endContainer;
-    if (sc.nodeType !== 3 || ec.nodeType !== 3) return true;
-    const next = (n) => {
-      for (; n; n = n.parentNode) if (n.nextSibling) return n.nextSibling;
-      return null;
-    };
-    let got = "";
-    for (let n = sc; n; ) {
-      if (n.nodeType === 3) {
-        got += n.nodeValue.slice(
-          n === sc ? ls.startOffset : 0,
-          n === ec ? ls.endOffset : n.nodeValue.length,
+  const projectionOptions = (sp) => ({
+    blocks: new Set(
+      (sp.flat?.marks || [])
+        .filter((m) => m.block)
+        .map((m) => one(m.el))
+        .filter(Boolean),
+    ),
+    atoms: new Set(
+      (sp.flat?.atoms || []).map((a) => one(a.el)).filter(Boolean),
+    ),
+    ignored,
+  });
+  const provesText = (ls, scope, text, sp) => {
+    if (!ls || !scope || !orderedSpan(ls) || !orderedSpan(scope)) return false;
+    for (const s of [ls, scope])
+      if (!contained(s.startContainer) || !contained(s.endContainer))
+        return false;
+    const M = text.merged;
+    if (
+      M.start === M.end &&
+      (ls.startContainer !== ls.endContainer || ls.startOffset !== ls.endOffset)
+    )
+      return false;
+    const options = projectionOptions(sp);
+    return (
+      projectSpan(scope, text.encoding, options) === M.text &&
+      projectSpan(ls, text.encoding, options) === M.text.slice(M.start, M.end)
+    );
+  };
+  const indexCache = new Map();
+  const indexOf = (n) => {
+    const parent = n.parentNode;
+    if (!parent) return -1;
+    if (!indexCache.has(parent))
+      indexCache.set(
+        parent,
+        new Map(Array.from(parent.childNodes, (x, i) => [x, i])),
+      );
+    return indexCache.get(parent).get(n);
+  };
+  const inPlacement = (node, placement) => {
+    if (!placement) return false;
+    const parent = livePaths.logicalParent(node);
+    if (!placement.parent.live.includes(parent)) return false;
+    const at = indexOf(node);
+    for (const [name, direction] of [
+      ["before", 1],
+      ["after", -1],
+    ]) {
+      let last = at;
+      for (const ref of placement[name]) {
+        if (ref.live.includes(node)) continue;
+        const anchors = ref.live.filter(
+          (n) => n !== node && n.parentNode === node.parentNode,
         );
-        if (n === ec) return got === want;
-        if (got.length > want.length) return false;
-      } else if (n.nodeType !== 1 || !MARK_TAGS.has(n.tagName)) return true;
-      n = n.nodeType === 1 && n.firstChild ? n.firstChild : next(n);
+        if (!anchors.length) continue;
+        const index =
+          direction === 1
+            ? Math.min(...anchors.map(indexOf))
+            : Math.max(...anchors.map(indexOf));
+        if (direction * (index - last) <= 0) return false;
+        last = index;
+      }
     }
     return true;
+  };
+  const provesStructure = (rv) => {
+    const st = rv.structure;
+    if (st.mergedOrder) {
+      const parents = new Set(rv.subject.live.map(kidsOf));
+      let parent = null,
+        last = -1;
+      for (const ref of st.mergedOrder) {
+        const n = ref.live.find((x) => parents.has(x.parentNode));
+        if (!n || (parent && n.parentNode !== parent) || indexOf(n) <= last)
+          return false;
+        parent = n.parentNode;
+        last = indexOf(n);
+      }
+      return rv.subject.live.length > 0;
+    }
+    return rv.subject.live.some((n) => inPlacement(n, st.mergedPlacement));
   };
   const liveSpan = (s, e) => {
     const a = livePoint(s),
@@ -1193,11 +1270,30 @@ export function resolveLive(conflicts, links, o) {
     if (rv.text) {
       const sp = links.spans.get(rv.text.merged);
       let ls = sp ? liveSpan(sp.start, sp.end) : null;
-      if (ls && !holdsClash(ls, rv.text.merged)) ls = null;
+      let scope = sp ? liveSpan(sp.scopeStart, sp.scopeEnd) : null;
+      if (sp?.empty) {
+        const gap = sp.empty;
+        const start = gap.previous
+          ? { kind: "after", node: gap.previous }
+          : { kind: "startOf", node: gap.parent };
+        const end = gap.next
+          ? { kind: "before", node: gap.next }
+          : { kind: "end", node: gap.parent };
+        const actual = liveSpan(start, end);
+        if (
+          !actual ||
+          actual.startContainer !== actual.endContainer ||
+          actual.startOffset !== actual.endOffset
+        )
+          ls = null;
+        else ls = scope = actual;
+      }
+      if (!provesText(ls, scope, rv.text, sp)) ls = scope = null;
       rv.text.liveSpan = ls;
-      rv.text.liveScope = ls ? liveSpan(sp.scopeStart, sp.scopeEnd) : null;
-      if (applied && !ls) applied = false;
+      rv.text.liveScope = ls ? scope : null;
+      if (!ls) applied = false;
     }
+    if (rv.structure && applied) applied = provesStructure(rv);
     if (rv.attribute && applied)
       applied = liveAttr(lv, rv.attribute, c.resolved);
     const attrVeto =
@@ -1224,12 +1320,23 @@ export function resolveLive(conflicts, links, o) {
  * replacement.
  */
 export function remapLive(conflicts, from, to) {
-  const swap = (n) => (n === from ? to : n);
+  const fromPaths = pathsInto(from);
+  const finalPaths = pathsInto(to);
+  const contained = (n) => !!n && finalPaths.containerPath(n) !== null;
+  const swap = (n) => {
+    if (n === from) return to;
+    const path = fromPaths.pathOf(n);
+    if (path && from !== to) {
+      const resolved = resolvePoint(to, { path, offset: 0 });
+      if (resolved && resolved[0].nodeType === n.nodeType) return resolved[0];
+    }
+    return n;
+  };
   const refs = new Set();
   const ref = (r) => {
     if (!r || refs.has(r)) return;
     refs.add(r);
-    r.live = r.live.map(swap);
+    r.live = r.live.map(swap).filter(contained);
   };
   const span = (s) => {
     if (!s) return;
@@ -1247,6 +1354,25 @@ export function remapLive(conflicts, from, to) {
     if (rv.text) {
       span(rv.text.liveSpan);
       span(rv.text.liveScope);
+      const ls = rv.text.liveSpan,
+        scope = rv.text.liveScope,
+        M = rv.text.merged;
+      const usable = (s) =>
+        !!s &&
+        orderedSpan(s) &&
+        contained(s.startContainer) &&
+        contained(s.endContainer);
+      if (
+        !usable(ls) ||
+        !usable(scope) ||
+        projectSpan(scope, rv.text.encoding) !== M.text ||
+        projectSpan(ls, rv.text.encoding) !== M.text.slice(M.start, M.end)
+      ) {
+        rv.text.liveSpan = null;
+        rv.text.liveScope = null;
+        rv.applied = false;
+        rv.unavailable = "missing-output";
+      }
     }
     const st = rv.structure;
     if (!st) continue;
@@ -1258,5 +1384,9 @@ export function remapLive(conflicts, from, to) {
       }
     (st.localOrder || []).forEach(ref);
     (st.mergedOrder || []).forEach(ref);
+    if (!rv.subject.live.length) {
+      rv.applied = false;
+      rv.unavailable = "missing-output";
+    }
   }
 }
