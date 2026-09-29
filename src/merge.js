@@ -1940,10 +1940,41 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   // the output, and ignored attributes.
   function sameElement(a, r) {
     const p = provenance.get(a);
-    if (p && p.unchanged) return true;
+    if (p && p.unchanged) {
+      if (!p.remote || p.remote === r) return true;
+      return sameRemoteElement(p.remote, r);
+    }
     if (a.tagName !== r.tagName) return false;
     if (!sameAttrs(a, r)) return false;
     return sameChildren(kidsOf(a), kidsOf(r));
+  }
+
+  // An unchanged output element carries no children of its own (apply reads
+  // them from its remote twin), so it compares as that twin: two remote-side
+  // subtrees, both filtered by what the merge ignores.
+  function sameRemoteElement(a, r) {
+    if (a === r) return true;
+    if (a.tagName !== r.tagName || a.namespaceURI !== r.namespaceURI)
+      return false;
+    if (!sameAttrs(a, r)) return false;
+    return sameRemoteChildren(kidsOf(a), kidsOf(r));
+  }
+
+  function sameRemoteChildren(a, r) {
+    const A = childItems(a, ignored),
+      Rr = childItems(r, ignored);
+    if (A.length !== Rr.length) return false;
+    for (let i = 0; i < A.length; i++) {
+      const x = A[i],
+        y = Rr[i];
+      if (typeof x === "string" || typeof y === "string") {
+        if (x !== y) return false;
+      } else if (x.nodeType !== y.nodeType) return false;
+      else if (x.nodeType === 1) {
+        if (!sameRemoteElement(x, y)) return false;
+      } else if (x.nodeValue !== y.nodeValue) return false;
+    }
+    return true;
   }
 
   function kidsOf(el) {
