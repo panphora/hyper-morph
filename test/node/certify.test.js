@@ -5,6 +5,7 @@
 // identity pair whose inner element moved out with a copy left in place.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { parse, doc } from "./lib/dom.js";
 import { tagNodes, survivors, lockstepMap } from "./lib/apply-speed-fuzz.js";
 import {
@@ -20,6 +21,12 @@ import { indexByIdentity, defaultIdentity } from "../../src/identity.js";
 import { makeIgnore } from "../../src/ignore.js";
 
 const frame = (r) => parse(doc(r)).body.innerHTML;
+
+/** The pre-E4b1 engine, on this machine or not: the fixtures below pin their
+ * result against it when it is there and skip that comparison when it is
+ * not. */
+const REFERENCE = "/private/tmp/hm-reference-m4/src/index.js";
+const reference = existsSync(REFERENCE) ? await import(REFERENCE) : null;
 const kinds = (rep) => rep.conflicts.map((c) => `${c.kind}:${c.detail || ""}`);
 const sig = (r) =>
   `${kinds(r).sort().join("|")}#dec${r.decisions.length}#m${r.moved.length}#r${r.replaced.length}#d${r.localDiverged ? 1 : 0}`;
@@ -57,6 +64,17 @@ async function dirtyLive(b, l, r) {
     kinds: kinds(report),
     report,
   };
+}
+
+/** The same dirty shape on another engine (the pre-E4b1 reference). */
+async function dirtyLiveWith(engine, b, l, r) {
+  const live = parse(doc(l));
+  const report = await engine.mergeDocument({
+    live,
+    base: doc(b),
+    remote: doc(r),
+  });
+  return { live, html: live.body.innerHTML, kinds: kinds(report), report };
 }
 
 /** Clean shape: live and capture are two parses of the base, local is the
@@ -426,3 +444,420 @@ test("I6-O one-to-one", () => {
   bijection(res.L, "I6-C6 L");
   bijection(res.R, "I6-C6 R");
 });
+
+// E4b2: every refusal condition in Pass 1b's `certify` gets a fixture that
+// fails when that condition is removed. The escapes (I6-E) travel in the
+// sender's id map rather than in `data-id`: an authored id is an attribute, and
+// the walk compares attributes position by position before it ever reads the
+// map, so with `data-id` on both sides the pair is refused for the attribute
+// and the map check the fixture is meant to pin never runs.
+
+test("I6-E outgoing identity escape", async () => {
+  const b = `<div data-id="A"><p>hello world here</p></div><aside></aside>`;
+  const r = `<div data-id="A"><p>hello world here</p></div><aside><p>spare text</p></aside>`;
+  // The id of the p inside A lands on the p outside A on the remote.
+  const escape = (map, capMap) => {
+    map["1.0.0"] = "t:new";
+    map["1.1.0"] = capMap["1.0.0"];
+  };
+  const c = cleanSynthetic(b, r, escape);
+  const x = c.live.body.children[0].children[0];
+  const got = await c.merge();
+  // The control is the same two documents with the id left inside A.
+  const control = await cleanSynthetic(b, r).merge();
+  assert.equal(
+    got.report.stats.certificationPairs,
+    control.report.stats.certificationPairs - 1,
+    `A certified: control ${control.report.stats.certificationPairs}, escaped ${got.report.stats.certificationPairs}`,
+  );
+  assert.equal(got.html, got.frame);
+  assert.equal(
+    x.parentElement && x.parentElement.tagName,
+    "ASIDE",
+    `the escaping live node did not follow the remote: ${got.html}`,
+  );
+});
+
+test("I6-E incoming identity escape", async () => {
+  const b = `<div data-id="A"><p>hello world here</p></div><aside><p>spare text</p></aside>`;
+  const r = `<div data-id="A"><p>hello world here</p></div><aside></aside>`;
+  // The id of the p outside A pairs to the p inside A on the remote.
+  const escape = (map, capMap) => {
+    map["1.0.0"] = capMap["1.1.0"];
+  };
+  const c = cleanSynthetic(b, r, escape);
+  const x = c.live.body.children[1].children[0];
+  const got = await c.merge();
+  const control = await cleanSynthetic(b, r).merge();
+  assert.equal(
+    got.report.stats.certificationPairs,
+    control.report.stats.certificationPairs - 1,
+    `A certified: control ${control.report.stats.certificationPairs}, escaped ${got.report.stats.certificationPairs}`,
+  );
+  assert.equal(got.html, got.frame);
+  assert.equal(
+    x.parentElement && x.parentElement.tagName,
+    "DIV",
+    `the escaping live node did not follow the remote: ${got.html}`,
+  );
+});
+
+test("I6-P internal permutation", async () => {
+  const b = `<div data-id="A"><p data-id="x">same text</p><p data-id="y">same text</p></div>`;
+  const r = `<div data-id="A"><p data-id="y">same text</p><p data-id="x">same text</p></div>`;
+  const got = await dirtyLive(b, b, r);
+  const control = await dirtyLive(b, b, b);
+  const ids = [...got.live.body.querySelectorAll("p")].map((p) =>
+    p.getAttribute("data-id"),
+  );
+  assert.deepEqual(ids, ["y", "x"], got.html);
+  assert.equal(got.html, frame(r));
+  // A itself is refused: its two ids are not the positional counterparts, so
+  // the children certify as the cross pairs the remote's ids name instead of
+  // the subtree, one certificate more than the control leaves.
+  assert.equal(
+    got.report.stats.certificationPairs,
+    control.report.stats.certificationPairs + 1,
+    `control ${control.report.stats.certificationPairs}, permuted ${got.report.stats.certificationPairs}`,
+  );
+});
+
+test("I6-U duplicate identity outside the pair", async () => {
+  const b = `<div data-id="A"><p data-id="x">hello words</p></div><p>tail</p>`;
+  const r = `<div data-id="A"><p data-id="x">hello words</p></div><p data-id="x">hello words</p><p>tail</p>`;
+  const got = await dirtyLive(b, b, r);
+  // The same documents without the duplicate: the duplicate adds no
+  // certificate, and no conflict either.
+  const control = await dirtyLive(b, b, b);
+  assert.equal(got.html, frame(r));
+  assert.equal(
+    got.report.stats.certificationPairs,
+    control.report.stats.certificationPairs,
+    `control ${control.report.stats.certificationPairs}, duplicated ${got.report.stats.certificationPairs}`,
+  );
+  assert.deepEqual(got.kinds, []);
+  if (reference) {
+    const refLive = parse(doc(b));
+    const refReport = await reference.mergeDocument({
+      live: refLive,
+      base: doc(b),
+      remote: doc(r),
+    });
+    assert.equal(refLive.body.innerHTML, got.html);
+    assert.deepEqual(kinds(refReport), got.kinds);
+  }
+});
+
+test("I6-K split text declines", async () => {
+  const b = `<div data-id="A"><p>alpha beta</p></div>`;
+  const run = async (remote) => {
+    const live = parse(doc(b)),
+      cap = parse(doc(b));
+    const toLive = lockstepMap(cap.documentElement, live.documentElement);
+    const ids = tagNodes(live.documentElement);
+    const p = live.body.querySelector("p");
+    const report = await mergeDocument({
+      live,
+      base: cap,
+      local: {
+        root: cap.documentElement,
+        toLive: (n) => toLive.get(n) || null,
+      },
+      remote,
+    });
+    return {
+      html: live.body.innerHTML,
+      pairs: report.stats.certificationPairs,
+      kept: live.body.querySelector("p") === p,
+      survivors: survivors(live.documentElement, ids),
+    };
+  };
+  const split = parse(doc(b));
+  split.body.querySelector("p").firstChild.splitText(6);
+  const a = await run(split);
+  const c = await run(doc(b));
+  assert.equal(a.pairs, 0, `the split pair certified ${a.pairs} times`);
+  assert.equal(a.html, c.html, `split ${a.html} unsplit ${c.html}`);
+  assert.equal(a.survivors, c.survivors, `split ${a.survivors}`);
+  assert.ok(a.kept && c.kept, `a live <p> was replaced: ${a.html}`);
+});
+
+test("I6-X exhausted budget", async () => {
+  // 200 pairs whose walks all fail at their last text node. Each walk visits
+  // nine nodes (the div, four p's and four text nodes), more than the eight
+  // the pass budgets per pair, so the budget runs out mid-pass.
+  const divs = (tail) =>
+    Array.from(
+      { length: 200 },
+      (_, i) =>
+        `<div data-id="d${i}"><p>w1 w2 w3</p><p>w4 w5 w6</p><p>w7 w8 w9</p><p>w10 w11 ${tail}</p></div>`,
+    ).join("");
+  const b = divs("FINAL"),
+    r = divs("final");
+  const live = parse(doc(b));
+  const divsBefore = [...live.body.children];
+  const report = await mergeDocument({
+    live,
+    base: doc(b),
+    remote: doc(r),
+  });
+  assert.equal(report.stats.certificationBudgetExhausted, 1);
+  assert.equal(live.body.innerHTML, frame(r), live.body.innerHTML);
+  for (const d of divsBefore)
+    assert.ok(
+      live.body.contains(d),
+      `a live <div> was replaced: ${d.outerHTML}`,
+    );
+});
+
+test("I6-W certification used", async () => {
+  const sections = Array.from(
+    { length: 50 },
+    (_, i) =>
+      `<section data-id="s${i}"><h2>title ${i}</h2><p>body ${i} words</p></section>`,
+  ).join("");
+  const b = sections + `<p>tail</p>`;
+  const r = sections + `<p>tail edited</p>`;
+  const got = await dirtyLive(b, b, r);
+  assert.equal(got.html, frame(r), got.html);
+  assert.ok(
+    got.report.stats.certificationPairs >= 1,
+    `no pair certified: ${got.report.stats.certificationPairs}`,
+  );
+  const c = cleanSynthetic(b, r);
+  const syn = await c.merge();
+  assert.equal(syn.html, syn.frame);
+  assert.ok(
+    syn.report.stats.certificationPairs >= 1,
+    `no pair certified: ${syn.report.stats.certificationPairs}`,
+  );
+  if (reference) {
+    const ref = await dirtyLiveWith(reference, b, b, r);
+    assert.equal(ref.html, got.html);
+    assert.deepEqual(ref.kinds, got.kinds);
+    // A second synthetic shape: the same store order mints the same ids, so
+    // the two engines' traces compare node for node.
+    const rc = cleanSynthetic(b, r);
+    const toLive = lockstepMap(rc.cap.documentElement, rc.live.documentElement);
+    const refIds = tagNodes(rc.live.documentElement);
+    const report = await reference.mergeDocument({
+      live: rc.live,
+      base: rc.cap,
+      local: {
+        root: rc.cap.documentElement,
+        toLive: (n) => toLive.get(n) || null,
+      },
+      remote: rc.remote,
+      identity: rc.identity,
+    });
+    assert.equal(rc.live.body.innerHTML, syn.html);
+    assert.equal(
+      survivors(rc.live.documentElement, refIds),
+      syn.survivors,
+      "the reference kept different live nodes",
+    );
+    assert.deepEqual(
+      report.identities.map(([el, id]) => [refIds.get(el), id]),
+      syn.report.identities.map(([el, id]) => [c.ids.get(el), id]),
+      "the reference paired different ids",
+    );
+  }
+});
+
+const tplCard = (t, tpl = "Old") =>
+  `<div class="card"><h3>${t}</h3><template><li class="row">${tpl} label</li></template><ul></ul></div>`;
+
+// The four cases of review-probes/echo0.mjs, with their outputs pinned after
+// checking each by the rule: the img and the b the local split out of a
+// certified li appear once, and no case reports both-moved.
+const ECHO_CASES = [
+  {
+    name: "no ids: L splits li 1, R edits list 2 (seed 3135 shape)",
+    b: `<ul><li>w0 w1 <img src="i4.png"> <b>w3</b> w2</li><li>w5</li><li><img src="i14.png"> w9</li></ul><ul><li>w15 <b>w19</b></li></ul>`,
+    l: `<ul><li>w0</li><li>w1</li><li><img src="i4.png"> <b>w3</b> w2</li><li>w5</li><li><img src="i14.png"> w9</li></ul><ul><li>w15 <b>w19</b></li></ul>`,
+    r: `<ul><li>w0 w1 <img src="i4.png"> <b>w3</b> w2</li><li>w5</li><li>w9</li></ul><ul><li>w15 <img src="i14.png"> <b>w19</b></li></ul>`,
+    pairs: 0,
+    out: `<ul><li>w0</li><li>w1</li><li><img src="i4.png"> <b>w3</b> w2</li><li>w5</li><li>w9</li></ul><ul><li>w15 <img src="i14.png"> <b>w19</b></li></ul>`,
+  },
+  {
+    name: "ids as seed 3135",
+    b: `<ul data-id="b0"><li data-id="b1">w0 w1 <img src="i4.png"> <b>w3</b> w2</li><li data-id="b2">w5</li><li data-id="b3"><img src="i14.png"> w9</li></ul><ul data-id="b4"><li data-id="b5">w15 <b>w19</b></li></ul>`,
+    l: `<ul data-id="b0"><li data-id="b1">w0</li><li data-id="b7">w1</li><li data-id="b6"><img src="i4.png"> <b>w3</b> w2</li><li data-id="b2">w5</li><li data-id="b3"><img src="i14.png"> w9</li></ul><ul data-id="b4"><li data-id="b5">w15 <b>w19</b></li></ul>`,
+    r: `<ul data-id="b0"><li data-id="b1">w0 w1 <img src="i4.png"> <b>w3</b> w2</li><li data-id="b2">w5</li><li data-id="b3">w9</li></ul><ul data-id="b4"><li data-id="b5">w15 <img src="i14.png"> <b>w19</b></li></ul>`,
+    pairs: 5,
+    out: `<ul data-id="b0"><li data-id="b1">w0</li><li data-id="b7">w1</li><li data-id="b6"><img src="i4.png"> <b>w3</b> w2</li><li data-id="b2">w5</li><li data-id="b3">w9</li></ul><ul data-id="b4"><li data-id="b5">w15 <img src="i14.png"> <b>w19</b></li></ul>`,
+  },
+  {
+    name: "ids, R only removes img from b3",
+    b: `<ul data-id="b0"><li data-id="b1">w0 w1 <img src="i4.png"> <b>w3</b> w2</li><li data-id="b3"><img src="i14.png"> w9</li></ul>`,
+    l: `<ul data-id="b0"><li data-id="b1">w0</li><li data-id="b7">w1</li><li data-id="b6"><img src="i4.png"> <b>w3</b> w2</li><li data-id="b3"><img src="i14.png"> w9</li></ul>`,
+    r: `<ul data-id="b0"><li data-id="b1">w0 w1 <img src="i4.png"> <b>w3</b> w2</li><li data-id="b3">w9</li></ul>`,
+    pairs: 2,
+    out: `<ul data-id="b0"><li data-id="b1">w0</li><li data-id="b7">w1</li><li data-id="b6"><img src="i4.png"> <b>w3</b> w2</li><li data-id="b3">w9</li></ul>`,
+  },
+  {
+    name: "ids, R only inserts img into b5",
+    b: `<ul data-id="b0"><li data-id="b1">w0 w1 <img src="i4.png"> <b>w3</b> w2</li></ul><ul data-id="b4"><li data-id="b5">w15 <b>w19</b></li></ul>`,
+    l: `<ul data-id="b0"><li data-id="b1">w0</li><li data-id="b7">w1</li><li data-id="b6"><img src="i4.png"> <b>w3</b> w2</li></ul><ul data-id="b4"><li data-id="b5">w15 <b>w19</b></li></ul>`,
+    r: `<ul data-id="b0"><li data-id="b1">w0 w1 <img src="i4.png"> <b>w3</b> w2</li></ul><ul data-id="b4"><li data-id="b5">w15 <img src="i14.png"> <b>w19</b></li></ul>`,
+    pairs: 2,
+    out: `<ul data-id="b0"><li data-id="b1">w0</li><li data-id="b7">w1</li><li data-id="b6"><img src="i4.png"> <b>w3</b> w2</li></ul><ul data-id="b4"><li data-id="b5">w15 <img src="i14.png"> <b>w19</b></li></ul>`,
+  },
+];
+
+for (const c of ECHO_CASES)
+  test(`I6-Q eager completion under a certified pair: ${c.name}`, async () => {
+    // A no-op hook makes the merge descend into the certified subtree, which
+    // is what reads the pairs eager completion under a certified pair leaves.
+    const pure = merge3(parse(doc(c.b)), parse(doc(c.l)), parse(doc(c.r)), {
+      hooks: { beforeNodeMorphed: () => {} },
+    });
+    const got = await dirtyLive(c.b, c.l, c.r);
+    assert.equal(pure.doc.body.innerHTML, c.out);
+    assert.equal(got.html, c.out);
+    for (const html of [pure.doc.body.innerHTML, got.html]) {
+      for (const needle of [
+        `src="i4.png"`,
+        `src="i14.png"`,
+        `<b>w3</b>`,
+        `<b>w19</b>`,
+      ])
+        assert.ok(
+          html.split(needle).length - 1 <= 1,
+          `${needle} twice: ${html}`,
+        );
+    }
+    for (const rep of [pure, got.report])
+      assert.ok(
+        !kinds(rep).includes("structure:both-moved"),
+        `${c.name}: ${kinds(rep).join("|")}`,
+      );
+    assert.equal(got.report.stats.certificationPairs, c.pairs);
+  });
+
+const TPL_CASES = [
+  {
+    name: "I6-T1 template content under identity: id-less template, content changed",
+    b: `<template><p>a</p></template><p>x</p>`,
+    r: `<template><p>b</p></template><p>x</p>`,
+  },
+  {
+    name: "I6-T2 template content under identity: id'd template, content changed",
+    b: `<template id="t"><p>a</p></template><p>x</p>`,
+    r: `<template id="t"><p>b</p></template><p>x</p>`,
+  },
+  {
+    name: "I6-T3 template content under identity: id'd div holding an id-less template",
+    b: `<div id="d"><template><p>a</p></template></div><p>x</p>`,
+    r: `<div id="d"><template><p>b</p></template></div><p>x</p>`,
+  },
+  {
+    name: "I6-T4 template content under identity: five identical cards, the third changes",
+    b: tplCard("Same").repeat(5),
+    r:
+      tplCard("Same").repeat(2) +
+      tplCard("Same", "New") +
+      tplCard("Same").repeat(2),
+  },
+  {
+    name: "I6-T5 template content under identity: template unchanged, sibling text changed",
+    b: `<div><template><p>a</p></template><p>x</p></div>`,
+    r: `<div><template><p>a</p></template><p>y</p></div>`,
+    template: true,
+  },
+  {
+    name: "I6-T6 template content under identity: template inside template, inner changed",
+    b: `<template><div><template><p>a</p></template></div></template><p>x</p>`,
+    r: `<template><div><template><p>b</p></template></div></template><p>x</p>`,
+  },
+];
+
+const tplText = (html) =>
+  [...parse(doc(html)).querySelectorAll("template")]
+    .map((t) => t.innerHTML)
+    .join(" | ");
+
+/** The elements a merge sees under `root`, template content included. */
+const logicalKids = (el) =>
+  el.tagName === "TEMPLATE" && el.content ? el.content.children : el.children;
+
+function logicalElements(root) {
+  const out = [];
+  const visit = (el) => {
+    out.push(el);
+    for (const k of logicalKids(el)) visit(k);
+  };
+  visit(root);
+  return out;
+}
+
+/** Number every element of the base in document order and hand the same ids to
+ * the corresponding elements of local and remote. */
+function tagCase(b, l, r) {
+  const docs = [b, l, r].map((html) => parse(doc(html)));
+  const n = logicalElements(docs[0].documentElement).length;
+  for (const d of docs) {
+    const els = logicalElements(d.documentElement);
+    assert.equal(els.length, n, "the three documents hold different shapes");
+    els.forEach((el, i) => el.setAttribute("data-id", `t${i}`));
+  }
+  return docs.map((d) => d.body.innerHTML);
+}
+
+/** The dirty shape with the live <template> kept, so a case can tell whether
+ * the merge reused it. */
+async function dirtyTemplate(b, l, r) {
+  const live = parse(doc(l));
+  const template = live.body.querySelector("template");
+  const report = await mergeDocument({ live, base: doc(b), remote: doc(r) });
+  return {
+    live,
+    template,
+    html: live.body.innerHTML,
+    kinds: kinds(report),
+  };
+}
+
+/** The clean shape, same idea. */
+async function cleanTemplate(b, r) {
+  const live = parse(doc(b)),
+    cap = parse(doc(b));
+  const toLive = lockstepMap(cap.documentElement, live.documentElement);
+  const template = live.body.querySelector("template");
+  const report = await mergeDocument({
+    live,
+    base: cap,
+    local: {
+      root: cap.documentElement,
+      toLive: (n) => toLive.get(n) || null,
+    },
+    remote: doc(r),
+  });
+  return {
+    live,
+    template,
+    html: live.body.innerHTML,
+    kinds: kinds(report),
+  };
+}
+
+for (const c of TPL_CASES)
+  test(c.name, async () => {
+    const local = c.b
+      .replace("<p>x</p>", "<p>x LOCAL</p>")
+      .replace("<h3>Same</h3>", "<h3>Same LOCAL</h3>");
+    const [b, l, r] = tagCase(c.b, local, c.r);
+    const want = tplText(r);
+    const dirty = await dirtyTemplate(b, l, r);
+    const clean = await cleanTemplate(b, r);
+    for (const got of [dirty, clean]) {
+      assert.equal(tplText(got.html), want, got.html);
+      if (c.template)
+        assert.equal(
+          got.live.body.querySelector("template"),
+          got.template,
+          `the template lost its live node: ${got.html}`,
+        );
+    }
+    assert.deepEqual(clean.kinds, [], clean.kinds.join("|"));
+  });
