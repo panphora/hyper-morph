@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { parse, doc, document } from "./lib/dom.js";
 import { lockstepMap, tagNodes } from "./lib/apply-speed-fuzz.js";
 import { mergeDocument } from "../../src/index.js";
-import { fuzz } from "../lib/structure-fuzz.js";
+import { fuzz, setIdMode } from "../lib/structure-fuzz.js";
 
 const SHOW_ALL = 0xffffffff;
 
@@ -218,33 +218,40 @@ test("I1-E2 dirty lane: split local text is not a local edit, a remote delete la
   assert.equal(report.conflicts.length, 0);
 });
 
-test("split live text keeps its nodes, clean shape, fuzz seeds 1-300", async () => {
-  const bad = [];
-  let seed = 0;
-  await fuzz(1, 300, async (b, _local, r) => {
-    seed++;
-    const frame = parse(doc(r)).body.innerHTML;
-    for (const lane of ["same-capture", "parsed-base"]) {
-      const plain = await clean(b, r, seed, false, lane);
-      const split = await clean(b, r, seed, true, lane);
-      if (plain.html !== frame)
-        bad.push({ seed, lane, run: "plain", frame, got: plain.html });
-      if (split.html !== frame)
-        bad.push({ seed, lane, run: "split", frame, got: split.html });
-      const kept = new Set(split.surv);
-      if (!plain.surv.every((id) => kept.has(id)))
-        bad.push({
-          seed,
-          lane,
-          why: "survivors",
-          frame,
-          plain: plain.surv.join(","),
-          split: split.surv.join(","),
-        });
-      if (split.lost.length)
-        bad.push({ seed, lane, why: "pieces", frame, lost: split.lost });
+for (const mode of [0, 1]) {
+  test(`split live text keeps its nodes, clean shape${mode ? `, id mode ${mode}` : ""}, fuzz seeds 1-300`, async () => {
+    const bad = [];
+    let seed = 0;
+    setIdMode(mode);
+    try {
+      await fuzz(1, 300, async (b, _local, r) => {
+        seed++;
+        const frame = parse(doc(r)).body.innerHTML;
+        for (const lane of ["same-capture", "parsed-base"]) {
+          const plain = await clean(b, r, seed, false, lane);
+          const split = await clean(b, r, seed, true, lane);
+          if (plain.html !== frame)
+            bad.push({ seed, lane, run: "plain", frame, got: plain.html });
+          if (split.html !== frame)
+            bad.push({ seed, lane, run: "split", frame, got: split.html });
+          const kept = new Set(split.surv);
+          if (!plain.surv.every((id) => kept.has(id)))
+            bad.push({
+              seed,
+              lane,
+              why: "survivors",
+              frame,
+              plain: plain.surv.join(","),
+              split: split.surv.join(","),
+            });
+          if (split.lost.length)
+            bad.push({ seed, lane, why: "pieces", frame, lost: split.lost });
+        }
+        return r;
+      });
+    } finally {
+      setIdMode(0);
     }
-    return r;
+    assert.equal(bad.length, 0, JSON.stringify(bad.slice(0, 1), null, 1));
   });
-  assert.equal(bad.length, 0, JSON.stringify(bad.slice(0, 1), null, 1));
-});
+}

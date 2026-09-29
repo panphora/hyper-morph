@@ -10,11 +10,13 @@ import {
   importMap,
 } from "../../src/index.js";
 import {
+  cleanRow,
   cleanRows,
   lockstepMap,
   survivors,
   tagNodes,
 } from "./lib/apply-speed-fuzz.js";
+import { generate, setIdMode } from "../lib/structure-fuzz.js";
 
 const OPTS = { scripts: { execute: false }, restoreFocus: false };
 
@@ -292,6 +294,34 @@ test("H102 clean tab never reports a conflict across fuzz seeds 1-300", async ()
     [],
   );
 });
+
+// The same clean shape with authored ids on the receiver's elements. The pages
+// come from `generate()` rather than `fuzz()`, so the mode wraps the generator
+// alone and the merge runs on the finished documents.
+for (const mode of [1, 3, 4, 5, 6]) {
+  test(`H102 clean tab never reports a conflict across fuzz seeds 1-300, id mode ${mode}`, async () => {
+    setIdMode(mode);
+    let rows;
+    try {
+      rows = [];
+      for (let seed = 1; seed <= 300; seed++) {
+        const { b: base, r: remote } = generate(seed);
+        rows.push({ seed, ...(await cleanRow(base, remote)) });
+      }
+    } finally {
+      setIdMode(0);
+    }
+    assert.equal(rows.length, 300);
+    assert.deepEqual(
+      rows.filter((row) => row.conflicts.length),
+      [],
+    );
+    assert.deepEqual(
+      rows.filter((row) => row.html !== row.frame),
+      [],
+    );
+  });
+}
 
 const LOSS_BASE =
   "<section><div><p>A</p><p>B</p></div><div><p>C</p><p>D</p></div></section>";

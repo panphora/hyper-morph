@@ -8,14 +8,15 @@ Two suites, one shim, one perf harness.
 pure modules without a browser and are the fastest place to pin a merge
 rule.
 
-| File                            | Covers                                                                                                             |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `text-merge.test.js`            | `diff`, `merge3Text`, caret mapping (T-T1 to T-T8)                                                                 |
-| `parse-ignore-identity.test.js` | `toDocument`, doctype sync, parse cache, `makeIgnore`, identity store and index (T-P1 to T-P5, T-I1, T-A2)         |
-| `align.test.js`                 | the aligner's passes and its refusals (T-A1 to T-A10)                                                              |
-| `merge.test.js`                 | `merge3` on the scenarios S1 to S10 and the rules T-M1 to T-M16                                                    |
-| `hash-verify.test.js`           | the hash is never proof of equality: the aligner and `merge.js` sites and `equalUnits` (I1-A to I1-N, I2-T1 to T6) |
-| `split-text-fuzz.test.js`       | split live text keeps its live nodes and caret (two lanes, fuzz seeds 1 to 300)                                    |
+| File                                 | Covers                                                                                                                                                             |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `text-merge.test.js`                 | `diff`, `merge3Text`, caret mapping (T-T1 to T-T8)                                                                                                                 |
+| `parse-ignore-identity.test.js`      | `toDocument`, doctype sync, parse cache, `makeIgnore`, identity store and index (T-P1 to T-P5, T-I1, T-A2)                                                         |
+| `align.test.js`                      | the aligner's passes and its refusals (T-A1 to T-A10)                                                                                                              |
+| `merge.test.js`                      | `merge3` on the scenarios S1 to S10 and the rules T-M1 to T-M16                                                                                                    |
+| `hash-verify.test.js`                | the hash is never proof of equality: the aligner and `merge.js` sites and `equalUnits` (I1-A to I1-N, I2-T1 to T6)                                                 |
+| `split-text-fuzz.test.js`            | split live text keeps its live nodes and caret (two lanes, fuzz seeds 1 to 300, id mode 1)                                                                         |
+| `fixtures/structure-fuzz-mode2.json` | the mode 2 golden (`structure-fuzz-mode2.test.js`): sha1 of the merged body and the conflict signature per seed, seeds 1 to 300, rewritten with `UPDATE_GOLDENS=1` |
 
 Helpers in `test/node/lib/`: `dom.js` (one jsdom window, `parse`, `doc`)
 and `merge.js` (`mergeBodies(base, local, remote, opts)` returning the

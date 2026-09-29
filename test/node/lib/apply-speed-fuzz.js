@@ -43,31 +43,37 @@ export function lockstepMap(a, b) {
   return m;
 }
 
-/** One row per seed, in seed order: the merged live bytes, the remote's bytes,
- * the conflicts the merge reported, and the live nodes that survived. */
+/** One pair: the merged live bytes, the remote's bytes, the conflicts the
+ * merge reported, and the live nodes that survived. */
+export async function cleanRow(html, remote) {
+  const live = parse(doc(html)),
+    cap = parse(doc(html));
+  const toLive = lockstepMap(cap.documentElement, live.documentElement);
+  const ids = tagNodes(live.documentElement);
+  const report = await mergeDocument({
+    live,
+    base: cap,
+    local: {
+      root: cap.documentElement,
+      toLive: (n) => toLive.get(n) || null,
+    },
+    remote: doc(remote),
+  });
+  return {
+    frame: parse(doc(remote)).body.innerHTML,
+    html: live.body.innerHTML,
+    conflicts: report.conflicts.map((c) => c.kind),
+    survivors: survivors(live.documentElement, ids),
+  };
+}
+
+/** One row per seed, in seed order. */
 export async function cleanRows(from, to) {
   const rows = [];
-  await fuzz(from, to, async (html, local, remote) => {
-    const live = parse(doc(html)),
-      cap = parse(doc(html));
-    const toLive = lockstepMap(cap.documentElement, live.documentElement);
-    const ids = tagNodes(live.documentElement);
-    const report = await mergeDocument({
-      live,
-      base: cap,
-      local: {
-        root: cap.documentElement,
-        toLive: (n) => toLive.get(n) || null,
-      },
-      remote: doc(remote),
-    });
-    rows.push({
-      frame: parse(doc(remote)).body.innerHTML,
-      html: live.body.innerHTML,
-      conflicts: report.conflicts.map((c) => c.kind),
-      survivors: survivors(live.documentElement, ids),
-    });
-    return { html: live.body.innerHTML, conflicts: report.conflicts };
+  await fuzz(from, to, async (html, _local, remote) => {
+    const row = await cleanRow(html, remote);
+    rows.push(row);
+    return { html: row.html, conflicts: row.conflicts };
   });
   return rows;
 }

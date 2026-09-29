@@ -25,6 +25,20 @@ let echoing = false;
 const word = () => "w" + fresh++;
 const words = (r, n) => Array.from({ length: n }, word);
 
+export let idMode = 0;
+export function setIdMode(m) {
+  idMode = m;
+}
+const idOn = (n) =>
+  n.id !== undefined &&
+  (idMode === 1 ||
+    idMode === 2 ||
+    (idMode === 3 && n.id % 2 === 1) ||
+    (idMode === 4 && n.id % 3 !== 0) ||
+    (idMode === 5 && !!n.kids) ||
+    (idMode === 6 && !n.kids));
+const idAttr = (n) => (idMode && idOn(n) ? ` data-id="b${n.id}"` : "");
+
 // A block is { tag, parts }: a part is a word string, { b: [words] } or
 // { img: key }. A container is { tag, kids }.
 function block(r, tag = "p") {
@@ -48,6 +62,7 @@ function baseTree(r) {
     if (k < 0.5) kids.push(block(r));
     else if (k < 0.75)
       kids.push({
+        id: nextId++,
         tag: "ul",
         kids: Array.from({ length: 1 + Math.floor(r() * 3) }, () =>
           block(r, "li"),
@@ -55,6 +70,7 @@ function baseTree(r) {
       });
     else
       kids.push({
+        id: nextId++,
         tag: "div",
         kids: Array.from({ length: 1 + Math.floor(r() * 2) }, () => block(r)),
       });
@@ -66,9 +82,10 @@ const html = (n) => {
   if (typeof n === "string") return n;
   if (n.img) return `<img src="${n.img}.png">`;
   if (n.b) return `<b>${n.b.join(" ")}</b>`;
-  if (n.parts) return `<${n.tag}>${n.parts.map(html).join(" ")}</${n.tag}>`;
+  if (n.parts)
+    return `<${n.tag}${idAttr(n)}>${n.parts.map(html).join(" ")}</${n.tag}>`;
   const inner = n.kids.map(html).join("");
-  return n.tag === "body" ? inner : `<${n.tag}>${inner}</${n.tag}>`;
+  return n.tag === "body" ? inner : `<${n.tag}${idAttr(n)}>${inner}</${n.tag}>`;
 };
 
 const clone = (t) => structuredClone(t);
@@ -221,11 +238,13 @@ function op(r, t, echo = false, claims = null, side = 0) {
 // seeded alike, so the echo lands the same edit on both sides.
 function echo(seed, a, b, n) {
   const at = fresh;
+  const idAt = nextId;
   echoing = true;
   const ra = rng(seed);
   for (let i = 0; i < n; i++) op(ra, a, true);
   const end = fresh;
   fresh = at;
+  nextId = idAt;
   const rb = rng(seed);
   for (let i = 0; i < n; i++) op(rb, b, true);
   echoing = false;
@@ -244,10 +263,12 @@ const tally = (s) => {
   return m;
 };
 
-// `merge` returns the merged body HTML, or { html, conflicts } to also check
-// one-sided edits: with no conflict reported, a token only one side added is
-// kept and a token only one side removed stays gone.
-async function run(seed, merge) {
+// The base, local and remote HTML for a seed. The random stream is consumed
+// in one fixed order, so a seed always yields the same three documents; ids
+// are handed out from the same fixed starting point.
+export function generate(seed) {
+  fresh = 0;
+  nextId = 0;
   const r = rng(seed);
   const base = baseTree(r);
   const local = clone(base),
@@ -258,7 +279,27 @@ async function run(seed, merge) {
   const claims = new Map();
   for (let i = 0; i < nl; i++) op(r, local, false, claims, 1);
   for (let i = 0; i < nr; i++) op(r, remote, false, claims, 2);
+  // Mode 2: one side's block is relabelled with a sibling's id, as a copy and
+  // paste that carried an id (or a hand-authored collision) does.
+  if (idMode === 2) {
+    for (const t of [local, remote]) {
+      if (r() < 0.5) continue;
+      const bl = walk(t).blocks;
+      if (bl.length < 2) continue;
+      const a = pick(r, bl),
+        b = pick(r, bl);
+      if (a !== b) b.id = a.id;
+    }
+  }
   const [b, l, rm] = [base, local, remote].map(html);
+  return { b, l, r: rm };
+}
+
+// `merge` returns the merged body HTML, or { html, conflicts } to also check
+// one-sided edits: with no conflict reported, a token only one side added is
+// kept and a token only one side removed stays gone.
+async function run(seed, merge) {
+  const { b, l, r: rm } = generate(seed);
   const res = await merge(b, l, rm);
   const out = typeof res === "string" ? res : res.html;
   const got = tally(out),
