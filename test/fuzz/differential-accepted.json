@@ -1,0 +1,100 @@
+{
+  "dea289b": {
+    "0:37:pure": {
+      "fields": ["conflicts"],
+      "classification": "spurious move-beats-delete removed: the reference reports it and the candidate does not; merged bytes equal"
+    },
+    "0:37:dirty": {
+      "fields": ["nodeDestinations", "conflicts", "moved", "replaced"],
+      "classification": "spurious move-beats-delete removed; the moved live node is kept by a move instead of being replaced; bytes equal"
+    },
+    "0:158:pure": {
+      "fields": ["conflicts"],
+      "classification": "spurious move-beats-delete removed: the reference reports it and the candidate does not; merged bytes equal"
+    },
+    "0:158:dirty": {
+      "fields": ["nodeDestinations", "conflicts", "moved", "replaced"],
+      "classification": "spurious move-beats-delete removed; the moved live node is kept by a move instead of being replaced; bytes equal"
+    },
+    "0:190:pure": {
+      "fields": ["conflicts"],
+      "classification": "spurious move-beats-delete removed: the reference reports it and the candidate does not; merged bytes equal"
+    },
+    "0:190:dirty": {
+      "fields": ["nodeDestinations", "conflicts", "moved", "replaced"],
+      "classification": "spurious move-beats-delete removed; the moved live node is kept by a move instead of being replaced; bytes equal"
+    },
+    "0:416:dirty": {
+      "fields": ["nodeDestinations", "moved"],
+      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal"
+    },
+    "0:654:pure": {
+      "fields": ["conflicts"],
+      "classification": "spurious move-beats-delete removed: the reference reports it and the candidate does not; merged bytes equal"
+    },
+    "0:654:dirty": {
+      "fields": ["nodeDestinations", "conflicts", "moved", "replaced"],
+      "classification": "spurious move-beats-delete removed; the moved live node is kept by a move instead of being replaced; bytes equal"
+    },
+    "0:912:pure": {
+      "fields": ["conflicts"],
+      "classification": "spurious move-beats-delete removed: the reference reports it and the candidate does not; merged bytes equal"
+    },
+    "0:912:dirty": {
+      "fields": ["nodeDestinations", "conflicts", "moved", "replaced"],
+      "classification": "spurious move-beats-delete removed; the moved live node is kept by a move instead of being replaced; bytes equal"
+    },
+    "2:263:dirty": {
+      "fields": ["nodeDestinations", "moved"],
+      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal"
+    },
+    "2:344:dirty": {
+      "fields": ["nodeDestinations", "moved"],
+      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal"
+    },
+    "2:580:dirty": {
+      "fields": ["nodeDestinations", "moved"],
+      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal"
+    },
+    "2:598:dirty": {
+      "fields": ["nodeDestinations", "moved"],
+      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal"
+    },
+    "2:639:dirty": {
+      "fields": ["nodeDestinations", "moved"],
+      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; same edit-beats-delete conflict both sides; bytes equal"
+    },
+    "2:754:dirty": {
+      "fields": ["nodeDestinations", "moved"],
+      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal"
+    },
+    "2:768:dirty": {
+      "fields": ["nodeDestinations", "moved"],
+      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal"
+    },
+    "2:867:dirty": {
+      "fields": ["nodeDestinations", "moved"],
+      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal"
+    },
+    "2:948:dirty": {
+      "fields": ["nodeDestinations", "moved"],
+      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; same edit-beats-delete conflict both sides; bytes equal"
+    },
+    "2:996:dirty": {
+      "fields": ["nodeDestinations", "moved"],
+      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal"
+    },
+    "3:190:pure": {
+      "fields": ["conflicts"],
+      "classification": "spurious move-beats-delete removed: the reference reports it and the candidate does not; merged bytes equal"
+    },
+    "3:190:dirty": {
+      "fields": ["nodeDestinations", "conflicts", "moved", "replaced"],
+      "classification": "spurious move-beats-delete removed; the moved live node is kept by a move instead of being replaced; bytes equal"
+    },
+    "5:416:dirty": {
+      "fields": ["nodeDestinations", "moved"],
+      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal"
+    }
+  }
+}
