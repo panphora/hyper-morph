@@ -155,6 +155,7 @@ for (const [name, b, l, r, offset] of emptyCases) {
     const { recoveries } = await merge(b, l, r);
     const texts = recoveries.filter((x) => x.text);
     assert.ok(texts.length > 0);
+    if (offset !== null) assert.equal(texts[0].text.merged.fragment, "");
     let checked = 0;
     for (const rv of texts) {
       for (const side of ["base", "local", "remote", "merged"]) {
@@ -232,3 +233,36 @@ test("F1: collapsed mark boundary remains usable inside live template content", 
   assert.equal(r.text.liveSpan.startContainer, r.text.liveSpan.endContainer);
   assert.equal(r.text.liveSpan.startOffset, r.text.liveSpan.endOffset);
 });
+
+for (const policy of ["local", "remote"]) {
+  for (const deleted of ["local", "remote"]) {
+    test(`F7: ${deleted} comment deletion, ${policy} policy, one shared recovery`, async () => {
+      const b = '<div id="d"><!--old--></div>';
+      const edit = '<div id="d"><!--edited--></div>';
+      const absent = '<div id="d"></div>';
+      const l = deleted === "local" ? absent : edit;
+      const r = deleted === "remote" ? absent : edit;
+      const { report, recoveries, live } = await merge(b, l, r, {
+        conflicts: policy,
+      });
+      assert.equal(report.conflicts.length, 2);
+      assert.deepEqual(
+        report.conflicts.map((c) => c.kind),
+        ["text", "structure"],
+      );
+      assert.equal(recoveries[0], recoveries[1]);
+      assert.equal(
+        recoveries[0].key,
+        "structure:b:[1,0,0]:run:edit-beats-delete",
+      );
+      const text = report.conflicts[0];
+      assert.equal(recoveries[0].localLost, text.resolved !== text.local);
+      assert.equal(
+        live.querySelector("#d").firstChild.nodeValue,
+        text.resolved,
+      );
+      assert.ok(recoveries[0].text);
+      assert.ok(recoveries[0].structure);
+    });
+  }
+}

@@ -393,7 +393,21 @@ export function recoveryProblems(conflicts, final, pure) {
     if (!pure && !r.applied && r.unavailable === null)
       bad(i, "not applied with no unavailable");
     checkRef(i, r.subject, "subject");
-    const prefix = `${c.kind === "attr" ? "attr" : c.kind}:${r.subject && r.subject.key}:`;
+    const sharedComment =
+      r.subject.nodeType === 8 &&
+      r.text &&
+      r.structure &&
+      r.structure.fragmentKind === "comment" &&
+      ["text", "structure"].includes(c.kind) &&
+      conflicts.some(
+        (other) =>
+          other !== c &&
+          other.recovery === r &&
+          other.kind === (c.kind === "text" ? "structure" : "text"),
+      );
+    const prefix = `${
+      sharedComment ? "structure" : c.kind === "attr" ? "attr" : c.kind
+    }:${r.subject && r.subject.key}:`;
     if (typeof r.key !== "string" || !r.key.startsWith(prefix))
       bad(i, `key ${r.key} (expected ${prefix}...)`);
     if (byKey.has(r.key) && byKey.get(r.key) !== r)
@@ -401,7 +415,11 @@ export function recoveryProblems(conflicts, final, pure) {
     byKey.set(r.key, r);
     const parts = ["text", "attribute", "structure"].filter((k) => r[k]);
     const want = c.kind === "attr" ? "attribute" : c.kind;
-    if (parts.length !== 1 || parts[0] !== want)
+    if (
+      sharedComment
+        ? !sameSet(parts, ["text", "structure"])
+        : parts.length !== 1 || parts[0] !== want
+    )
       bad(i, `parts ${parts.join(",")} for ${c.kind}`);
     if (r.text) {
       if (!["plain", "html"].includes(r.text.encoding))

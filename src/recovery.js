@@ -616,6 +616,7 @@ export function createRecovery(ctx) {
     };
 
     // ---- the three record kinds -------------------------------------------
+    const commentKeys = new Map();
     const counts = new Map();
     const textKey = (subject, bs, be) => {
       const prefix = `text:${subject.key}:${bs}:${be}`;
@@ -837,7 +838,9 @@ export function createRecovery(ctx) {
           ? rec.resolved !== rec.local
           : policy !== "both" && rec.resolved !== rec.local;
       return {
-        key: textKey(subject, bs, be),
+        key:
+          (meta.site === "comment" && commentKeys.get(U.b || U.l || U.r)) ||
+          textKey(subject, bs, be),
         subject,
         localLost,
         anchor,
@@ -943,13 +946,21 @@ export function createRecovery(ctx) {
       };
     };
 
+    for (const [rec, meta] of metas) {
+      if (rec.kind !== "structure") continue;
+      const U = meta.unit || fromBase(meta.subject);
+      const unit = U.b || U.l || U.r;
+      if (!isEl(unit) && unit.kind === "comment")
+        commentKeys.set(unit, `structure:${refOf(U).key}:${rec.detail}`);
+    }
+
     const byKey = new Map();
     for (const [rec, meta] of metas) {
       if (rec.kind === "structure") {
         const subject = refOf(meta.unit || fromBase(meta.subject));
         const key = `structure:${subject.key}:${rec.detail}`;
         const previous = byKey.get(key);
-        if (previous) {
+        if (previous && previous.structure) {
           rec.recovery = previous;
           const outs = links.refs.get(subject);
           if (rec.el == null && outs.length)
@@ -973,12 +984,13 @@ export function createRecovery(ctx) {
           applied: false,
           unavailable: null,
         };
-        if (built.text) rv.text = built.text;
-        if (built.attribute) rv.attribute = built.attribute;
-        if (built.structure) rv.structure = built.structure;
         byKey.set(built.key, rv);
         links.anchors.set(rv, built.anchor);
       }
+      if (built.text) rv.text = built.text;
+      if (built.attribute) rv.attribute = built.attribute;
+      if (built.structure) rv.structure = built.structure;
+      if (built.text) rv.localLost = built.localLost;
       rec.recovery = rv;
       const outs = links.refs.get(built.subject);
       if (rec.kind === "structure" && rec.el == null && outs.length)
