@@ -77,3 +77,31 @@ test("F2: differential observes decision order, pointers, applied and stats", as
   assert.ok(Object.keys(o.stats).length > 0);
   assert.ok(Object.values(o.stats).every((v) => typeof v === "number"));
 });
+
+test("F6: structural conflicts retain every ordered fallback anchor", () => {
+  const body = (word) =>
+    Array.from(
+      { length: 12 },
+      (_, i) => `<section id="s${i}"><p>${word} words ${i}</p></section>`,
+    ).join("");
+  const res = merge3(
+    parse(doc(body("old"))),
+    parse(doc("")),
+    parse(doc(body("new"))),
+  );
+  assert.equal(res.conflicts.length, 12);
+  for (let i = 0; i < 12; i++) {
+    const r = res.conflicts[i].recovery;
+    assert.equal(r.subject.key, `b:[1,${i}]`);
+    assert.equal(r.structure.mergedPlacement.before.length, 11 - i);
+    assert.equal(r.structure.mergedPlacement.after.length, i);
+    assert.deepEqual(
+      r.structure.mergedPlacement.before.map((x) => x.key),
+      Array.from({ length: 11 - i }, (_, k) => `b:[1,${i + k + 1}]`),
+    );
+    assert.deepEqual(
+      r.structure.mergedPlacement.after.map((x) => x.key),
+      Array.from({ length: i }, (_, k) => `b:[1,${i - k - 1}]`),
+    );
+  }
+});

@@ -234,7 +234,8 @@ export function createRecovery(ctx) {
         ? { b: null, l: su, r: null }
         : { b: null, l: null, r: su };
     };
-    const fromOutput = (n) => {
+    const outputUnits = new Map();
+    const readOutput = (n) => {
       const p = provenance.get(n);
       if (!p || p.pinned) return null;
       const b = asUnit(p.base, "base");
@@ -251,24 +252,35 @@ export function createRecovery(ctx) {
       }
       return l || r ? { b: null, l, r } : null;
     };
+    const fromOutput = (n) => {
+      if (!outputUnits.has(n)) outputUnits.set(n, readOutput(n));
+      return outputUnits.get(n);
+    };
+
     const unitParent = (u, side) =>
       isEl(u) ? P[side].logicalParent(u) : u.parent;
 
     // ---- refs, one per key --------------------------------------------
     const refs = new Map();
+    const refsByUnit = new Map();
     const pathsOf = (u, side) =>
       (isEl(u)
         ? [P[side].pathOf(u)]
         : u.nodes.map((n) => P[side].pathOf(n))
       ).filter(Boolean);
     const refOf = (U) => {
-      const side = U.b ? "base" : U.l ? "local" : "remote";
       const unit = U.b || U.l || U.r;
+      const side = U.b ? "base" : U.l ? "local" : "remote";
+      const cached = refsByUnit.get(unit);
+      if (cached) return cached;
       const run = !isEl(unit);
       const first = pathsOf(unit, side)[0];
       const key = `${side[0]}:${JSON.stringify(first === undefined ? null : first)}${run ? ":run" : ""}`;
       let ref = refs.get(key);
-      if (ref) return ref;
+      if (ref) {
+        refsByUnit.set(unit, ref);
+        return ref;
+      }
       const outs = outputsOfUnit(U);
       ref = {
         key,
@@ -280,48 +292,83 @@ export function createRecovery(ctx) {
         live: [],
       };
       refs.set(key, ref);
+      refsByUnit.set(unit, ref);
       links.refs.set(ref, outs);
       return ref;
     };
 
     // ---- placements ----------------------------------------------------
+    const inputSiblings = {
+      base: new Map(),
+      local: new Map(),
+      remote: new Map(),
+    };
+    const outputSiblings = new Map();
     const placementIn = (u, side) => {
       const parent = unitParent(u, side);
       if (!parent || parent.nodeType !== 1) return null;
-      const units = unitsOf(parent);
-      const i = units.indexOf(u);
-      const ref = (x) =>
-        side === "base" ? refOf(fromBase(x)) : refOf(fromSide(x, side));
+      let data = inputSiblings[side].get(parent);
+      if (!data) {
+        const units = unitsOf(parent);
+        const ref = (x) =>
+          side === "base" ? refOf(fromBase(x)) : refOf(fromSide(x, side));
+        data = {
+          parent: ref(parent),
+          refs: units.map(ref),
+          index: new Map(units.map((x, i) => [x, i])),
+        };
+        inputSiblings[side].set(parent, data);
+      }
+      const i = data.index.get(u) ?? -1;
       return {
-        parent: ref(parent),
-        before: units.slice(i + 1).map(ref),
-        after: units.slice(0, Math.max(0, i)).reverse().map(ref),
+        parent: data.parent,
+        before: data.refs.slice(i + 1),
+        after: data.refs.slice(0, Math.max(0, i)).reverse(),
       };
     };
     const placementOut = (n) => {
       const parent = n.parentNode;
       if (!parent) return null;
-      const lp = parent.nodeType === 11 ? outOwners.get(parent) : parent;
-      const pu = lp && lp.nodeType === 1 ? fromOutput(lp) : null;
-      if (!pu) return null;
-      const kids = Array.from(parent.childNodes);
-      const i = kids.indexOf(n);
-      const refsOf = (list) => {
-        const res = [];
-        let last = null;
-        for (const k of list) {
+      let data = outputSiblings.get(parent);
+      if (!data) {
+        const lp = parent.nodeType === 11 ? outOwners.get(parent) : parent;
+        const pu = lp && lp.nodeType === 1 ? fromOutput(lp) : null;
+        if (!pu) return null;
+        const refs = [],
+          entries = [],
+          index = new Map();
+        for (const k of parent.childNodes) {
           const U = fromOutput(k);
-          if (!U) continue;
-          const r = refOf(U);
-          if (r !== last) res.push(r);
-          last = r;
+          const ref = U && refOf(U);
+          let group = refs.length - 1;
+          if (ref && ref !== refs[group]) {
+            refs.push(ref);
+            group++;
+          }
+          const entry = {
+            ref,
+            group,
+            before: refs.length,
+            after: refs.length - (ref ? 1 : 0),
+          };
+          entries.push(entry);
+          index.set(k, entry);
         }
-        return res;
-      };
+        for (let i = 0; i < entries.length; i++) {
+          const e = entries[i];
+          if (!e.ref) continue;
+          if (entries.slice(i + 1, i + 2).some((x) => x.ref === e.ref))
+            e.before = e.group;
+          if (i && entries[i - 1].ref === e.ref) e.after = e.group + 1;
+        }
+        data = { parent: refOf(pu), refs, index };
+        outputSiblings.set(parent, data);
+      }
+      const at = data.index.get(n);
       return {
-        parent: refOf(pu),
-        before: refsOf(kids.slice(i + 1)),
-        after: refsOf(kids.slice(0, i).reverse()),
+        parent: data.parent,
+        before: data.refs.slice(at.before),
+        after: data.refs.slice(0, at.after).reverse(),
       };
     };
     const serialize = (u) => (isEl(u) ? u.outerHTML : u.value);
@@ -823,7 +870,7 @@ export function createRecovery(ctx) {
           localLost =
             !lp ||
             !outs.some((n) => {
-              const pl = placementOut(n);
+              const pl = n === outs[0] ? mp : placementOut(n);
               return pl && pl.parent === lp.parent;
             });
           break;
@@ -863,6 +910,18 @@ export function createRecovery(ctx) {
 
     const byKey = new Map();
     for (const [rec, meta] of metas) {
+      if (rec.kind === "structure") {
+        const subject = refOf(meta.unit || fromBase(meta.subject));
+        const key = `structure:${subject.key}:${rec.detail}`;
+        const previous = byKey.get(key);
+        if (previous) {
+          rec.recovery = previous;
+          const outs = links.refs.get(subject);
+          if (rec.el == null && outs.length)
+            rec.el = isEl(outs[0]) ? outs[0] : P.out.logicalParent(outs[0]);
+          continue;
+        }
+      }
       const built =
         rec.kind === "text"
           ? text(rec, meta)
