@@ -283,3 +283,63 @@ test("H19b past both bounds the merge is a line-granularity conflict", () => {
   assert.equal(l.granularity, "line");
   assert.equal(l.text, local);
 });
+
+test("merge3Text: every conflict carries its local, remote and merged offsets", () => {
+  const one = (b, l, r, policy) => {
+    const res = merge3Text(b, l, r, policy);
+    assert.equal(res.conflicts.length, 1);
+    const c = res.conflicts[0];
+    return [res.text, c.bs, c.be, c.ls, c.le, c.rs, c.re, c.ms, c.me];
+  };
+  assert.deepEqual(
+    one(
+      "One quick fox sleeps.",
+      "Note: One slow fox sleeps.",
+      "One fast fox sleeps. Awake.",
+    ),
+    ["Note: One fast fox sleeps. Awake.", 4, 9, 10, 14, 4, 8, 10, 14],
+  );
+  assert.deepEqual(one("old", "mine", "theirs"), [
+    "theirs",
+    0,
+    3,
+    0,
+    4,
+    0,
+    6,
+    0,
+    6,
+  ]);
+  assert.deepEqual(one("a b c", "a X c", "a Y c", "both"), [
+    "a XY c",
+    2,
+    3,
+    2,
+    3,
+    2,
+    3,
+    2,
+    4,
+  ]);
+  assert.deepEqual(one("a b c", "a X c", "a Y c", "local"), [
+    "a X c",
+    2,
+    3,
+    2,
+    3,
+    2,
+    3,
+    2,
+    3,
+  ]);
+  const rest = "w\n".repeat(20001);
+  const lines = merge3Text("b\n" + rest, "L\n" + rest, "M\n" + rest);
+  assert.equal(lines.granularity, "line");
+  assert.equal(lines.conflicts.length, 1);
+  const c = lines.conflicts[0];
+  assert.deepEqual(
+    [c.bs, c.be, c.ls, c.le, c.rs, c.re, c.ms, c.me],
+    [0, 2, 0, 2, 0, 2, 0, 2],
+  );
+  assert.equal(lines.text.slice(c.ms, c.me), "M\n");
+});

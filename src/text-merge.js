@@ -869,9 +869,26 @@ export function merge3Tokens(B, L, R, policy = "remote") {
           : policy === "both"
             ? localToks.concat(remoteToks)
             : remoteToks;
+      // Where the region sits on each side, in that side's tokens: the base
+      // offset shifted by every hunk of that side before the region.
+      const shift = (hs, mine) => {
+        let d = 0;
+        for (const h of hs)
+          if (h.be <= e.bs && !mine.includes(h))
+            d += h.toks.length - (h.be - h.bs);
+        return d;
+      };
+      const ls = e.bs + shift(lh, e.localHunks),
+        rs = e.bs + shift(rh, e.remoteHunks);
       conflicts.push({
         bs: e.bs,
         be: e.be,
+        ls,
+        le: ls + localToks.length,
+        rs,
+        re: rs + remoteToks.length,
+        ms: 0,
+        me: 0,
         base: B.slice(e.bs, e.be),
         local: localToks,
         remote: remoteToks,
@@ -898,6 +915,17 @@ export function merge3Tokens(B, L, R, policy = "remote") {
     pos = Math.max(pos, e.be);
   }
   pushBase(B.length);
+  // Where each conflict's resolved tokens land in the merged stream.
+  let at = 0,
+    ci = 0;
+  for (const seg of segments) {
+    if (seg.source === "conflict") {
+      conflicts[ci].ms = at;
+      conflicts[ci].me = at + seg.toks.length;
+      ci++;
+    }
+    at += seg.toks.length;
+  }
 
   // cosmetic (nbsp/space) forms on base tokens: three-way per token, no conflict
   const cosL = new Map(cosLList.map((c) => [c.bi, c.tok])),
@@ -1039,13 +1067,33 @@ export function merge3Text(base, local, remote, policy = "remote") {
     granularity = "line";
   }
   const join = (toks) => toks.map((t) => t.raw).join("");
-  const off = [0];
-  for (const t of baseToks) off.push(off[off.length - 1] + t.len);
+  const offsets = (toks) => {
+    const off = [0];
+    for (const t of toks) off.push(off[off.length - 1] + t.len);
+    return off;
+  };
+  const off = offsets(baseToks);
+  let offL = null,
+    offR = null,
+    offM = null;
+  if (res.conflicts.length) {
+    const lines = (s) =>
+      s.split(/(?<=\n)/).map((w) => ({ k: w, raw: w, len: w.length }));
+    offL = offsets(granularity === "line" ? lines(local) : L);
+    offR = offsets(granularity === "line" ? lines(remote) : R);
+    offM = offsets(res.tokens);
+  }
   return {
     text: join(res.tokens),
     conflicts: res.conflicts.map((c) => ({
       bs: off[c.bs],
       be: off[c.be],
+      ls: offL[c.ls],
+      le: offL[c.le],
+      rs: offR[c.rs],
+      re: offR[c.re],
+      ms: offM[c.ms],
+      me: offM[c.me],
       base: join(c.base),
       local: join(c.local),
       remote: join(c.remote),
