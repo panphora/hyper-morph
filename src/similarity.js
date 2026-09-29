@@ -43,6 +43,10 @@ function collapse(s) {
   return s.replace(/\s+/g, " ");
 }
 
+// equalUncached's answer when the pair differs only because a child pair
+// collided: unequal, but the collision was the child's and counts there.
+const CHILD_UNEQUAL = 0;
+
 /**
  * @param {object} [options]
  * @param {(n: Node) => boolean} [options.ignored]
@@ -261,8 +265,11 @@ export function createAnalyzer({
     if (unitHash(a) !== unitHash(b)) return false;
     let row = eqCache.get(a);
     if (row && row.has(b)) return row.get(b);
-    const eq = equalUncached(a, b);
-    if (!eq && stats) stats.hashRejected++;
+    const back = eqCache.get(b);
+    if (back && back.has(a)) return back.get(a);
+    const r = equalUncached(a, b);
+    const eq = r === true;
+    if (r === false && stats) stats.hashRejected++;
     if (!row) eqCache.set(a, (row = new WeakMap()));
     row.set(b, eq);
     return eq;
@@ -285,8 +292,10 @@ export function createAnalyzer({
       const ua = unitsOf(a),
         ub = unitsOf(b);
       if (ua.length !== ub.length) return false;
-      for (let i = 0; i < ua.length; i++)
-        if (!equalUnits(ua[i], ub[i])) return false;
+      for (let i = 0; i < ua.length; i++) {
+        if (unitHash(ua[i]) !== unitHash(ub[i])) return false;
+        if (!equalUnits(ua[i], ub[i])) return CHILD_UNEQUAL;
+      }
       return true;
     }
     if (b.nodeType === 1) return false;

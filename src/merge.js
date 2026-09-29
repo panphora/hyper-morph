@@ -166,6 +166,9 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   splitCrossRewrites();
   demoteEchoes(L, R);
   demoteEchoes(R, L);
+  for (const A of [L, R])
+    if (A.refused)
+      for (const b of A.refused) if (!A.moved.has(b)) stats.ambiguousMoves++;
   if (prof) {
     prof.alignTotal = (prof.alignTotal || 0) + (performance.now() - t0);
     t0 = performance.now();

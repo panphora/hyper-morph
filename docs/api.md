@@ -96,6 +96,7 @@ type MergeResult = {
   mergedScripts: Set<Element>; // output scripts produced by a JSON merge
   remoteIdOf: (el: Element) => string | null;
   customIdentity: boolean; // remote identity is not the default
+  stats: MergeStats;
 };
 type Provenance = {
   base: Node | Run | null;
@@ -513,13 +514,13 @@ type MergeStats = {
 };
 ```
 
-| Key                 | Meaning                                                                                     | Where it counts               |
-| ------------------- | ------------------------------------------------------------------------------------------- | ----------------------------- |
-| `lazyTwins`         | `twinIn` calls that resolved a twin the map did not hold                                    | `merge.js`, `twinIn`          |
-| `hashRejected`      | a pair whose `unitHash` matched but whose real equality failed; a memoized pair counts once | `similarity.js`, `equalUnits` |
-| `similarTiesStrict` | base elements with two or more candidates tied on both `coef` and `share` at the best score | `align.js`, `passSigSimilar`  |
-| `similarTiesLoose`  | base elements with two or more candidates tied on the best `coef` but not on `share`        | `align.js`, `passSigSimilar`  |
-| `ambiguousMoves`    | base elements the move pass refused because more than one similar candidate was free        | `align.js`, `movesAndSlots`   |
+| Key                 | Meaning                                                                                                                                                                                                                                                                                                                     | Where it counts                                                       |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `lazyTwins`         | `twinIn` calls that resolved a twin the map did not hold                                                                                                                                                                                                                                                                    | `merge.js`, `twinIn`                                                  |
+| `hashRejected`      | hash collisions found, each once: a pair whose hashes are equal and whose own comparison fails (tag, namespace, attributes, unit count, a child pair with different hashes, or the text itself), never a pair that fails only because a child pair was itself a collision, and once whichever order the pair is compared in | `similarity.js`, `equalUnits`                                         |
+| `similarTiesStrict` | base elements whose best-scored candidates in `passSigSimilar` tie on both `coef` and `share`; each base element counts at most once per alignment, and strict takes precedence over loose                                                                                                                                  | `align.js`, `passSigSimilar`                                          |
+| `similarTiesLoose`  | base elements whose best-scored candidates tie on `coef` but not on `share`; disjoint from `similarTiesStrict`, counted once per base element per alignment                                                                                                                                                                 | `align.js`, `passSigSimilar`                                          |
+| `ambiguousMoves`    | base elements the move pass refused because more than one similar candidate was free and that never moved afterwards, counted once per base element per alignment, at the end of the merge's alignment phase                                                                                                                | `align.js` `moves()`, counted in `merge.js` after the alignment phase |
 
 ## Merge semantics
 

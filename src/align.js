@@ -60,6 +60,8 @@ export function align(baseRoot, sideRoot, o) {
   const baseId = o.baseId || (() => null),
     sideId = o.sideId || (() => null);
   const stats = o.stats || null;
+  const tieCounted = stats ? new Set() : null;
+  const refused = stats ? new Set() : null;
   const map = new Map(),
     reverse = new Map();
   const weak = new Set(); // base units paired with no content evidence
@@ -140,6 +142,7 @@ export function align(baseRoot, sideRoot, o) {
     unpair,
     rematch: movesAndSlots,
     insertedByHash,
+    refused,
   };
 
   // Pass 3: moves, then the children of moved pairs. Pass 4: slots, then the
@@ -449,7 +452,7 @@ export function align(baseRoot, sideRoot, o) {
       (x, y) =>
         y.coef - x.coef || y.share - x.share || x.d - y.d || x.bi - y.bi,
     );
-    if (stats) {
+    if (stats && cands.length > 1) {
       const best = new Map();
       for (const c of cands) {
         const t = best.get(c.b);
@@ -460,9 +463,11 @@ export function align(baseRoot, sideRoot, o) {
           else t.loose++;
         }
       }
-      for (const t of best.values()) {
+      for (const [b, t] of best) {
+        if (tieCounted.has(b) || !(t.strict || t.loose)) continue;
+        tieCounted.add(b);
         if (t.strict) stats.similarTiesStrict++;
-        if (t.loose) stats.similarTiesLoose++;
+        else stats.similarTiesLoose++;
       }
     }
     for (const c of cands)
@@ -711,7 +716,7 @@ export function align(baseRoot, sideRoot, o) {
           if (count > 1) break;
         }
       }
-      if (count > 1 && stats) stats.ambiguousMoves++;
+      if (count > 1 && refused) refused.add(b);
       if (count === 1) {
         claim(hit);
         pair(b, hit);

@@ -1,9 +1,11 @@
 // The per-apply counters on `report.stats`: numbers only, describing what the
 // merge had to do. Each fixture drives one counter and, where cheap, asserts
-// the others stay at zero. Nothing from the page ever reaches them.
+// the others stay at zero. Nothing from the page ever reaches them. Every
+// number here is exact: a counter that counts an element twice, or a pair once
+// per visit, shows up as a changed number.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parse, doc } from "./lib/dom.js";
+import { parse, doc, window } from "./lib/dom.js";
 import { mergeBodies } from "./lib/merge.js";
 import { mergeDocument } from "../../src/index.js";
 import { emptyStats } from "../../src/stats.js";
@@ -48,10 +50,7 @@ test("I4 stats: shape on a trivial merge", async () => {
 test("I4 stats.hashRejected on the collision", async () => {
   const [b, r] = collision;
   const { report } = await dirtyLive(b, b, r);
-  assert.ok(
-    report.stats.hashRejected >= 1,
-    `hashRejected ${report.stats.hashRejected}`,
-  );
+  assert.equal(report.stats.hashRejected, 1);
   assert.equal(report.stats.lazyTwins, 0);
   assert.equal(report.stats.similarTiesStrict, 0);
   assert.equal(report.stats.similarTiesLoose, 0);
@@ -62,7 +61,7 @@ test("I4 stats.lazyTwins on the lazybug shape", async () => {
   const [b, r] = lazybug;
   const l = b.replace("tail words here", "tail words HERE");
   const { live, report } = await dirtyLive(b, l, r);
-  assert.ok(report.stats.lazyTwins >= 1, `lazyTwins ${report.stats.lazyTwins}`);
+  assert.equal(report.stats.lazyTwins, 1);
   assert.equal(report.stats.hashRejected, 0);
   assert.equal(report.stats.similarTiesStrict, 0);
   assert.equal(report.stats.similarTiesLoose, 0);
@@ -76,10 +75,7 @@ test("I4 stats.lazyTwins on the lazybug shape", async () => {
 test("I4 stats.similarTiesStrict", async () => {
   const r = `<p>alpha beta gamma delta one</p><p>alpha beta gamma delta one</p><p>other words entirely</p>`;
   const { report } = await dirtyLive(tieBase, tieBase, r);
-  assert.ok(
-    report.stats.similarTiesStrict >= 1,
-    `similarTiesStrict ${report.stats.similarTiesStrict}`,
-  );
+  assert.equal(report.stats.similarTiesStrict, 1);
   assert.equal(report.stats.similarTiesLoose, 0);
   assert.equal(report.stats.hashRejected, 0);
   assert.equal(report.stats.ambiguousMoves, 0);
@@ -89,10 +85,7 @@ test("I4 stats.similarTiesStrict", async () => {
 test("I4 stats.similarTiesLoose", async () => {
   const r = `<p>alpha beta gamma delta one</p><p>alpha beta gamma delta one two</p><p>other words entirely</p>`;
   const { report } = await dirtyLive(tieBase, tieBase, r);
-  assert.ok(
-    report.stats.similarTiesLoose >= 1,
-    `similarTiesLoose ${report.stats.similarTiesLoose}`,
-  );
+  assert.equal(report.stats.similarTiesLoose, 1);
   assert.equal(report.stats.similarTiesStrict, 0);
   assert.equal(report.stats.hashRejected, 0);
   assert.equal(report.stats.ambiguousMoves, 0);
@@ -100,14 +93,11 @@ test("I4 stats.similarTiesLoose", async () => {
 });
 
 const moveBase = `<div><p>alpha beta gamma delta</p></div><section></section><aside></aside>`;
+const moveRemote = `<div></div><section><p>alpha beta gamma delta one</p></section><aside><p>alpha beta gamma delta two</p></aside>`;
 
 test("I4 stats.ambiguousMoves", async () => {
-  const r = `<div></div><section><p>alpha beta gamma delta one</p></section><aside><p>alpha beta gamma delta two</p></aside>`;
-  const { report } = await dirtyLive(moveBase, moveBase, r);
-  assert.ok(
-    report.stats.ambiguousMoves >= 1,
-    `ambiguousMoves ${report.stats.ambiguousMoves}`,
-  );
+  const { report } = await dirtyLive(moveBase, moveBase, moveRemote);
+  assert.equal(report.stats.ambiguousMoves, 1);
   assert.equal(report.stats.similarTiesStrict, 0);
   assert.equal(report.stats.similarTiesLoose, 0);
   assert.equal(report.stats.hashRejected, 0);
@@ -115,29 +105,153 @@ test("I4 stats.ambiguousMoves", async () => {
   assert.deepEqual(report.moved, []);
 });
 
-// The node suite holds no `<script src>` load open, so the concurrency here is
-// two calls in flight at once on separate documents (plus two sequential ones).
+test("I4 stats.ambiguousMoves counts a refused base element once", async () => {
+  // The extra nav pair opens one more slot round over the same base
+  // paragraph, so a visit would count it twice.
+  const extra = [
+    `<nav><em>unrelated original</em></nav>`,
+    `<nav><strong>different remote</strong></nav>`,
+  ];
+  for (const withNav of [false, true]) {
+    const b = moveBase + (withNav ? extra[0] : "");
+    const r = moveRemote + (withNav ? extra[1] : "");
+    const { report } = await dirtyLive(b, b, r);
+    assert.equal(report.stats.ambiguousMoves, 1, `nav ${withNav}`);
+    assert.deepEqual(report.moved, []);
+    assert.equal(report.stats.similarTiesStrict, 0);
+    assert.equal(report.stats.similarTiesLoose, 0);
+    assert.equal(report.stats.hashRejected, 0);
+    assert.equal(report.stats.lazyTwins, 0);
+  }
+});
+
+test("I4 stats.ambiguousMoves stays zero when the refusal resolves", async () => {
+  // Both paragraphs are refused the move on one round and taken on a later
+  // one: only the ones still refused when the alignment phase ends count.
+  const b = `<div><p>alpha beta gamma delta</p><p>kilo lima mike november</p></div><section></section><aside></aside><ul><li>aaa bbb</li><li>ccc ddd</li></ul>`;
+  const r = `<div></div><section><p>alpha beta gamma delta kilo lima mike november</p></section><aside><p>alpha beta gamma xray</p></aside><ul><li>eee fff</li><li>ggg hhh</li></ul>`;
+  const { report } = await dirtyLive(b, b, r);
+  assert.deepEqual(
+    report.moved.map((el) => el.tagName + ":" + el.textContent),
+    [
+      "P:alpha beta gamma delta kilo lima mike november",
+      "P:alpha beta gamma xray",
+    ],
+  );
+  assert.equal(report.stats.ambiguousMoves, 0);
+});
+
+// Hint windows that fill the 64 characters, so the two headings score as
+// different text and the two copies of the paragraph below are one tie.
+const hintA =
+  "Aardvark unique heading words that fill the whole hint window xx";
+const hintZ = "Zebra totally different heading words filling hint window as yy";
+const tieRoundBase = `<section><div><h3>${hintA}</h3><p>alpha beta gamma delta</p></div></section><aside></aside>`;
+
+test("I4 stats.similarTies counts a base element once across a rematch", async () => {
+  for (const loose of [false, true]) {
+    const ps = `<p>alpha beta gamma delta one</p><p>alpha beta gamma delta one${loose ? " two" : ""}</p>`;
+    const r = `<section><div><h3>${hintZ}</h3>${ps}</div></section><aside><div><h3>${hintA}</h3>${ps}</div></aside>`;
+    const { report } = await dirtyLive(tieRoundBase, tieRoundBase, r);
+    assert.equal(
+      report.stats.similarTiesStrict,
+      loose ? 0 : 1,
+      `loose ${loose}`,
+    );
+    assert.equal(
+      report.stats.similarTiesLoose,
+      loose ? 1 : 0,
+      `loose ${loose}`,
+    );
+    assert.equal(report.stats.hashRejected, 0);
+    assert.equal(report.stats.ambiguousMoves, 0);
+  }
+});
+
+test("I4 stats.similarTiesStrict excludes loose", async () => {
+  const r = `<p>alpha beta gamma delta one</p><p>alpha beta gamma delta one</p><p>alpha beta gamma delta one two</p>`;
+  const { report } = await dirtyLive(tieBase, tieBase, r);
+  assert.equal(report.stats.similarTiesStrict, 1);
+  assert.equal(report.stats.similarTiesLoose, 0);
+});
+
+test("I4 stats.similarTies ignores a lower-coef candidate", async () => {
+  const r = `<p>alpha beta gamma delta one</p><p>alpha beta zeta eta</p><p>other words entirely</p>`;
+  const { report } = await dirtyLive(tieBase, tieBase, r);
+  assert.equal(report.stats.similarTiesStrict, 0);
+  assert.equal(report.stats.similarTiesLoose, 0);
+});
+
+test("I4 stats.hashRejected counts one collision once at any depth", async () => {
+  const [b, r] = collision;
+  for (const depth of [1, 3, 6]) {
+    const wrap = (html) =>
+      "<div>".repeat(depth) + html + "</div>".repeat(depth);
+    const { report } = await dirtyLive(wrap(b), wrap(b), wrap(r));
+    assert.equal(report.stats.hashRejected, 1, `depth ${depth}`);
+  }
+});
+
+test("I4 stats.hashRejected counts a pair once in either order", async () => {
+  // The <x-a> pair differs only through its colliding text run, and the run
+  // is compared from both ends: one collision, not four.
+  const base = `<p>one two three</p><p>four five <x-a>${T1}</x-a> six</p>`;
+  const local = `<p>one two three again</p><p>four five <x-a>${T1}</x-a> six again</p>`;
+  const remote = `<p>one two <x-a>${T2}</x-a> three</p><p>four five six</p>`;
+  const { report } = await dirtyLive(base, local, remote);
+  assert.equal(report.stats.hashRejected, 1);
+  assert.equal(report.stats.similarTiesStrict, 0);
+  assert.equal(report.stats.similarTiesLoose, 0);
+  assert.equal(report.stats.ambiguousMoves, 0);
+  assert.equal(report.stats.lazyTwins, 0);
+});
+
+// Two merges held open on a `<script src>` load at once: each fills its own
+// stats object, and each keeps its numbers once the other settles.
 test("I4 stats are per call", async () => {
   const [b, r] = collision;
   const first = await dirtyLive(b, b, r);
   const firstNumbers = Object.assign({}, first.report.stats);
-  assert.ok(firstNumbers.hashRejected >= 1);
+  assert.equal(firstNumbers.hashRejected, 1);
   const second = await dirtyLive(b, b, r);
   assert.notEqual(first.report.stats, second.report.stats);
   assert.deepEqual(first.report.stats, firstNumbers);
 
-  const a = dirtyLive(b, b, r);
-  const c = dirtyLive(b, b, r);
-  const [ra, rc] = await Promise.all([a, c]);
-  const seen = new Set([
-    first.report.stats,
-    second.report.stats,
-    ra.report.stats,
-    rc.report.stats,
-  ]);
-  assert.equal(seen.size, 4);
-  assert.notEqual(ra.report.stats, rc.report.stats);
-  for (const s of seen) assert.deepEqual(s, firstNumbers);
+  const heldA = parse(doc(b));
+  const plain = doc(`<p>plain</p>`);
+  const heldB = parse(plain);
+  let settledA = false,
+    settledB = false;
+  const a = mergeDocument({
+    live: heldA,
+    base: doc(b),
+    remote: doc(r + `<script src="/held-a.js"></script>`),
+  }).then((x) => {
+    settledA = true;
+    return x;
+  });
+  const c = mergeDocument({
+    live: heldB,
+    base: plain,
+    remote: doc(`<p>changed</p><script src="/held-b.js"></script>`),
+  }).then((x) => {
+    settledB = true;
+    return x;
+  });
+  await new Promise((res) => setImmediate(res));
+  assert.equal(settledA, false);
+  assert.equal(settledB, false);
+  heldB.querySelector("script[src]").dispatchEvent(new window.Event("load"));
+  const rc = await c;
+  assert.equal(rc.stats.hashRejected, 0);
+  assert.equal(settledA, false);
+  const cNumbers = Object.assign({}, rc.stats);
+  rc.stats.hashRejected = 999;
+  heldA.querySelector("script[src]").dispatchEvent(new window.Event("load"));
+  const ra = await a;
+  assert.notEqual(ra.stats, rc.stats);
+  assert.deepEqual(ra.stats, firstNumbers);
+  assert.deepEqual(rc.stats, { ...cNumbers, hashRejected: 999 });
 });
 
 test("I4 stats on an ignored root", async () => {
