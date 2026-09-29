@@ -343,26 +343,21 @@ export function createRecovery(ctx) {
         for (const k of parent.childNodes) {
           const U = fromOutput(k);
           const ref = U && refOf(U);
+          const after = refs.length;
           let group = refs.length - 1;
           if (ref && ref !== refs[group]) {
             refs.push(ref);
             group++;
           }
-          const entry = {
-            ref,
-            group,
-            before: refs.length,
-            after: refs.length - (ref ? 1 : 0),
-          };
+          const entry = { ref, group, after };
           entries.push(entry);
           index.set(k, entry);
         }
-        for (let i = 0; i < entries.length; i++) {
+        let next = refs.length;
+        for (let i = entries.length - 1; i >= 0; i--) {
           const e = entries[i];
-          if (!e.ref) continue;
-          if (entries.slice(i + 1, i + 2).some((x) => x.ref === e.ref))
-            e.before = e.group;
-          if (i && entries[i - 1].ref === e.ref) e.after = e.group + 1;
+          e.before = next;
+          if (e.ref) next = e.group;
         }
         data = { parent: refOf(pu), refs, index };
         outputSiblings.set(parent, data);
