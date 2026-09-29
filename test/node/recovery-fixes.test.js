@@ -105,3 +105,130 @@ test("F6: structural conflicts retain every ordered fallback anchor", () => {
     );
   }
 });
+
+const emptyCases = [
+  [
+    "after br",
+    '<p id="p">Hello world<br>old tail</p>',
+    '<p id="p">Hello world<br>new tail</p>',
+    '<p id="p">Hello world<br></p>',
+    12,
+  ],
+  [
+    "before atom",
+    '<p id="p">old <img src="a.png"> tail words</p>',
+    '<p id="p">new <img src="a.png"> tail words</p>',
+    '<p id="p"><img src="a.png"> tail words</p>',
+    0,
+  ],
+  [
+    "text mark boundary",
+    '<p id="p">A quick <i>Z</i></p>',
+    '<p id="p">A fast <i>Z</i></p>',
+    '<p id="p">A <i>Z</i></p>',
+    2,
+  ],
+  [
+    "emptied middle segment",
+    "<p>keep one</p><p>a b c d</p><p>tail end</p>",
+    "<p>keep one</p><p>a b</p><p>c d</p><p>tail end</p>",
+    "<p>keep one</p><p>tail end</p>",
+    0,
+  ],
+  [
+    "bare middle segment",
+    '<div id="d"><p>keep one</p>alpha beta<p>tail end</p></div>',
+    '<div id="d"><p>keep one</p>alpha gamma<p>tail end</p></div>',
+    '<div id="d"><p>keep one</p><p>tail end</p></div>',
+    0,
+  ],
+  [
+    "source after br",
+    '<p id="p">one <br> fox</p>',
+    '<p id="p">one <br></p>',
+    '<p id="p"><br> aR</p>',
+    null,
+  ],
+];
+for (const [name, b, l, r, offset] of emptyCases) {
+  test(`F1: ${name}`, async () => {
+    const { recoveries } = await merge(b, l, r);
+    const texts = recoveries.filter((x) => x.text);
+    assert.ok(texts.length > 0);
+    let checked = 0;
+    for (const rv of texts) {
+      for (const side of ["base", "local", "remote", "merged"]) {
+        const s = rv.text[side];
+        if (!s) continue;
+        if (s.start === s.end) {
+          assert.deepEqual(
+            s.span.start,
+            s.span.end,
+            `${side}: collapsed empty span`,
+          );
+          checked++;
+        }
+        if (!s.text.length)
+          assert.deepEqual(
+            s.scope.start,
+            s.scope.end,
+            `${side}: collapsed empty scope`,
+          );
+      }
+      assert.equal(rv.applied, true);
+      if (offset !== null && rv.text.merged.fragment === "") {
+        assert.deepEqual(
+          [rv.text.merged.start, rv.text.merged.end],
+          [offset, offset],
+        );
+        assert.equal(
+          rv.text.liveSpan.startContainer,
+          rv.text.liveSpan.endContainer,
+        );
+        assert.equal(rv.text.liveSpan.startOffset, rv.text.liveSpan.endOffset);
+      }
+    }
+    assert.ok(checked > 0);
+  });
+}
+
+test("F1: restoring an emptied segment preserves the surviving paragraph", async () => {
+  const b = '<div id="s"><p>alpha bravo</p> charlie delta</div>';
+  const l = '<div id="s"><p>alpha</p><p>BRAVE charlie delta</p></div>';
+  const r = '<div id="s"><p>alpha BRAVO<br>charlie delta</p></div>';
+  const { live, recoveries } = await merge(b, l, r);
+  assert.equal(recoveries.length, 2);
+  assert.equal(live.body.innerHTML, r);
+  const t = recoveries[0].text;
+  assert.equal(t.merged.text, "");
+  assert.deepEqual(t.merged.span, {
+    start: { path: [1, 0], offset: 1 },
+    end: { path: [1, 0], offset: 1 },
+  });
+  const range = live.createRange();
+  range.setStart(t.liveSpan.startContainer, t.liveSpan.startOffset);
+  range.setEnd(t.liveSpan.endContainer, t.liveSpan.endOffset);
+  assert.equal(range.collapsed, true);
+  range.deleteContents();
+  range.insertNode(range.createContextualFragment(t.local.fragment));
+  assert.equal(
+    live.body.innerHTML,
+    '<div id="s"><p>alpha BRAVO<br>charlie delta</p><p>BRAVE charlie delta</p></div>',
+  );
+});
+
+test("F1: collapsed mark boundary remains usable inside live template content", async () => {
+  const wrap = (s) =>
+    `<template id="t"><p id="p">${s}<b>bold</b> end</p></template>`;
+  const { recoveries } = await merge(
+    wrap("keep old "),
+    wrap("keep new "),
+    wrap("keep "),
+  );
+  assert.equal(recoveries.length, 1);
+  const r = recoveries[0];
+  assert.equal(r.applied, true);
+  assert.deepEqual(r.text.merged.span.start, r.text.merged.span.end);
+  assert.equal(r.text.liveSpan.startContainer, r.text.liveSpan.endContainer);
+  assert.equal(r.text.liveSpan.startOffset, r.text.liveSpan.endOffset);
+});

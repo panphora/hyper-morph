@@ -456,6 +456,8 @@ export function createRecovery(ctx) {
       }
       return touching();
     };
+    const rawBoundary = (f, i) =>
+      rawPoint(f, i, "end") || rawPoint(f, i, "start");
     const pointIn = (PS, pt) => {
       switch (pt.kind) {
         case "text":
@@ -480,40 +482,47 @@ export function createRecovery(ctx) {
       const r = rawPoint(f, i, edge);
       return r ? pointIn(P[side], r) : gap();
     };
-    const mergedPoint = (M, i, edge) => {
-      const T = M.textNodes;
-      for (const t of T)
-        if (edge === "start" ? t.ms <= i && i < t.me : t.ms < i && i <= t.me)
-          return { kind: "text", node: t.node, offset: i - t.ms };
-      const at = edge === "start" ? i : i - 1;
-      for (const t of T)
-        if (
-          (t.ms === i || t.me === i) &&
-          !M.atomOut.has(at) &&
-          !M.breakOut.has(at)
-        )
-          return { kind: "text", node: t.node, offset: i - t.ms };
-      const a = M.atomOut.get(at);
-      if (a) return { kind: edge === "start" ? "before" : "after", node: a };
-      const blk = M.breakOut.get(at);
-      if (blk)
-        return edge === "start"
-          ? { kind: "end", node: blk }
-          : { kind: "after", node: blk };
-      let best = null;
-      for (const t of T)
-        if (edge === "end" ? t.me <= i : t.ms >= i)
-          if (!best || (edge === "end" ? t.me > best.me : t.ms < best.ms))
-            best = t;
-      if (best)
-        return {
-          kind: "text",
-          node: best.node,
-          offset: edge === "end" ? best.me - best.ms : 0,
-        };
-      return M.node
-        ? { kind: edge === "start" ? "startOf" : "end", node: M.node }
-        : null;
+    const mergedPoint = (M, i, edge, gap) => {
+      const pieces = M.textNodes.map((t) => ({
+        s: t.ms,
+        e: t.me,
+        start: { kind: "text", node: t.node, offset: 0 },
+        end: { kind: "text", node: t.node, offset: t.me - t.ms },
+      }));
+      for (const [at, node] of M.atomOut)
+        pieces.push({
+          s: at,
+          e: at + 1,
+          start: { kind: "before", node },
+          end: { kind: "after", node },
+        });
+      for (const [at, node] of M.breakOut)
+        pieces.push({
+          s: at,
+          e: at + 1,
+          start: { kind: "end", node },
+          end: { kind: "after", node },
+        });
+      for (const p of pieces)
+        if (p.start.kind === "text" && p.s < i && i < p.e)
+          return { kind: "text", node: p.start.node, offset: i - p.s };
+      if (edge !== "empty") {
+        const hit = pieces.find((p) =>
+          edge === "start" ? p.s === i : p.e === i,
+        );
+        if (hit) return edge === "start" ? hit.start : hit.end;
+      }
+      const ending = pieces.find((p) => p.e === i);
+      if (ending) return ending.end;
+      const starting = pieces.find((p) => p.s === i);
+      if (starting) return starting.start;
+      let previous = null,
+        next = null;
+      for (const p of pieces) {
+        if (p.e <= i && (!previous || p.e > previous.e)) previous = p;
+        if (p.s >= i && (!next || p.s < next.s)) next = p;
+      }
+      return previous ? previous.end : next ? next.start : gap();
     };
     // The same boundary as an offset in the final output's flat, `fo`:
     // the rebuild may have dropped a duplicate atom, rescued one or glued
@@ -635,7 +644,7 @@ export function createRecovery(ctx) {
           k0,
           k1,
           {
-            start: runPoint(u, k0, "start", sd),
+            start: runPoint(u, k0, k0 === k1 ? "end" : "start", sd),
             end: runPoint(u, k1, "end", sd),
           },
           {
@@ -746,9 +755,10 @@ export function createRecovery(ctx) {
         // (`meta.full`), the clash re-measured in it through its DOM points.
         const inline = (f, s, e, frag, sd) => {
           const pt = (r) => (r ? pointIn(P[sd], r) : gap(sd)());
-          const rs = rawPoint(f, s, "start"),
-            re = rawPoint(f, e, "end");
-          const span = { start: pt(rs), end: pt(re) };
+          const rs = s === e ? rawBoundary(f, s) : rawPoint(f, s, "start"),
+            re = s === e ? rawBoundary(f, s) : rawPoint(f, e, "end");
+          const start = pt(rs);
+          const span = { start, end: s === e ? start : pt(re) };
           const F = meta.full ? meta.full(sd) : null;
           if (!F)
             return side(f.text, s, e, frag, span, {
@@ -759,9 +769,10 @@ export function createRecovery(ctx) {
             ke = re ? measure(F, re) : null;
           const S = ks === null ? 0 : ks;
           const E = Math.max(S, ke === null ? F.text.length : ke);
+          const s0 = pt(rawPoint(F, 0, "start"));
           return side(F.text, S, E, sliceHtml(F, S, E), span, {
-            start: pt(rawPoint(F, 0, "start")),
-            end: pt(rawPoint(F, F.text.length, "end")),
+            start: s0,
+            end: F.text.length ? pt(rawPoint(F, F.text.length, "end")) : s0,
           });
         };
         base = meta.synthetic
@@ -771,11 +782,35 @@ export function createRecovery(ctx) {
         remote = inline(fr, rec.rss, rec.rse, rec.remote, "remote");
         const [ms, me] = rec.range || [0, 0];
         const fo = M.out;
+        const segmentGap = () => {
+          const parent = kidsOf(M.node);
+          for (let i = scope.at - 1; i >= 0; i--) {
+            const outs = outputsOfUnit(fromBase(scope.units[i])).filter(
+              (n) => n.parentNode === parent,
+            );
+            if (outs.length)
+              return { kind: "after", node: outs[outs.length - 1] };
+          }
+          for (let i = scope.at; i < scope.units.length; i++) {
+            const outs = outputsOfUnit(fromBase(scope.units[i])).filter(
+              (n) => n.parentNode === parent,
+            );
+            if (outs.length) return { kind: "before", node: outs[0] };
+          }
+          return { kind: "startOf", node: M.node };
+        };
         if (fo.via) for (const [t, s] of fo.via) via.set(t, s);
-        const Ds = mergedPoint(M, ms, "start"),
-          De = mergedPoint(M, me, "end");
-        const S0 = outDesc(fo, 0, "start", M.node),
-          S1 = outDesc(fo, fo.text.length, "end", M.node);
+        const Ds = mergedPoint(
+            M,
+            ms,
+            ms === me ? "empty" : "start",
+            segmentGap,
+          ),
+          De = ms === me ? Ds : mergedPoint(M, me, "end", segmentGap);
+        const S0 = fo.text.length
+            ? outDesc(fo, 0, "start", M.node)
+            : segmentGap(),
+          S1 = fo.text.length ? outDesc(fo, fo.text.length, "end", M.node) : S0;
         const ks = measure(fo, Ds),
           ke = measure(fo, De);
         const s = ks === null ? 0 : ks;
