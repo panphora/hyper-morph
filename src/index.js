@@ -17,6 +17,7 @@ import { emptyStats } from "./stats.js";
 import { importMap, tieredIdentity, defaultIdentity } from "./identity.js";
 import { merge3 as mergeCore } from "./merge.js";
 import { apply } from "./apply.js";
+import { resolveLive, remapLive } from "./recovery.js";
 import {
   collectBodyScriptSignatures,
   executeNewScripts,
@@ -156,7 +157,7 @@ export function merge3(base, local, remote, options = {}) {
   const o = normalize(clean, [bRoot, lRoot, rRoot].filter(Boolean));
   const id = options.identity || {};
   const stats = emptyStats();
-  return mergeCore(bRoot, lRoot, rRoot, {
+  const result = mergeCore(bRoot, lRoot, rRoot, {
     identity: {
       base: resolveIdentity(id.base, bRoot),
       local: resolveIdentity(id.local, lRoot),
@@ -180,6 +181,8 @@ export function merge3(base, local, remote, options = {}) {
     childrenOnly: o.children,
     stats,
   });
+  delete result.recoveryLinks;
+  return result;
 }
 
 /**
@@ -268,6 +271,7 @@ function run({
         );
     }
   }
+  let swapped = null;
   if (before) {
     const ex = executeNewScripts(liveRoot, before, {
       ignored: o.ignored,
@@ -277,9 +281,42 @@ function run({
       afterNodeAdded: o.hooks.afterNodeAdded,
     });
     loads.push(...ex.loads);
+    swapped = ex.swapped;
   }
 
-  const live = (n) => (n && ap.liveOf && ap.liveOf.get(n)) || null;
+  // A merged node's live node: its twin, the text node holding its text
+  // (all of them for a run apply left split), or the copy inserted for it; a
+  // script apply activated is its fresh element. The report's `node` and
+  // `el` keep their twin-first mapping and reach the copies where they used
+  // to be null.
+  const active = (n) => (swapped && swapped.get(n)) || n;
+  const lookup = (m) => {
+    if (ap.keptRuns.has(m)) return ap.runOf.get(m);
+    const n = ap.liveOf.get(m) || ap.heldBy.get(m) || ap.insertedLive.get(m);
+    return n ? active(n) : null;
+  };
+  const live = (n) => {
+    if (!n) return null;
+    const twin = ap.liveOf.get(n);
+    if (twin) return active(twin);
+    const v = lookup(n);
+    return Array.isArray(v) ? v[0] : v;
+  };
+  if (result.recoveryLinks) {
+    const liveAttr = (el, a, resolved) => {
+      const v = a.namespaceURI
+        ? el.getAttributeNS(a.namespaceURI, a.localName)
+        : el.getAttribute(a.qualifiedName);
+      return v === resolved;
+    };
+    resolveLive(result.conflicts, result.recoveryLinks, {
+      lookup,
+      vetoed: ap.vetoed,
+      vetoedAttrs: ap.vetoedAttrs,
+      liveAttr,
+      ignored: o.ignored,
+    });
+  }
   const report = {
     applied: ap.applied,
     decisions: result.decisions.map((d) =>
@@ -488,6 +525,7 @@ export function morphElement(oldEl, newContent, options = {}) {
       if (o.hooks.beforeNodeRemoved(oldEl) === false)
         return Promise.resolve(inner.report);
       oldEl.replaceWith(fresh);
+      remapLive(inner.report.conflicts, oldEl, fresh);
       o.hooks.afterNodeRemoved(oldEl);
       o.hooks.afterNodeAdded(fresh);
       o.hooks.afterNodeMorphed(oldEl, remoteRoot);

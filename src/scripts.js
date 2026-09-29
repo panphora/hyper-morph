@@ -142,11 +142,13 @@ export function makeInertScript(script, doc) {
  * @param {string} o.baseURI
  * @param {(n: Node) => boolean | void} o.beforeNodeAdded
  * @param {(n: Node) => void} o.afterNodeAdded
- * @returns {{ executed: Element[], loads: Promise<void>[] }}
+ * @returns {{ executed: Element[], loads: Promise<void>[], swapped: Map<Element, Element> }}
+ * `swapped` maps each inert script to the active element that replaced it.
  */
 export function executeNewScripts(root, before, o) {
   const executed = [],
     loads = [];
+  const swapped = new Map();
   const all = Array.from(root.querySelectorAll("script"));
   if (isHtmlScript(root)) all.unshift(root);
   for (const el of all) {
@@ -165,8 +167,9 @@ export function executeNewScripts(root, before, o) {
       );
     }
     el.replaceWith(fresh);
+    swapped.set(el, fresh);
     o.afterNodeAdded(fresh);
     executed.push(fresh);
   }
-  return { executed, loads };
+  return { executed, loads, swapped };
 }

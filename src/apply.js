@@ -45,6 +45,17 @@ export function apply(liveRoot, mergedRoot, result, o) {
   const twinsByParent = new Map();
   const mergedScriptsLive = new Set();
   const heldBy = new Map(); // merged text node -> live text node holding its text
+  // For the conflict report only: where an inserted copy (and each stand-in
+  // kept inside one) landed, and the merged nodes a hook kept out of the DOM.
+  const track = result.conflicts.length > 0;
+  const insertedLive = new Map();
+  const vetoed = new Set();
+  const vetoedAttrs = new Map();
+  const attrVeto = (el, name) => {
+    let names = vetoedAttrs.get(el);
+    if (!names) vetoedAttrs.set(el, (names = new Set()));
+    names.add(name);
+  };
 
   const inRoot = (n) =>
     !!n &&
@@ -140,7 +151,20 @@ export function apply(liveRoot, mergedRoot, result, o) {
 
   restoreFocus(doc, focus, liveTextInfo, textMappers, runOf, heldBy, keptRuns);
 
-  return { applied, moved, replaced, identities, mergedScriptsLive, liveOf };
+  return {
+    applied,
+    moved,
+    replaced,
+    identities,
+    mergedScriptsLive,
+    liveOf,
+    heldBy,
+    runOf,
+    keptRuns,
+    insertedLive,
+    vetoed,
+    vetoedAttrs,
+  };
 
   // -------------------------------------------------------------------
   // Word-level hunks carry the untouched letters of the word; drop them so
@@ -321,7 +345,10 @@ export function apply(liveRoot, mergedRoot, result, o) {
       if (p.remote) syncFormStateDeep(liveEl, p.remote);
       return;
     }
-    if (hooks.beforeNodeMorphed(liveEl, mergedEl) === false) return;
+    if (hooks.beforeNodeMorphed(liveEl, mergedEl) === false) {
+      vetoed.add(mergedEl);
+      return;
+    }
     syncAttributes(liveEl, mergedEl);
     const tag = liveEl.tagName;
     if (isHtmlScript(liveEl)) {
@@ -464,7 +491,7 @@ export function apply(liveRoot, mergedRoot, result, o) {
             lv.nodeValue = text;
           }
           hooks.afterNodeMorphed(lv, m);
-        }
+        } else vetoed.add(m);
         claimed.add(lv);
         seenHere.add(lv);
         heldBy.set(m, lv);
@@ -501,9 +528,13 @@ export function apply(liveRoot, mergedRoot, result, o) {
       // its live twin is unavailable, clone the remote original instead.
       const pm = provenance.get(m);
       const clone = deepInert(pm && pm.unchanged && pm.remote ? pm.remote : m);
-      if (hooks.beforeNodeAdded(clone) === false) continue;
+      if (hooks.beforeNodeAdded(clone) === false) {
+        vetoed.add(m);
+        continue;
+      }
       liveParent.insertBefore(clone, cursor);
       claimed.add(clone);
+      if (track) insertedLive.set(m, clone);
       if (clone.nodeType === 3) heldBy.set(m, clone);
       if (clone.nodeType === 1) {
         replaced.push(clone);
@@ -711,6 +742,7 @@ export function apply(liveRoot, mergedRoot, result, o) {
         continue;
       }
       claimed.add(cc);
+      if (track) insertedLive.set(mc, cc);
       if (cc.nodeType === 3) heldBy.set(mc, cc);
       if (pm && pm.unchanged && pm.remote) {
         fillFrom(cc, pm.remote);
@@ -736,8 +768,10 @@ export function apply(liveRoot, mergedRoot, result, o) {
         ? liveEl.getAttributeNS(attr.namespaceURI, attr.localName)
         : liveEl.getAttribute(attr.name);
       if (cur === attr.value) continue;
-      if (hooks.beforeAttributeUpdated(attr.name, liveEl, "update") === false)
+      if (hooks.beforeAttributeUpdated(attr.name, liveEl, "update") === false) {
+        if (track) attrVeto(mergedEl, attr.name);
         continue;
+      }
       if (attr.namespaceURI)
         liveEl.setAttributeNS(attr.namespaceURI, attr.name, attr.value);
       else liveEl.setAttribute(attr.name, attr.value);
@@ -759,8 +793,10 @@ export function apply(liveRoot, mergedRoot, result, o) {
         ? mergedEl.hasAttributeNS(attr.namespaceURI, attr.localName)
         : mergedEl.hasAttribute(attr.name);
       if (has) continue;
-      if (hooks.beforeAttributeUpdated(attr.name, liveEl, "remove") === false)
+      if (hooks.beforeAttributeUpdated(attr.name, liveEl, "remove") === false) {
+        if (track) attrVeto(mergedEl, attr.name);
         continue;
+      }
       const before = attr.value;
       if (attr.namespaceURI)
         liveEl.removeAttributeNS(attr.namespaceURI, attr.localName);
