@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Every conflict record carries `recovery`: the unit's paths on every side and
+  its live nodes, exact clash offsets and spans for text, namespace and names
+  for attributes, both sides' actions, placements, orders and a local snapshot
+  for structure, `localLost`, and `applied`/`unavailable`. Records reporting
+  one operation twice share one object. Legacy `el` and `node` now reach the
+  live element or comment where they were null, and the replacement root
+  where `morphElement` swapped a root of another tag.
+
 ## [1.0.1] - 2026-09-27
 
 ### Changed

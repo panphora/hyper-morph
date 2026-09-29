@@ -21,13 +21,19 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import path from "node:path";
-import { observe } from "../lib/differential-observe.js";
+import { observe, staticRecovery } from "../lib/differential-observe.js";
 import { generate, setIdMode } from "../lib/structure-fuzz.js";
 import * as candidate from "../../src/index.js";
 
 const MODES = [0, 1, 2, 3, 4, 5, 6];
 const SEEDS = 1000;
 const SHAPES = ["pure", "dirty", "clean", "element"];
+// The fields the reference must agree on. The conflict report's `recovery`
+// (E4b) is not among them: the reference has none, so it is checked on the
+// candidate alone, below. A conflict's `node`/`el` the candidate filled where
+// the reference had null (or a node the merge detached) is not a difference
+// when recovery says it is the subject's live node: `projectPointers` puts
+// the reference's value back before the comparison and counts the fill.
 const FIELDS = [
   "html",
   "nodeDestinations",
@@ -183,11 +189,48 @@ async function classify(reference, rev) {
   const table = accepted[rev] || {};
   const diffs = [];
   let runs = 0;
+  // The candidate's recovery data, where a case has conflicts: well formed
+  // (recoveryProblems), the same on a second run, and, without its live
+  // side, the same on the pure and the dirty route.
+  const recovered = { validated: 0, routes: 0, pointers: 0 };
+  const projectPointers = (refList, candList, pointers) => {
+    refList.forEach((r, i) => {
+      const c = candList[i];
+      if (!c) return;
+      for (const k of ["node", "el"])
+        if (
+          r[k] !== c[k] &&
+          (r[k] === null || r[k] === "detached") &&
+          c[k] !== null &&
+          pointers[i][k]
+        ) {
+          c[k] = r[k];
+          recovered.pointers++;
+        }
+    });
+  };
+  const recovery = async (key, shape, inputs, seen, statics) => {
+    if (!seen.recovery.length) return;
+    recovered.validated++;
+    assert.deepEqual(seen.recoveryProblems, [], `${key}:${shape} recovery`);
+    const again = await observe(candidate, shape, inputs);
+    assert.equal(
+      JSON.stringify(again.recovery),
+      JSON.stringify(seen.recovery),
+      `${key}:${shape} recovery differs between two runs`,
+    );
+    statics[shape] = staticRecovery(seen.recovery);
+  };
   const runCase = async (key, name, mode, inputs) => {
+    const statics = {};
     for (const shape of SHAPES) {
       runs++;
-      const ref = comparable(await observe(reference, shape, inputs));
-      const cand = comparable(await observe(candidate, shape, inputs));
+      const refSeen = await observe(reference, shape, inputs);
+      const seen = await observe(candidate, shape, inputs);
+      projectPointers(refSeen.conflicts, seen.conflicts, seen.pointers);
+      const ref = comparable(refSeen);
+      const cand = comparable(seen);
+      await recovery(key, shape, inputs, seen, statics);
       const fields = FIELDS.filter((f) => ref[f] !== cand[f]);
       if (fields.length)
         diffs.push({
@@ -200,6 +243,14 @@ async function classify(reference, rev) {
           cand,
           inputs,
         });
+    }
+    if (statics.pure !== undefined || statics.dirty !== undefined) {
+      recovered.routes++;
+      assert.equal(
+        statics.dirty,
+        statics.pure,
+        `${key}: recovery differs between the pure and the dirty route`,
+      );
     }
   };
   for (const mode of MODES) {
@@ -243,6 +294,11 @@ async function classify(reference, rev) {
       `(${diffs.length - unaccepted.length} accepted, ${unaccepted.length} unaccepted)`,
   ];
   for (const [key, n] of countBy(diffs)) summary.push(`  mode ${key}: ${n}`);
+  summary.push(
+    `  recovery: ${recovered.validated} runs validated and repeated, ` +
+      `${recovered.routes} pure/dirty pairs equal, ` +
+      `${recovered.pointers} legacy pointers filled and validated`,
+  );
   for (const [key, n] of classifications) summary.push(`  "${key}": ${n}`);
   if (stale.length)
     summary.push(`  stale accepted entries: ${stale.join(", ")}`);

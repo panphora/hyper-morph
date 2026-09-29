@@ -148,6 +148,106 @@ export type StructureDetail =
   | "move-beats-delete"
   | "insert-collision";
 
+/** A path into one input tree: childNodes indexes from the root; "content" enters a template. `[]` is the root. */
+export type ConflictPath = Array<number | "content">;
+
+export interface ConflictPoint {
+  path: ConflictPath;
+  offset: number;
+}
+
+export interface ConflictStaticSpan {
+  start: ConflictPoint;
+  end: ConflictPoint;
+}
+
+export interface ConflictLiveSpan {
+  startContainer: Node;
+  startOffset: number;
+  endContainer: Node;
+  endOffset: number;
+}
+
+/** One aligned unit (an element, a text run, a comment) on every side. */
+export interface ConflictRef {
+  /** `b:` + JSON base path, else `l:` + local path, else `r:` + remote path; `:run` for a run. */
+  key: string;
+  nodeType: 1 | 3 | 8;
+  base: ConflictPath[];
+  local: ConflictPath[];
+  remote: ConflictPath[];
+  /** Every output copy, in output order. */
+  merged: ConflictPath[];
+  /** Live nodes after apply; empty on the pure `merge3` route. */
+  live: Node[];
+}
+
+export interface ConflictPlacement {
+  parent: ConflictRef;
+  /** Following siblings, nearest first. */
+  before: ConflictRef[];
+  /** Preceding siblings, nearest first. */
+  after: ConflictRef[];
+}
+
+export interface ConflictTextSide {
+  /** The whole merge scope (a paragraph's flattened inline content, a run, a whole value). */
+  text: string;
+  start: number;
+  end: number;
+  fragment: string;
+  span: ConflictStaticSpan;
+  scope: ConflictStaticSpan;
+}
+
+export type ConflictAction =
+  | "deleted"
+  | "edited"
+  | "moved"
+  | "reordered"
+  | "inserted";
+
+/** What a consumer needs to show, undo or redo one conflict. Records that report one operation share one object. */
+export interface ConflictRecovery {
+  version: 1;
+  /** `text:<subject>:<bs>:<be>:<n>`, `attr:<subject>:<ns>:<localName>` or `structure:<subject>:<detail>`. */
+  key: string;
+  /** The local operation did not survive the merge. */
+  localLost: boolean;
+  subject: ConflictRef;
+  /** The conflict's output reached the live DOM. */
+  applied: boolean;
+  unavailable: null | "hook-veto" | "missing-output";
+  text?: {
+    /** `html`: inline content, atoms U+FFFC and block breaks U+001E in `text`, fragments as markup. */
+    encoding: "plain" | "html";
+    /** Null when local stood in for a missing base. */
+    base: ConflictTextSide | null;
+    local: ConflictTextSide;
+    remote: ConflictTextSide;
+    merged: ConflictTextSide;
+    liveSpan: ConflictLiveSpan | null;
+    liveScope: ConflictLiveSpan | null;
+  };
+  attribute?: {
+    namespaceURI: string | null;
+    localName: string;
+    qualifiedName: string;
+  };
+  structure?: {
+    localAction: ConflictAction;
+    remoteAction: ConflictAction;
+    localPlacement: ConflictPlacement | null;
+    remotePlacement: ConflictPlacement | null;
+    mergedPlacement: ConflictPlacement | null;
+    localOrder: ConflictRef[] | null;
+    mergedOrder: ConflictRef[] | null;
+    /** The local unit serialized before apply; null for a reorder or a local absence. */
+    localFragment: string | null;
+    fragmentKind: "element" | "text" | "comment";
+  };
+}
+
 export type Conflict =
   | {
       kind: "text";
@@ -159,6 +259,7 @@ export type Conflict =
       resolved: string;
       /** Inline content: the resolved region in the segment's merged text, atoms one character each. */
       range?: [number, number];
+      recovery: ConflictRecovery;
     }
   | {
       kind: "attr";
@@ -168,12 +269,14 @@ export type Conflict =
       local: string | null;
       remote: string | null;
       resolved: string | null;
+      recovery: ConflictRecovery;
     }
   | {
       kind: "structure";
       el: Element | null;
       detail: StructureDetail;
       base?: Element;
+      recovery: ConflictRecovery;
     };
 
 export interface MergeStats {

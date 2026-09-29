@@ -157,7 +157,11 @@ mints its own element identities overwrites its record with each entry of
 
 Conflicts carry the base, local, remote and resolved values for text and
 attributes, and a `detail` for structure: `both-reordered`, `both-moved`,
-`edit-beats-delete`, `move-beats-delete`, `insert-collision`.
+`edit-beats-delete`, `move-beats-delete`, `insert-collision`. Each also
+carries `recovery`: the unit's paths on every side, exact text offsets, the
+attribute's namespace, structural placements and a snapshot of the local
+fragment, whether the local operation was lost, and whether the result reached
+the live DOM (see `docs/api.md`).
 
 ## Text merging
 

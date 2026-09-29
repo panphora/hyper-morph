@@ -429,6 +429,7 @@ type Conflict =
       remote: string;
       resolved: string;
       range?: [number, number]; // inline content: the resolved region in the segment's merged text
+      recovery: ConflictRecovery; // see below
     }
   | {
       kind: "attr";
@@ -438,12 +439,14 @@ type Conflict =
       local: string | null;
       remote: string | null;
       resolved: string | null;
+      recovery: ConflictRecovery;
     }
   | {
       kind: "structure";
       el: Element | null;
       detail: StructureDetail;
       base?: Element;
+      recovery: ConflictRecovery;
     };
 type StructureDetail =
   | "both-reordered" // both sides reordered the same children; the order side won
@@ -463,6 +466,43 @@ offsets of the resolved region in the segment's merged text, where a `<br>`,
 `<wbr>` or `<img>` counts as one character. A conflict in a text run merged
 whole (a code-like element, a comment) has no `range`, and its `node` is the
 live text node or `null`.
+
+Every conflict also carries `recovery`, the data a consumer needs to show the
+clash, undo the merge's choice, or redo the local edit later. It is built only
+when a conflict was recorded, from the input trees the merge read, and the
+live side is filled after apply:
+
+- `subject` names the unit the conflict is about on every side as paths into
+  the immutable input trees (`childNodes` indexes from the root, `"content"`
+  entering a template; `[]` is the root), plus its live nodes after apply.
+  `key` (`b:[1,0]`, `l:[1,0,1]:run`, ...) is stable within one call, so two
+  records about one unit share it.
+- `key` is the operation key (`text:<subject>:<baseStart>:<baseEnd>:<n>`,
+  `attr:<subject>:<namespace>:<localName>`, `structure:<subject>:<detail>`).
+  Records that report the same operation twice, as `both-moved` and
+  `move-beats-delete` do today, share one `recovery` object.
+- `localLost` is true when the local operation did not survive: a local
+  deletion beaten by a remote edit, a local text under the `remote` policy, a
+  local move that did not land. A retained local edit or move is not a loss.
+- `applied` is true when the conflict's output reached the live DOM;
+  otherwise `unavailable` says why (`hook-veto` when a hook kept it out,
+  `missing-output` otherwise). A hook-vetoed record has `localLost` false,
+  since the hook kept the local content; a `missing-output` record keeps the
+  policy's `localLost`. On the pure `merge3` route `applied` is false,
+  `unavailable` is null and `live` arrays are empty.
+- `text` gives the whole merge scope and the clash offsets on each side
+  (`base` is null when local stood in for a missing base), `fragment`s,
+  static spans into the input trees, and the live span and scope after apply.
+  For inline content the `text` is the flattened sequence (an atom is U+FFFC,
+  a block break U+001E) and the fragments are markup.
+- `attribute` gives the namespace and names for `setAttributeNS`.
+- `structure` gives both sides' actions, the local, remote and merged
+  placements (parent ref, following and preceding sibling refs nearest first),
+  the participant orders for a reorder, and `localFragment`, the local unit
+  serialized before apply.
+
+`merge3` returns the same object with the live side empty. See
+`types/index.d.ts` for the exact shape.
 
 ### `localDiverged`
 
