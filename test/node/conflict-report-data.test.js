@@ -1702,7 +1702,9 @@ test("movedWithAttributes: a move and two attribute clashes on one subject", asy
     assert.equal(r.localLost, true);
   }
   assert.ok(
-    Object.values(m.report.stats).every((v) => typeof v === "number"),
+    Object.entries(m.report.stats).every(([k, v]) =>
+      k === "fastPathFallback" ? v === null : typeof v === "number",
+    ),
     JSON.stringify(m.report.stats),
   );
 });

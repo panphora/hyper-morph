@@ -25,7 +25,7 @@ import { emptyStats } from "./stats.js";
 import { align } from "./align.js";
 import { merge3Text, diff, words } from "./text-merge.js";
 import { mergeInline, isInlineUnit, MARK_TAGS } from "./inline-merge.js";
-import { indexByIdentity, defaultIdentity } from "./identity.js";
+import { indexByIdentity, defaultIdentity, warnDuplicate } from "./identity.js";
 import { headSignature } from "./head-merge.js";
 import { isHtmlScript, mergeIdentityOf } from "./scripts.js";
 import { mergeScriptText } from "./hyper-morph-json-merge.js";
@@ -45,6 +45,30 @@ const TEXT_BLOCK_TAGS = new Set(
   ),
 );
 const SPLIT_SCAN_MAX = 50000;
+
+/**
+ * The key alignment indexes a head child or a mergeable JSON script by, in
+ * place of its identity: a head child's head signature, a script's merge
+ * identity (so a content change never reads as a new script). Null for any
+ * other element.
+ * @param {Array | null} mergeTags - null when script merging is off
+ * @param {string} baseURI
+ * @returns {(el: Element) => string | null}
+ */
+/** The only elements the default identity or a structural key can name. */
+export const KEYED = "[id],[data-id],script,head>*";
+
+export function structuralKey(mergeTags, baseURI) {
+  return (el) => {
+    if (mergeTags !== null && el.tagName === "SCRIPT") {
+      const m = mergeIdentityOf(el, mergeTags);
+      if (m) return "merge:" + m.key;
+    }
+    if (el.parentElement && el.parentElement.tagName === "HEAD")
+      return headSignature(el, baseURI);
+    return null;
+  };
+}
 
 /**
  * @typedef {object} MergeResult
@@ -74,7 +98,8 @@ const SPLIT_SCAN_MAX = 50000;
  * @param {string} o.baseURI
  * @param {boolean} [o.localIsBase] - two-way mode: local is the base document
  * @param {object} [o.stats] - counters to fill; a fresh all-zero object by default
- * @returns {MergeResult}
+ * @param {object} [o.scope] - the fast path's one changed branch (fast-path.js): its identity indexes stand in for the whole-document ones, and the merge returns null, before building anything, when the alignment did not pair the branch's ancestors as the scope assumed
+ * @returns {MergeResult | null}
  */
 export function merge3(baseDoc, localDoc, remoteDoc, o) {
   const ignored = o.ignored;
@@ -87,17 +112,11 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   const { unitsOf, meta } = analyzer;
   const baseURI = o.baseURI;
 
-  // Head children identify by their head signature; mergeable JSON scripts by
-  // their merge identity, so a content change never reads as a new script.
   const mergeOn = o.mergeTags !== null;
+  const keyOf = structuralKey(o.mergeTags, baseURI);
   const withHead = (idOf) => (el) => {
-    if (mergeOn && el.tagName === "SCRIPT") {
-      const m = mergeIdentityOf(el, o.mergeTags);
-      if (m) return "merge:" + m.key;
-    }
-    if (el.parentElement && el.parentElement.tagName === "HEAD")
-      return headSignature(el, baseURI);
-    return idOf(el);
+    const k = keyOf(el);
+    return k !== null ? k : idOf(el);
   };
   const idBase = withHead(o.identity.base),
     idLocal = withHead(o.identity.local),
@@ -113,9 +132,11 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     rRoot = rootOf(remoteDoc);
   const prof = globalThis.__hyperMorphProfile;
   let t0 = prof ? performance.now() : 0;
-  const fastSel = "[id],[data-id],script,head>*";
-  const fast = (fn) => (fn === defaultIdentity ? fastSel : null);
-  const bIndex = indexByIdentity(bRoot, idBase, ignored, fast(o.identity.base));
+  const fast = (fn) => (fn === defaultIdentity ? KEYED : null);
+  const scope = o.scope || null;
+  const bIndex = scope
+    ? scope.baseIndex
+    : indexByIdentity(bRoot, idBase, ignored, fast(o.identity.base));
   const L =
     o.localIsBase || bRoot === lRoot
       ? identityAlignment()
@@ -135,16 +156,19 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   const R = align(bRoot, rRoot, {
     analyzer,
     baseIndex: bIndex,
-    sideIndex: indexByIdentity(
-      rRoot,
-      idRemote,
-      ignored,
-      fast(o.identity.remote),
-    ),
+    sideIndex: scope
+      ? scope.remoteIndex
+      : indexByIdentity(rRoot, idRemote, ignored, fast(o.identity.remote)),
     baseId: authored.base,
     sideId: authored.remote,
     stats,
+    scope,
   });
+  if (scope) {
+    if (!scope.held(R)) return null;
+    for (const id of [...scope.duplicates, ...scope.duplicates])
+      warnDuplicate(id);
+  }
   let templateOwners = null;
   function ownerOf(frag) {
     if (!templateOwners) {

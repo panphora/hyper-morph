@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { parse, doc, window } from "./lib/dom.js";
 import { mergeBodies } from "./lib/merge.js";
 import { mergeDocument } from "../../src/index.js";
-import { emptyStats } from "../../src/stats.js";
+import { emptyStats, FAST_PATH_BAILS } from "../../src/stats.js";
 
 // A real djb2 collision on the subtree hash: equal hashes, unequal content.
 const T1 = "1QD0Ts5wZ41g";
@@ -275,6 +275,10 @@ test("I4 stats carry no content", async () => {
   const stats = report.stats;
   assert.deepEqual(Object.keys(stats).sort(), [...KEYS].sort());
   for (const k of KEYS) {
+    if (k === "fastPathFallback") {
+      assert.ok(stats[k] === null || FAST_PATH_BAILS.includes(stats[k]), k);
+      continue;
+    }
     assert.equal(typeof stats[k], "number", k);
     assert.ok(Number.isInteger(stats[k]) && stats[k] >= 0, k);
   }

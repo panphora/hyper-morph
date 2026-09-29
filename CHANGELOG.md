@@ -1,9 +1,20 @@
 # Changelog
 
-## [Unreleased]
+## [1.1.0]
 
 ### Added
 
+- `fastPath` option for `mergeDocument`: a clean tab merging against a fresh
+  capture of itself (`base` a document whose root is `local.root`) merges
+  only the one branch the remote changed, with the same result, report and
+  hook calls as the full merge. Anything it cannot prove takes the full merge
+  before the page is touched, and `report.stats.fastPathFallback` says why.
+  Off by default; the limits are in `docs/api.md`.
+- `report.stats`: per-apply counters of what the merge had to do
+  (`lazyTwins`, `hashRejected`, `similarTiesStrict`, `similarTiesLoose`,
+  `ambiguousMoves`, `certificationPairs`, `certificationVisited`) and the
+  fast path's `fastPathAttempted`, `fastPathTaken` and `fastPathFallback`.
+  Nothing from the page, and no merge decision reads them.
 - Every conflict record carries `recovery`: the unit's paths on every side and
   its live nodes, exact clash offsets and spans for text, namespace and names
   for attributes, both sides' actions, placements, orders and a local snapshot
@@ -11,6 +22,30 @@
   one operation twice share one object. Legacy `el` and `node` now reach the
   live element or comment where they were null, and the replacement root
   where `morphElement` swapped a root of another tag.
+
+### Changed
+
+- Faster merges of mostly unchanged documents: a tree merged against itself
+  takes identity alignment, identity pairs whose subtrees are identical are
+  certified in one linear, ignore-aware pass and paired at once, and text
+  sibling twins are cached per parent.
+- A custom identity now reaches the descendants of an unchanged element that
+  apply clones or fills from the remote, not only the element itself.
+
+### Fixed
+
+- A copied container keeps its content. When the remote copied a subtree and
+  an identity or a move paired one of the copy's descendants with a node
+  elsewhere, the merge kept the container as unchanged, moved that
+  descendant out of it, and the copy arrived empty with no conflict.
+- Two subtrees count as equal only after a real equality check, template
+  content included, not on a matching hash alone.
+- A text run that typing split into several live nodes keeps every node and
+  the caret.
+- A paragraph moved within a container the merge found unchanged, including
+  inside `<template>` content, is moved rather than rebuilt, and an unchanged
+  element moved out of template content into a new wrapper keeps its content.
+- `localDiverged` is true after a local reorder of unchanged blocks.
 
 ## [1.0.1] - 2026-09-27
 

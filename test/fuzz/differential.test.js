@@ -24,6 +24,7 @@ import path from "node:path";
 import { observe, staticRecovery } from "../lib/differential-observe.js";
 import { generate, setIdMode } from "../lib/structure-fuzz.js";
 import * as candidate from "../../src/index.js";
+import { emptyStats } from "../../src/stats.js";
 
 const MODES = [0, 1, 2, 3, 4, 5, 6];
 const SEEDS = 1000;
@@ -210,6 +211,20 @@ async function classify(reference, rev) {
         }
     });
   };
+  // A stats key the reference predates (E5's fast-path keys) holds its
+  // all-zero value on the candidate, which never asks for the fast path
+  // here, and is left out of the comparison.
+  const projectStats = (refStats, stats, key) => {
+    const empty = emptyStats();
+    for (const k of Object.keys(stats))
+      if (!(k in refStats))
+        assert.equal(
+          stats[k],
+          empty[k],
+          `${key}: stats.${k} on a merge that never asked for the fast path`,
+        );
+    return Object.fromEntries(Object.keys(refStats).map((k) => [k, stats[k]]));
+  };
   const recovery = async (key, shape, inputs, seen, statics) => {
     if (!seen.recovery.length) return;
     recovered.validated++;
@@ -229,6 +244,7 @@ async function classify(reference, rev) {
       const refSeen = await observe(reference, shape, inputs);
       const seen = await observe(candidate, shape, inputs);
       projectPointers(refSeen.conflicts, seen.conflicts, seen.pointers);
+      seen.stats = projectStats(refSeen.stats, seen.stats, `${key}:${shape}`);
       const ref = comparable(refSeen);
       const cand = comparable(seen);
       await recovery(key, shape, inputs, seen, statics);

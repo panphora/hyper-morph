@@ -198,10 +198,15 @@ export function indexByIdentity(root, idOf, ignored, fastSelector = null) {
   }
   for (const id of dup) {
     map.delete(id);
-    if (id.startsWith("merge:"))
-      console.warn(
-        `[hyper-morph] merge disabled for duplicate identity "${id.slice(id.indexOf(":", 6) + 1)}"`,
-      );
+    warnDuplicate(id);
   }
   return map;
+}
+
+/** A duplicated merge identity turns the JSON merge off for it: say so. */
+export function warnDuplicate(id) {
+  if (id.startsWith("merge:"))
+    console.warn(
+      `[hyper-morph] merge disabled for duplicate identity "${id.slice(id.indexOf(":", 6) + 1)}"`,
+    );
 }

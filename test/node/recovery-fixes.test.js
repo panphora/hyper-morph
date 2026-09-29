@@ -80,7 +80,11 @@ test("F2: differential observes decision order, pointers, applied and stats", as
   assert.equal(o.decisions[1].applied, false);
   assert.equal(o.decisions[1].el, null);
   assert.ok(Object.keys(o.stats).length > 0);
-  assert.ok(Object.values(o.stats).every((v) => typeof v === "number"));
+  assert.ok(
+    Object.entries(o.stats).every(([k, v]) =>
+      k === "fastPathFallback" ? v === null : typeof v === "number",
+    ),
+  );
 });
 
 test("F6: structural conflicts retain every ordered fallback anchor", () => {

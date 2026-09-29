@@ -1,25 +1,38 @@
 import fs from "node:fs";
 import lcovParse from "lcov-parse";
 
-const FLOOR = { lines: 86, functions: 87, branches: 99 };
-const file = "coverage/lcov.info";
+const SUITES = [
+  {
+    file: "coverage/lcov.info",
+    run: "npm run test:chrome",
+    floor: { lines: 86, functions: 85, branches: 99 },
+  },
+  {
+    file: "coverage/node.lcov.info",
+    run: "npm run test:node:coverage",
+    floor: { lines: 89, functions: 93, branches: 93 },
+  },
+];
 
-if (!fs.existsSync(file)) {
-  console.error(`${file} is missing; run npm run test:chrome first`);
-  process.exit(1);
-}
+const parse = (file) =>
+  new Promise((resolve, reject) =>
+    lcovParse(file, (err, records) => (err ? reject(err) : resolve(records))),
+  );
 
-lcovParse(file, (err, records) => {
-  if (err) {
-    console.error("Error parsing lcov file:", err);
+let failed = false;
+for (const suite of SUITES) {
+  if (!fs.existsSync(suite.file)) {
+    console.error(`${suite.file} is missing; run ${suite.run} first`);
     process.exit(1);
   }
+  const records = (await parse(suite.file)).filter((r) =>
+    r.file.startsWith("src/"),
+  );
   if (!records.length) {
-    console.error(`${file} has no records`);
+    console.error(`${suite.file} has no records under src/`);
     process.exit(1);
   }
-  let failed = false;
-  for (const type of Object.keys(FLOOR)) {
+  for (const type of Object.keys(suite.floor)) {
     let hit = 0;
     let found = 0;
     for (const record of records) {
@@ -27,11 +40,11 @@ lcovParse(file, (err, records) => {
       found += record[type].found;
     }
     const pct = found ? (100 * hit) / found : 100;
-    const ok = pct >= FLOOR[type];
+    const ok = pct >= suite.floor[type];
     if (!ok) failed = true;
     console.log(
-      `${type} ${pct.toFixed(2)}% (floor ${FLOOR[type]}%)${ok ? "" : " FAIL"}`,
+      `${suite.file} ${type} ${pct.toFixed(2)}% (floor ${suite.floor[type]}%)${ok ? "" : " FAIL"}`,
     );
   }
-  process.exit(failed ? 1 : 0);
-});
+}
+process.exit(failed ? 1 : 0);

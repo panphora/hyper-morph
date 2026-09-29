@@ -9,13 +9,16 @@
  * caller can treat a marker on the root differently from one below it.
  */
 
+/** The predicate of a call that ignores nothing. */
+export const NEVER = () => false;
+
 /**
  * @param {(el: Element, isRoot: boolean) => boolean} [pred]
  * @param {Iterable<Node>} [boundaries] - roots at which the ancestor walk stops (inclusive)
  * @returns {(node: Node | null | undefined) => boolean}
  */
 export function makeIgnore(pred, boundaries = []) {
-  if (typeof pred !== "function") return () => false;
+  if (typeof pred !== "function") return NEVER;
   const cache = new WeakMap();
   const stops = new Set(boundaries);
   return (node) => {

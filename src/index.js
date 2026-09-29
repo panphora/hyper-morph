@@ -17,6 +17,7 @@ import { emptyStats } from "./stats.js";
 import { importMap, tieredIdentity, defaultIdentity } from "./identity.js";
 import { merge3 as mergeCore } from "./merge.js";
 import { apply } from "./apply.js";
+import { findScope } from "./fast-path.js";
 import { resolveLive, remapLive } from "./recovery.js";
 import { captureLocal } from "./recovery-local.js";
 import {
@@ -56,6 +57,7 @@ const KNOWN = new Set([
   "children",
   "hooks",
   "beforeApply",
+  "fastPath",
 ]);
 const noop = () => {};
 
@@ -89,6 +91,8 @@ function normalize(o, roots = []) {
     protect !== "subtree"
   )
     throw new TypeError(`protectFocusedValue must be a boolean or "subtree"`);
+  if (o.fastPath !== undefined && typeof o.fastPath !== "boolean")
+    throw new TypeError(`fastPath must be a boolean`);
   return {
     ignored: makeIgnore(o.ignore, roots),
     remoteWins: makeIgnore(o.remoteWins, roots),
@@ -109,6 +113,7 @@ function normalize(o, roots = []) {
     hooks,
     children: !!o.children,
     beforeApply: typeof o.beforeApply === "function" ? o.beforeApply : null,
+    fastPath: o.fastPath === true,
   };
 }
 
@@ -211,8 +216,12 @@ function run({
     ? collectBodyScriptSignatures(liveRoot, o.ignored, doc.baseURI)
     : null;
 
-  const stats = emptyStats();
-  const result = mergeCore(baseRoot || localRoot, localRoot, remoteRoot, {
+  let stats = emptyStats();
+  // With no per-node morph hooks, subtrees identical on both sides need
+  // neither output nor a visit; the hook contract fires per matched node.
+  const skipUnchanged =
+    o.hooks.beforeNodeMorphed === noop && o.hooks.afterNodeMorphed === noop;
+  const mergeOptions = {
     identity: {
       base: resolveIdentity(identity.base, baseRoot || localRoot),
       local: resolveIdentity(identity.local, localRoot),
@@ -231,12 +240,56 @@ function run({
     baseURI: doc.baseURI,
     localIsBase: !baseRoot,
     childrenOnly,
-    stats,
-    // With no per-node morph hooks, subtrees identical on both sides need
-    // neither output nor a visit; the hook contract fires per matched node.
-    skipUnchanged:
-      o.hooks.beforeNodeMorphed === noop && o.hooks.afterNodeMorphed === noop,
-  });
+    skipUnchanged,
+  };
+  // The fast path: a clean tab's document merge (base and local one tree),
+  // narrowed to the one branch the remote changed. It reads the same merge
+  // code with narrower identity work, and every check that could send it to
+  // the full merge runs before anything live is touched.
+  const attempted =
+    o.fastPath &&
+    isDocument &&
+    !childrenOnly &&
+    skipUnchanged &&
+    baseRoot === localRoot;
+  let result = null;
+  let fallback = null;
+  if (attempted) {
+    const found = findScope({
+      baseRoot,
+      remoteRoot,
+      liveRoot,
+      toLive,
+      o,
+      identity: mergeOptions.identity,
+      baseURI: doc.baseURI,
+    });
+    if (found.bail) fallback = found.bail;
+    else {
+      result = mergeCore(
+        baseRoot,
+        localRoot,
+        remoteRoot,
+        Object.assign({}, mergeOptions, { stats, scope: found.scope }),
+      );
+      if (!result) {
+        fallback = "chain-unpaired";
+        stats = emptyStats();
+      }
+    }
+  }
+  if (!result)
+    result = mergeCore(
+      baseRoot || localRoot,
+      localRoot,
+      remoteRoot,
+      Object.assign({}, mergeOptions, { stats }),
+    );
+  if (attempted) {
+    stats.fastPathAttempted = 1;
+    stats.fastPathTaken = fallback ? 0 : 1;
+    stats.fastPathFallback = fallback;
+  }
   if (
     result.recoveryLinks &&
     [

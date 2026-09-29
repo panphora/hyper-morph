@@ -17,8 +17,8 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run format:check
       - run: npm run build && git diff --exit-code dist/
-      - run: npm run test:node
       - run: npm run test:chrome -- --fail-only
+      - run: npm run test:node:coverage
       - run: node test/lib/ensure-full-coverage.js
 
   browsers:

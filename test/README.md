@@ -55,6 +55,25 @@ HM_REFERENCE_ENTRY=/private/tmp/hm-reference-m2/src/index.js \
 HM_REFERENCE_REV=dea289b npm run test:diff
 ```
 
+## Fast-path gate: `npm run test:fastpath`
+
+`test/fuzz/fast-path-gate.test.js` merges every generated input in ClayJS's
+clean shape twice, with `fastPath: false` as the reference and with
+`fastPath: true`, and requires the two to agree on everything
+`test/lib/fast-path-gate.js` observes: bytes, node destinations, adopted
+identities, form properties, applied, conflicts with `recovery`, decisions,
+moved, replaced, `localDiverged`, the non-work stats, warnings and hook
+calls. Seeds 1 to 3000 in id modes 0 to 6, a flat and a nested page shape
+(and on every third seed the nested page merged into a live page that
+differs from its capture: a head node and attribute only the live page has,
+a node only the capture has, a node only the live page has outside the
+branch), four identity variants (authored only, synthetic converged by path,
+operation-maintained, and operation-maintained with one id swapped, copied
+or renewed); one thread per id mode, about four minutes. The fast path must
+be taken in every mode, shape and variant. `HM_GATE_SEEDS=<n>` runs fewer
+seeds for a quick look. The hand cases and failure fixtures are in the node
+suite (`test/node/fast-path.test.js`, cases in `test/lib/fast-path-cases.js`).
+
 ## Browser suite: `npm run test:chrome`
 
 `test/*.js`, run by web-test-runner in headless Chromium with mocha and

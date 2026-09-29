@@ -89,6 +89,8 @@ export interface MergeDocumentOptions extends CommonOptions {
   remote: string | Document;
   /** The local side when it is not the live DOM: a snapshot clone plus provenance. */
   local?: { root: Element; toLive: (n: Node) => Node | null };
+  /** Narrow a clean tab's merge (base's root is local.root) to the one changed branch; anything unproven takes the full merge. Default false. */
+  fastPath?: boolean;
 }
 
 export type MorphDocumentOptions = CommonOptions;
@@ -279,6 +281,24 @@ export type Conflict =
       recovery: ConflictRecovery;
     };
 
+/** Why a fastPath call took the full merge. */
+export type FastPathBail =
+  | "root-tag"
+  | "equal"
+  | "root-attrs"
+  | "root-level"
+  | "not-in-body"
+  | "ignored-ancestor"
+  | "remote-wins-ancestor"
+  | "form-ancestor"
+  | "script-or-template"
+  | "no-live-twin"
+  | "live-detached"
+  | "ancestor-live"
+  | "sibling-live"
+  | "outside-id-changed"
+  | "chain-unpaired";
+
 export interface MergeStats {
   lazyTwins: number;
   hashRejected: number;
@@ -287,6 +307,9 @@ export interface MergeStats {
   ambiguousMoves: number;
   certificationPairs: number;
   certificationVisited: number;
+  fastPathAttempted: number;
+  fastPathTaken: number;
+  fastPathFallback: FastPathBail | null;
 }
 
 export interface MergeReport {

@@ -119,6 +119,7 @@ await mergeDocument({
     beforeAttributeUpdated: (name, el, kind) => {},
   },
   beforeApply: (mergedDoc) => {}, // inspect or serialize before apply
+  fastPath: false, // narrow a clean tab's merge to the one changed branch (see docs/api.md)
 });
 ```
 
@@ -153,7 +154,9 @@ mints its own element identities overwrites its record with each entry of
 `identities`, which is how ids converge across tabs after one round trip.
 `stats` is per-apply instrumentation: counters of what the merge had to do
 (`lazyTwins`, `hashRejected`, `similarTiesStrict`, `similarTiesLoose`,
-`ambiguousMoves`), numbers only, never anything from the page.
+`ambiguousMoves`, `certificationPairs`, `certificationVisited`), whether the
+fast path was attempted and taken, and the named reason it fell back; never
+anything from the page.
 
 Conflicts carry the base, local, remote and resolved values for text and
 attributes, and a `detail` for structure: `both-reordered`, `both-moved`,

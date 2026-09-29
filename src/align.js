@@ -47,6 +47,7 @@ const POSITIONAL_LOOKAHEAD = 3;
  * @param {(el: Element) => string | null} [o.baseId] - identity of a base element
  * @param {(el: Element) => string | null} [o.sideId] - identity of a side element
  * @param {object} [o.stats] - per-apply counters to fill
+ * @param {object} [o.scope] - the fast path's changed branch (fast-path.js): certification walks only the branch, and refuses the ancestors on its chain unwalked, since each holds the change
  * @returns {Alignment}
  */
 /**
@@ -90,6 +91,46 @@ export function align(baseRoot, sideRoot, o) {
     map.set(b, s);
     reverse.set(s, b);
   };
+  // A pair made anywhere (an identity, a move) rather than beside its
+  // parents' pair: every ancestor of either unit is marked, so a pair made
+  // on content can tell whether anything inside it is paired already.
+  const holdsB = new Set(),
+    holdsS = new Set();
+  let owners = null;
+  const up = (u) => {
+    const p = u.nodeType ? u.parentNode : u.parent;
+    if (!p || p.nodeType !== 11) return p;
+    if (!owners) {
+      owners = new WeakMap();
+      const scan = (scope) => {
+        for (const t of scope.querySelectorAll("template"))
+          if (t.content) {
+            owners.set(t.content, t);
+            scan(t.content);
+          }
+      };
+      for (const r of [baseRoot, sideRoot])
+        scan(r.tagName === "TEMPLATE" && r.content ? r.content : r);
+    }
+    return owners.get(p) || null;
+  };
+  const anywhere = (b, s) => {
+    for (let p = up(b); p && !holdsB.has(p); p = up(p)) holdsB.add(p);
+    for (let p = up(s); p && !holdsS.has(p); p = up(p)) holdsS.add(p);
+  };
+  // Whether an identical pair owns a unit: the nearest paired ancestor is
+  // identical, so the unit is paired only on demand, with its counterpart.
+  const ownedB = (u) => {
+    for (let p = up(u); p; p = up(p)) if (map.has(p)) return identical.has(p);
+    return false;
+  };
+  const ownedS = (u) => {
+    for (let p = up(u); p; p = up(p)) {
+      const x = reverse.get(p);
+      if (x !== undefined) return identical.has(x);
+    }
+    return false;
+  };
   const isEl = (u) => !!u && u.nodeType === 1;
   const isBanned = (b, s) => {
     const set = banned.get(b);
@@ -97,6 +138,10 @@ export function align(baseRoot, sideRoot, o) {
   };
   const codeLike = (el) => CODE_LIKE.has(el.tagName);
   const equalNodes = (b, s) => {
+    if (o.scope) {
+      if (o.scope.same.get(b) === s) return true;
+      if (o.scope.differ.get(b) === s) return false;
+    }
     if (!b.isEqualNode(s)) return false;
     if (b.tagName === "TEMPLATE") return equalUnits(b, s);
     const tb = b.getElementsByTagName("template");
@@ -118,7 +163,7 @@ export function align(baseRoot, sideRoot, o) {
 
   const prof = globalThis.__hyperMorphProfile;
   let t0 = prof ? performance.now() : 0;
-  if (prof) {
+  if (prof && !o.scope) {
     meta(baseRoot);
     meta(sideRoot);
     prof.meta = (prof.meta || 0) + (performance.now() - t0);
@@ -132,6 +177,7 @@ export function align(baseRoot, sideRoot, o) {
     const s = o.sideIndex.get(id);
     if (s && s.tagName === b.tagName && !map.has(b) && !reverse.has(s)) {
       pair(b, s);
+      anywhere(b, s);
       identityPaired.add(b);
     }
   }
@@ -144,7 +190,9 @@ export function align(baseRoot, sideRoot, o) {
   // each node is walked by one pair and the pass stays linear.
   if (identityPaired.size) {
     const order = [];
-    const stack = [baseRoot];
+    if (o.scope)
+      for (const c of o.scope.chain) if (identityPaired.has(c)) order.push(c);
+    const stack = [o.scope ? o.scope.root : baseRoot];
     while (stack.length) {
       const n = stack.pop();
       if (identityPaired.has(n)) order.push(n);
@@ -155,7 +203,8 @@ export function align(baseRoot, sideRoot, o) {
     const refusedPairs = new Set();
     for (let k = order.length - 1; k >= 0; k--) {
       const b = order[k];
-      if (certify(b, map.get(b), refusedPairs)) {
+      if (o.scope && o.scope.onChain.has(b)) refusedPairs.add(b);
+      else if (certify(b, map.get(b), refusedPairs)) {
         identical.add(b);
         visited.add(b);
         if (stats) stats.certificationPairs++;
@@ -165,6 +214,7 @@ export function align(baseRoot, sideRoot, o) {
     for (const b of order)
       if (identical.has(b) && !completed.has(b)) complete(b, completed);
   }
+  if (o.scope && o.scope.head) lockstep(o.scope.head[0], o.scope.head[1]);
 
   // Pair everything under a certified pair now, level by level, so the map
   // is as complete as a drained alignment leaves it: the merge reads twins
@@ -358,6 +408,7 @@ export function align(baseRoot, sideRoot, o) {
   function pairSlots(from, to) {
     for (let n = from; n < to; n++) {
       const [bEl, sEl] = slotParents[n];
+      if (map.get(bEl) !== sEl) continue;
       const bu = unitsOf(bEl),
         su = unitsOf(sEl);
       // Leftovers by gap: the gap is named by the nearest preceding paired
@@ -479,9 +530,55 @@ export function align(baseRoot, sideRoot, o) {
    * about them needs to be compared.
    */
   function lockstep(b, s) {
+    if (isEl(b) && (holdsB.has(b) || holdsS.has(s))) own(b, s);
+    lockstepUnder(b, s);
+  }
+
+  function lockstepUnder(b, s) {
     pair(b, s);
     identical.add(b);
     if (isEl(b)) visited.add(b);
+  }
+
+  /**
+   * An identical pair owns both subtrees: the merge keeps it as it is, so a
+   * unit inside it paired with anything but its counterpart would also be
+   * moved out of it, and the copy left behind would lose it. Before a pair
+   * is made on content, every pair with a unit inside either subtree that
+   * is not the unit's counterpart (an identity pair, a move, or one an
+   * unpair left under an unpaired unit) is dropped, and a pair that is the
+   * counterpart becomes identical too. No later pass pairs a unit an
+   * identical pair owns.
+   */
+  function own(b, s) {
+    const release = (x, y) => {
+      map.delete(x);
+      reverse.delete(y);
+      moved.delete(x);
+      identical.delete(x);
+      weak.delete(x);
+      if (isEl(x)) visited.add(x);
+    };
+    const stack = [b, s];
+    while (stack.length) {
+      const y = stack.pop(),
+        x = stack.pop();
+      const t = map.get(x);
+      if (t !== undefined && t !== y) release(x, t);
+      const z = reverse.get(y);
+      if (z !== undefined && z !== x) release(z, y);
+      if (!isEl(x)) continue;
+      if (map.get(x) === y) {
+        moved.delete(x);
+        weak.delete(x);
+        identical.add(x);
+        visited.add(x);
+      }
+      const xu = unitsOf(x),
+        yu = unitsOf(y);
+      for (let i = 0; i < xu.length && i < yu.length; i++)
+        stack.push(xu[i], yu[i]);
+    }
   }
 
   /**
@@ -495,7 +592,7 @@ export function align(baseRoot, sideRoot, o) {
     const bu = unitsOf(b),
       su = unitsOf(s);
     for (let i = 0; i < bu.length && i < su.length; i++)
-      if (!map.has(bu[i])) lockstep(bu[i], su[i]);
+      if (!map.has(bu[i])) lockstepUnder(bu[i], su[i]);
   }
 
   function passSigHint(freeB, freeS) {
@@ -721,7 +818,7 @@ export function align(baseRoot, sideRoot, o) {
       }
     if (weakByHash.size)
       for (const s of unpairedSide) {
-        if (reverse.has(s) || !isEl(s)) continue;
+        if (reverse.has(s) || !isEl(s) || ownedS(s)) continue;
         const list = weakByHash.get(meta(s).hash);
         const b =
           list &&
@@ -735,6 +832,7 @@ export function align(baseRoot, sideRoot, o) {
         if (!b) continue;
         unpair(b);
         lockstep(b, s);
+        anywhere(b, s);
         moved.add(b);
       }
     const byHash = new Map(),
@@ -750,7 +848,7 @@ export function align(baseRoot, sideRoot, o) {
     // Never from a weak pair's own descendant: that would pair the side
     // container with a piece of its base twin.
     const free = (s, b) => {
-      if (!reverse.has(s)) return true;
+      if (!reverse.has(s)) return !ownedS(s);
       const w = weakOf.get(s);
       return w === reverse.get(s) && w !== b && !w.contains(b);
     };
@@ -783,7 +881,7 @@ export function align(baseRoot, sideRoot, o) {
     }
     for (const b of [...unpairedBase, ...slotOnly]) {
       const was = map.get(b);
-      if (was && !(weak.has(b) && slotOnly.has(b))) continue;
+      if (was ? !(weak.has(b) && slotOnly.has(b)) : ownedB(b)) continue;
       const claim = (s) => {
         if (was) unpair(b);
         take(s);
@@ -796,6 +894,7 @@ export function align(baseRoot, sideRoot, o) {
         if (s) {
           claim(s);
           lockstep(b, s);
+          anywhere(b, s);
           moved.add(b);
           continue;
         }
@@ -819,6 +918,7 @@ export function align(baseRoot, sideRoot, o) {
       if (count === 1) {
         claim(hit);
         pair(b, hit);
+        anywhere(b, hit);
         moved.add(b);
         queue.push([b, hit]);
       }

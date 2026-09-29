@@ -67,7 +67,7 @@ export function finalTree(root) {
   return { root, seen, owners };
 }
 
-const nameOf = (label, final, n) => {
+export const nameOf = (label, final, n) => {
   const id = label.ids.get(n);
   if (id !== undefined) return id;
   return final.seen.has(n) ? address(final.root, n, final.owners) : "detached";
@@ -123,7 +123,7 @@ const scalar = (v) =>
       : "unit";
 const pointer = (n, label, final) =>
   n === undefined || n === null ? null : nameOf(label, final, n);
-const conflictList = (conflicts, label, final) =>
+export const conflictList = (conflicts, label, final) =>
   conflicts.map((c) => ({
     kind: c.kind,
     detail: c.detail === undefined ? null : c.detail,
@@ -174,7 +174,7 @@ const explained = (c, final, pure) => {
 export const pointerList = (conflicts, final, pure) =>
   conflicts.map((c) => explained(c, final, pure));
 
-const decisionList = (decisions, label, final) =>
+export const decisionList = (decisions, label, final) =>
   decisions.map((d) => ({
     kind: d.kind,
     source: d.source === undefined ? null : d.source,

@@ -130,6 +130,7 @@ an object.
 | `children`            | `boolean`                                                                  | `false`                | `morphElement`, `merge3`                         |
 | `hooks`               | see below                                                                  | no-ops                 | applying calls                                   |
 | `beforeApply`         | `(mergedDoc: Document) => void`                                            | none                   | applying calls                                   |
+| `fastPath`            | `boolean`                                                                  | `false`                | `mergeDocument`                                  |
 
 ### `base`
 
@@ -352,6 +353,35 @@ over it. The document is discarded after apply; its nodes are never
 inserted into the live DOM (live nodes are updated in place, and nodes
 without a twin are inserted as clones).
 
+### `fastPath`
+
+A narrower merge for one shape: a clean tab merging a frame against a fresh
+capture of itself, that is `mergeDocument` with `base` a Document whose root
+is `local.root`, no `beforeNodeMorphed` or `afterNodeMorphed` hook, and a
+whole document. It finds the one branch the remote changed and runs the same
+merge and apply with the identity work narrowed to that branch; the result,
+the report and every hook call are the full merge's. Anything it cannot prove
+takes the full merge, before the live DOM is touched, and
+`stats.fastPathFallback` names why. Off by default.
+
+Limits (each takes the full merge):
+
+- one changed branch below `<body>`: a change directly in `<body>`, two
+  changed regions, or any change in `<head>` (`root-level`, `not-in-body`);
+- attributes of the root element, except those `ignoreAttribute` leaves out
+  (`root-attrs`);
+- an identity outside the branch that differs between base and remote,
+  including a sender whose synthetic ids do not match this tab's
+  (`outside-id-changed`, or `root-level` when `<body>`'s own id differs);
+- a `<template>` anywhere, or a `<script>` in the branch
+  (`script-or-template`);
+- the branch inside an ignored or remote-wins region, or inside a form
+  control (`ignored-ancestor`, `remote-wins-ancestor`, `form-ancestor`);
+- a `local.toLive` that has no live element for the branch, its ancestors
+  or an unchanged sibling (`no-live-twin`, `live-detached`, `ancestor-live`,
+  `sibling-live`);
+- an alignment that moves an ancestor of the branch (`chain-unpaired`).
+
 ## The report
 
 ```ts
@@ -546,7 +576,7 @@ plus the fresh element of a tag change in `morphElement`.
 
 ### `stats`
 
-What the merge had to do, as counters. Numbers only: nothing from the page
+What the merge had to do, as counters, plus the name of a fast-path fallback. Numbers and that closed list only: nothing from the page
 (no text, no ids, no tags) ever appears in them, and no merge decision reads
 them. One fresh object per call, shared by the local and the remote
 alignment, so the numbers total across both sides. The pure `merge3` returns
@@ -561,6 +591,9 @@ type MergeStats = {
   ambiguousMoves: number;
   certificationPairs: number;
   certificationVisited: number;
+  fastPathAttempted: number;
+  fastPathTaken: number;
+  fastPathFallback: FastPathBail | null;
 };
 ```
 
@@ -573,6 +606,9 @@ type MergeStats = {
 | `ambiguousMoves`       | base elements the move pass refused because more than one similar candidate was free and that never moved afterwards, counted once per base element per alignment, at the end of the merge's alignment phase                                                                                                                | `align.js` `moves()`, counted in `merge.js` after the alignment phase |
 | `certificationPairs`   | identity pairs certified identical                                                                                                                                                                                                                                                                                          | `align.js`, Pass 1b                                                   |
 | `certificationVisited` | nodes visited by certification walks; each node is walked by at most one identity pair's walk, plus once as the leaf of the enclosing pair's walk                                                                                                                                                                           | `align.js`, `certify`                                                 |
+| `fastPathAttempted`    | 1 when the call asked for `fastPath` in the shape it serves, else 0                                                                                                                                                                                                                                                         | `index.js`, `run`                                                     |
+| `fastPathTaken`        | 1 when the fast path produced the result, else 0                                                                                                                                                                                                                                                                            | `index.js`, `run`                                                     |
+| `fastPathFallback`     | the check that sent an attempted call to the full merge, one of the names listed under `fastPath` above, else null; the only stats value that is not a number                                                                                                                                                               | `fast-path.js`, `findScope`; `index.js`, `run`, for `chain-unpaired`  |
 
 ## Merge semantics
 
@@ -904,6 +940,7 @@ is documented in `src/legacy-splice.js`. They will be removed in 2.0.
 | unknown option key                             | `TypeError('unknown option "x"')`       |
 | `conflicts` not remote/local/both              | `TypeError`                             |
 | `formState` not attribute/property             | `TypeError`                             |
+| `fastPath` not a boolean                       | `TypeError`                             |
 | `mergeDocument` without a `Document` as `live` | `TypeError("live must be a Document")`  |
 | `morphElement` without an `Element`            | `TypeError("oldEl must be an Element")` |
 | `remote`/`base` neither string nor `Document`  | `TypeError` from the parser             |
@@ -929,7 +966,7 @@ line granularity beyond 20,000 tokens or 4,000 edits; the cross-parent move pass
 evaluations per side; the ignore predicate runs at most once per element
 per call. Setting `globalThis.__hyperMorphProfile = {}` before a call
 accumulates per-phase timings (`meta`, `align`, `alignTotal`, `build`,
-`apply`) into that object.
+`apply`) into that object. A fast-path merge does not record `meta`.
 
 ## Compatibility: `morph()`
 
