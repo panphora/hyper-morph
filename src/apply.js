@@ -56,6 +56,12 @@ export function apply(liveRoot, mergedRoot, result, o) {
     if (!names) vetoedAttrs.set(el, (names = new Set()));
     names.add(name);
   };
+  const removedVetoes = track ? new Set() : null;
+  const beforeAttribute = (name, el, action) => {
+    const answer = hooks.beforeAttributeUpdated(name, el, action);
+    if (track && answer === false) attrVeto(el, name);
+    return answer;
+  };
 
   const inRoot = (n) =>
     !!n &&
@@ -164,6 +170,7 @@ export function apply(liveRoot, mergedRoot, result, o) {
     insertedLive,
     vetoed,
     vetoedAttrs,
+    removedVetoes,
   };
 
   // -------------------------------------------------------------------
@@ -470,6 +477,7 @@ export function apply(liveRoot, mergedRoot, result, o) {
             for (const n of run) moveBefore(liveParent, n, cursor);
           if (hooks.beforeNodeMorphed(lv, m) !== false)
             hooks.afterNodeMorphed(lv, m);
+          else if (track) vetoed.add(m);
           for (const n of run) {
             claimed.add(n);
             seenHere.add(n);
@@ -666,7 +674,10 @@ export function apply(liveRoot, mergedRoot, result, o) {
   }
 
   function removeNode(node, parent) {
-    if (hooks.beforeNodeRemoved(node) === false) return;
+    if (hooks.beforeNodeRemoved(node) === false) {
+      if (track) removedVetoes.add(node);
+      return;
+    }
     node.parentNode.removeChild(node);
     applied.push({ kind: "remove", node, parent });
     hooks.afterNodeRemoved(node);
@@ -865,7 +876,7 @@ export function apply(liveRoot, mergedRoot, result, o) {
           const was = liveEl.getAttribute("value");
           if (
             (was !== a || liveEl.value !== src.value) &&
-            hooks.beforeAttributeUpdated(
+            beforeAttribute(
               "value",
               liveEl,
               a == null ? "remove" : "update",
@@ -891,7 +902,7 @@ export function apply(liveRoot, mergedRoot, result, o) {
               : mergedEl.getAttribute("value");
           if (
             liveEl.getAttribute("value") !== v &&
-            hooks.beforeAttributeUpdated("value", liveEl, "update") !== false
+            beforeAttribute("value", liveEl, "update") !== false
           ) {
             liveEl.setAttribute("value", v);
             if (liveEl.value !== v) liveEl.value = v;
@@ -906,9 +917,7 @@ export function apply(liveRoot, mergedRoot, result, o) {
             liveEl.value = v;
           }
         } else if (liveEl.hasAttribute("value") || liveEl.value !== "") {
-          if (
-            hooks.beforeAttributeUpdated("value", liveEl, "remove") !== false
-          ) {
+          if (beforeAttribute("value", liveEl, "remove") !== false) {
             liveEl.removeAttribute("value");
             liveEl.value = "";
             applied.push({
@@ -928,12 +937,12 @@ export function apply(liveRoot, mergedRoot, result, o) {
         if (mv == null) {
           if (
             liveEl.hasAttribute("value") &&
-            hooks.beforeAttributeUpdated("value", liveEl, "remove") !== false
+            beforeAttribute("value", liveEl, "remove") !== false
           )
             liveEl.removeAttribute("value");
         } else if (
           liveEl.getAttribute("value") !== mv &&
-          hooks.beforeAttributeUpdated("value", liveEl, "update") !== false
+          beforeAttribute("value", liveEl, "update") !== false
         )
           liveEl.setAttribute("value", mv);
       }
@@ -962,13 +971,7 @@ export function apply(liveRoot, mergedRoot, result, o) {
     if (o.formState !== "property") {
       const has = liveEl.hasAttribute(name);
       if (has !== want) {
-        if (
-          hooks.beforeAttributeUpdated(
-            name,
-            liveEl,
-            want ? "update" : "remove",
-          ) === false
-        )
+        if (beforeAttribute(name, liveEl, want ? "update" : "remove") === false)
           return;
         if (want) liveEl.setAttribute(name, "");
         else liveEl.removeAttribute(name);
@@ -989,8 +992,7 @@ export function apply(liveRoot, mergedRoot, result, o) {
     // its default value, and rewriting it under the caret is the edit the
     // protection exists to prevent.
     if (o.protectFocusedValue && isFocused(liveEl)) return;
-    if (hooks.beforeAttributeUpdated("value", liveEl, "update") === false)
-      return;
+    if (beforeAttribute("value", liveEl, "update") === false) return;
     const built = builtRemote(p);
     const text = mergedEl.textContent;
     const value =

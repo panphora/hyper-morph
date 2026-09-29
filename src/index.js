@@ -18,6 +18,7 @@ import { importMap, tieredIdentity, defaultIdentity } from "./identity.js";
 import { merge3 as mergeCore } from "./merge.js";
 import { apply } from "./apply.js";
 import { resolveLive, remapLive } from "./recovery.js";
+import { captureLocal } from "./recovery-local.js";
 import {
   collectBodyScriptSignatures,
   executeNewScripts,
@@ -236,6 +237,16 @@ function run({
     skipUnchanged:
       o.hooks.beforeNodeMorphed === noop && o.hooks.afterNodeMorphed === noop,
   });
+  if (
+    result.recoveryLinks &&
+    [
+      "beforeNodeMorphed",
+      "beforeNodeAdded",
+      "beforeNodeRemoved",
+      "beforeAttributeUpdated",
+    ].some((name) => o.hooks[name] !== noop)
+  )
+    captureLocal(result.conflicts, result.recoveryLinks, toLive);
   if (o.beforeApply) o.beforeApply(result.doc);
   const prof = globalThis.__hyperMorphProfile;
   const tA = prof ? performance.now() : 0;
@@ -272,6 +283,7 @@ function run({
     }
   }
   let swapped = null;
+  let scriptVetoes = null;
   if (before) {
     const ex = executeNewScripts(liveRoot, before, {
       ignored: o.ignored,
@@ -282,6 +294,7 @@ function run({
     });
     loads.push(...ex.loads);
     swapped = ex.swapped;
+    scriptVetoes = ex.vetoed;
   }
 
   // A merged node's live node: its twin, the text node holding its text
@@ -314,6 +327,8 @@ function run({
       lookup,
       vetoed: ap.vetoed,
       vetoedAttrs: ap.vetoedAttrs,
+      removedVetoes: ap.removedVetoes,
+      vetoedLive: scriptVetoes,
       liveAttr,
       ignored: o.ignored,
       liveRoot,

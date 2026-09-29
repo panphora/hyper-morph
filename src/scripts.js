@@ -149,6 +149,7 @@ export function executeNewScripts(root, before, o) {
   const executed = [],
     loads = [];
   const swapped = new Map();
+  const vetoed = new Set();
   const all = Array.from(root.querySelectorAll("script"));
   if (isHtmlScript(root)) all.unshift(root);
   for (const el of all) {
@@ -157,7 +158,10 @@ export function executeNewScripts(root, before, o) {
     const fresh = el.ownerDocument.createElement("script");
     for (const attr of el.attributes) fresh.setAttribute(attr.name, attr.value);
     fresh.textContent = el.textContent;
-    if (o.beforeNodeAdded(fresh) === false) continue;
+    if (o.beforeNodeAdded(fresh) === false) {
+      vetoed.add(el);
+      continue;
+    }
     if (fresh.hasAttribute("src")) {
       loads.push(
         new Promise((resolve) => {
@@ -171,5 +175,5 @@ export function executeNewScripts(root, before, o) {
     o.afterNodeAdded(fresh);
     executed.push(fresh);
   }
-  return { executed, loads, swapped };
+  return { executed, loads, swapped, vetoed };
 }

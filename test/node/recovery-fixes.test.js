@@ -397,3 +397,88 @@ test("F5: differing-tag script spans point at the replacement text", async () =>
     "fast",
   );
 });
+test("F3: a content morph veto cannot hide an already completed move", async () => {
+  const { live, recoveries } = await merge(...moveBodies, {
+    hooks: { beforeNodeMorphed: (n) => n.id !== "p" },
+  });
+  assert.equal(live.querySelector("#p").parentElement.id, "c");
+  assert.equal(recoveries.length, 2);
+  for (const rv of recoveries) {
+    assert.equal(rv.applied, true);
+    assert.equal(rv.unavailable, null);
+    assert.equal(rv.localLost, true);
+  }
+});
+test("F3: a parent veto that loses the subject is missing-output and keeps the loss", async () => {
+  const { live, recoveries } = await merge(...moveBodies, {
+    hooks: { beforeNodeMorphed: (n) => n.id !== "c" },
+  });
+  assert.equal(live.querySelector("#p"), null);
+  assert.equal(recoveries.length, 2);
+  for (const rv of recoveries) {
+    assert.equal(rv.applied, false);
+    assert.equal(rv.unavailable, "missing-output");
+    assert.equal(rv.localLost, true);
+    assert.deepEqual(rv.subject.live, []);
+  }
+});
+for (const tag of ["input", "textarea"]) {
+  test(`F3: ${tag} value hook veto preserves the local operation`, async () => {
+    const body = (v) =>
+      tag === "input"
+        ? `<input id="t" value="${v}">`
+        : `<textarea id="t">${v}</textarea>`;
+    const { live, recoveries } = await merge(
+      body("old"),
+      body("mine"),
+      body("theirs"),
+      { hooks: { beforeAttributeUpdated: (name) => name !== "value" } },
+    );
+    assert.equal(live.querySelector("#t").value, "mine");
+    assert.equal(recoveries.length, 1);
+    const rv = recoveries[0];
+    assert.equal(rv.applied, false);
+    assert.equal(rv.unavailable, "hook-veto");
+    assert.equal(rv.localLost, false);
+    if (rv.text) assert.equal(rv.text.liveSpan, null);
+  });
+}
+for (const bare of [false, true]) {
+  test(`F3: removal veto preserves ${bare ? "bare" : "inline"} local text`, async () => {
+    const body = (v) =>
+      bare
+        ? `<div id="d"><p>keep one</p>${v}<p>tail end</p></div>`
+        : `<p id="p">Hello world<br>${v}</p>`;
+    const { live, recoveries } = await merge(
+      body("old tail"),
+      body("new tail"),
+      body(""),
+      { hooks: { beforeNodeRemoved: (n) => n.nodeType !== 3 } },
+    );
+    assert.ok(live.body.textContent.includes("new tail"));
+    const texts = recoveries.filter((r) => r.text);
+    assert.ok(texts.length > 0);
+    for (const rv of texts) {
+      assert.equal(rv.applied, false);
+      assert.equal(rv.unavailable, "hook-veto");
+      assert.equal(rv.localLost, false);
+      assert.equal(rv.text.liveSpan, null);
+    }
+  });
+}
+test("F3: ordinary attribute veto does not cancel its sibling text operation", async () => {
+  const body = (title, text) => `<p id="p" title="${title}">${text}</p>`;
+  const { recoveries } = await merge(
+    body("old", "old"),
+    body("mine", "mine"),
+    body("theirs", "theirs"),
+    { hooks: { beforeAttributeUpdated: (name) => name !== "title" } },
+  );
+  assert.equal(recoveries.length, 2);
+  const attr = recoveries.find((r) => r.attribute),
+    text = recoveries.find((r) => r.text);
+  assert.equal(attr.unavailable, "hook-veto");
+  assert.equal(attr.localLost, false);
+  assert.equal(text.applied, true);
+  assert.equal(text.localLost, true);
+});

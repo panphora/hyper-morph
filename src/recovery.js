@@ -15,6 +15,7 @@
 import { BREAK } from "./text-merge.js";
 import { MARK_TAGS, sliceHtml } from "./inline-merge.js";
 import { projectSpan, orderedSpan, resolvePoint } from "./recovery-dom.js";
+import { localPreserved } from "./recovery-local.js";
 
 export const RECOVERY_VERSION = 1;
 
@@ -177,6 +178,7 @@ export function createRecovery(ctx) {
       via,
       outOwners,
       outRoot,
+      localRoot: ctx.roots.local,
     };
 
     // ---- units: { b, l, r }, each an element or a run, or null ----------
@@ -1041,6 +1043,7 @@ export function resolveLive(conflicts, links, o) {
     for (let x = m; x; x = parentOut(x)) {
       if (links.via.has(x)) x = links.via.get(x);
       if (vetoed.has(x)) return true;
+      if (o.vetoedLive?.has(one(x))) return true;
     }
     return false;
   };
@@ -1266,7 +1269,7 @@ export function resolveLive(conflicts, links, o) {
     }
     const anchor = links.anchors.get(rv);
     const lv = anchor ? one(anchor) : null;
-    let applied = !!lv && !vetoedAbove(anchor);
+    let applied = !!lv;
     if (rv.text) {
       const sp = links.spans.get(rv.text.merged);
       let ls = sp ? liveSpan(sp.start, sp.end) : null;
@@ -1297,20 +1300,34 @@ export function resolveLive(conflicts, links, o) {
     if (rv.attribute && applied)
       applied = liveAttr(lv, rv.attribute, c.resolved);
     const attrVeto =
-      !!rv.attribute &&
+      (!!rv.attribute || (!!rv.text && lv?.tagName === "TEXTAREA")) &&
       !!vetoedAttrs &&
-      vetoedAttrs.has(anchor) &&
-      vetoedAttrs.get(anchor).has(rv.attribute.qualifiedName);
+      [anchor, lv].some((n) =>
+        vetoedAttrs
+          .get(n)
+          ?.has(rv.attribute ? rv.attribute.qualifiedName : "value"),
+      );
+    const localState = links.localState?.states.get(rv);
+    const removalVeto =
+      !!rv.text &&
+      [...(o.removedVetoes || [])].some((n) => localState?.touched.has(n));
+    const contentVeto =
+      rv.structure?.localAction === "inserted" &&
+      [...vetoed].some((n) => n === anchor || anchor?.contains(n));
+    const hasVeto =
+      (anchor && vetoedAbove(anchor)) || attrVeto || removalVeto || contentVeto;
+    const preserved = hasVeto && localPreserved(rv, c, links, contained);
+    if (preserved && (removalVeto || (contentVeto && rv.localLost)))
+      applied = false;
+    const prevented = !applied && preserved && hasVeto;
     rv.applied = applied;
     rv.unavailable = applied
       ? null
-      : (anchor && vetoedAbove(anchor)) || attrVeto
+      : prevented
         ? "hook-veto"
         : "missing-output";
-    // A vetoing hook kept this tab's content, so nothing was lost. A missing
-    // output keeps the policy's answer: the remote side may still have
-    // replaced local work where the engine cannot point at it.
-    if (!applied && rv.unavailable === "hook-veto") rv.localLost = false;
+    if (prevented) rv.localLost = false;
+    if (!applied && rv.text) rv.text.liveSpan = rv.text.liveScope = null;
   }
 }
 
