@@ -1,4 +1,10 @@
 import { parse, doc } from "../node/lib/dom.js";
+import { MARK_TAGS } from "../../src/inline-merge.js";
+import {
+  orderedSpan,
+  projectSpan,
+  staticSpan,
+} from "../../src/recovery-dom.js";
 
 // The observer the differential harness compares two engines by: the merged
 // bytes, where every pre-merge live node went, which identities were adopted,
@@ -307,12 +313,51 @@ const isPath = (p) =>
 const isPoint = (p) =>
   p && isPath(p.path) && Number.isInteger(p.offset) && p.offset >= 0;
 
+const projectionOptions = (scope, text, encoding) => {
+  const options = text.includes("\u001e") ? {} : { blocks: new Set() };
+  if (projectSpan(scope, encoding, options) === text) return options;
+  if (encoding !== "html" || !orderedSpan(scope) || !text.includes("\ufffc"))
+    return null;
+  const range = scope.startContainer.ownerDocument.createRange();
+  range.setStart(scope.startContainer, scope.startOffset);
+  range.setEnd(scope.endContainer, scope.endOffset);
+  const candidates = [];
+  const walk = (n) => {
+    if (!range.intersectsNode(n)) return;
+    if (n.nodeType === 1 && MARK_TAGS.has(n.tagName)) candidates.push(n);
+    for (const child of n.childNodes) walk(child);
+  };
+  walk(range.commonAncestorContainer);
+  const atoms = new Set();
+  const search = (i) => {
+    if (i === candidates.length) {
+      const choice = { ...options, atoms };
+      return projectSpan(scope, encoding, choice) === text
+        ? { ...choice, atoms: new Set(atoms) }
+        : null;
+    }
+    const plain = search(i + 1);
+    if (plain) return plain;
+    atoms.add(candidates[i]);
+    const opaque = search(i + 1);
+    atoms.delete(candidates[i]);
+    return opaque;
+  };
+  return search(0);
+};
+
 /**
  * Everything wrong with a report's recovery data, as strings: the contract's
  * shape and invariants, and that every live node it names is in the final
  * tree. `pure` is the merge3 route, where nothing is applied.
  */
-export function recoveryProblems(conflicts, final, pure) {
+export function recoveryProblems(
+  conflicts,
+  final,
+  pure,
+  roots = {},
+  requireApplied = false,
+) {
   const out = [];
   const byKey = new Map();
   const bad = (i, what) => out.push(`conflict ${i}: ${what}`);
@@ -339,7 +384,7 @@ export function recoveryProblems(conflicts, final, pure) {
       p[list].forEach((r, j) => checkRef(i, r, `${what}.${list}[${j}]`));
     }
   };
-  const checkSide = (i, s, what) => {
+  const checkSide = (i, s, what, encoding, root) => {
     if (s === null) return;
     if (typeof s.text !== "string") return bad(i, `${what}.text`);
     if (
@@ -356,6 +401,30 @@ export function recoveryProblems(conflicts, final, pure) {
     for (const k of ["span", "scope"])
       if (!s[k] || !isPoint(s[k].start) || !isPoint(s[k].end))
         bad(i, `${what}.${k}`);
+    const collapsed = (s) =>
+      s &&
+      JSON.stringify(s.start.path) === JSON.stringify(s.end.path) &&
+      s.start.offset === s.end.offset;
+    if (s.start === s.end && !collapsed(s.span))
+      bad(i, `${what}: empty span not collapsed`);
+    if (!s.text.length && !collapsed(s.scope))
+      bad(i, `${what}: empty scope not collapsed`);
+    if (root) {
+      const options = projectionOptions(
+        staticSpan(root, s.scope),
+        s.text,
+        encoding,
+      );
+      for (const [part, want] of [
+        ["span", s.text.slice(s.start, s.end)],
+        ["scope", s.text],
+      ]) {
+        const span = staticSpan(root, s[part]);
+        if (!orderedSpan(span)) bad(i, `${what}.${part}: unordered or invalid`);
+        if (!options || projectSpan(span, encoding, options) !== want)
+          bad(i, `${what}.${part}: projection differs`);
+      }
+    }
   };
   const checkLiveSpan = (i, s, what) => {
     if (s === null) return;
@@ -364,6 +433,7 @@ export function recoveryProblems(conflicts, final, pure) {
         bad(i, `${what}.${c} not in the final tree`);
     for (const o of ["startOffset", "endOffset"])
       if (!Number.isInteger(s[o]) || s[o] < 0) bad(i, `${what}.${o}`);
+    if (!orderedSpan(s)) bad(i, `${what}: unordered or invalid`);
   };
   conflicts.forEach((c, i) => {
     const r = c.recovery;
@@ -383,6 +453,8 @@ export function recoveryProblems(conflicts, final, pure) {
     if (r.version !== 1) bad(i, `version ${r.version}`);
     if (typeof r.localLost !== "boolean") bad(i, "localLost");
     if (typeof r.applied !== "boolean") bad(i, "applied");
+    if (requireApplied && !pure && !r.applied)
+      bad(i, "ordinary merge has unavailable recovery");
     if (pure && r.applied) bad(i, "applied on the pure route");
     if (![null, "hook-veto", "missing-output"].includes(r.unavailable))
       bad(i, `unavailable ${r.unavailable}`);
@@ -425,24 +497,39 @@ export function recoveryProblems(conflicts, final, pure) {
       if (!["plain", "html"].includes(r.text.encoding))
         bad(i, `encoding ${r.text.encoding}`);
       for (const side of ["base", "local", "remote", "merged"])
-        checkSide(i, r.text[side], `text.${side}`);
+        checkSide(
+          i,
+          r.text[side],
+          `text.${side}`,
+          r.text.encoding,
+          roots[side],
+        );
       if (r.text.merged === null) bad(i, "text.merged is null");
       checkLiveSpan(i, r.text.liveSpan, "text.liveSpan");
       checkLiveSpan(i, r.text.liveScope, "text.liveScope");
       if (r.applied && !r.text.liveSpan)
         bad(i, "applied text with no liveSpan");
-      const ls = r.text.liveSpan;
-      if (
-        ls &&
-        r.text.encoding === "plain" &&
-        ls.startContainer === ls.endContainer &&
-        ls.startContainer.nodeType !== 1
-      )
+      const M = r.text.merged;
+      const options = projectionOptions(
+        r.text.liveScope,
+        M.text,
+        r.text.encoding,
+      );
+      for (const [part, want] of [
+        ["liveSpan", M.text.slice(M.start, M.end)],
+        ["liveScope", M.text],
+      ]) {
+        const span = r.text[part];
+        if (!span) continue;
         if (
-          ls.startContainer.nodeValue.slice(ls.startOffset, ls.endOffset) !==
-          r.text.merged.fragment
+          want === "" &&
+          (span.startContainer !== span.endContainer ||
+            span.startOffset !== span.endOffset)
         )
-          bad(i, "live text at liveSpan is not the merged fragment");
+          bad(i, `${part}: empty span not collapsed`);
+        if (!options || projectSpan(span, r.text.encoding, options) !== want)
+          bad(i, `${part}: projection differs`);
+      }
     }
     if (r.attribute) {
       const a = r.attribute;
@@ -477,7 +564,7 @@ export function recoveryProblems(conflicts, final, pure) {
 }
 
 /** A report's fields as the diff compares them: node lists by name. */
-const reported = (report, label, final) => ({
+const reported = (report, label, final, roots) => ({
   adoptedIdentities: identityList(report.identities || [], label, final),
   conflicts: conflictList(report.conflicts || [], label, final),
   pointers: pointerList(report.conflicts || [], final, false),
@@ -490,7 +577,13 @@ const reported = (report, label, final) => ({
       ? null
       : nodeList(report.replaced, label, final),
   recovery: recoveryList(report.conflicts || [], label, final),
-  recoveryProblems: recoveryProblems(report.conflicts || [], final, false),
+  recoveryProblems: recoveryProblems(
+    report.conflicts || [],
+    final,
+    false,
+    roots,
+    true,
+  ),
   stats: report.stats,
 });
 
@@ -500,6 +593,27 @@ const reported = (report, label, final) => ({
  */
 export async function observe(engine, shape, inputs) {
   const { b, l, r } = inputs;
+  const rootsFor = (merged) => {
+    if (shape === "element") {
+      const makeTemplate = (html) => {
+        const t = merged.ownerDocument.createElement("template");
+        t.innerHTML = html;
+        return t;
+      };
+      return {
+        base: makeTemplate(b),
+        local: parse(doc(`<section>${l}</section>`)).body.firstElementChild,
+        remote: makeTemplate(r),
+        merged: makeTemplate(merged.innerHTML),
+      };
+    }
+    return {
+      base: parse(doc(b)).documentElement,
+      local: parse(doc(shape === "clean" ? b : l)).documentElement,
+      remote: parse(doc(r)).documentElement,
+      merged,
+    };
+  };
   if (shape === "pure") {
     // The pure merge without hooks omits subtrees identical on both sides:
     // its output is an instruction for apply, not a document. The fuzz gate's
@@ -520,7 +634,12 @@ export async function observe(engine, shape, inputs) {
       moved: [],
       replaced: [],
       recovery: recoveryList(res.conflicts, label, final),
-      recoveryProblems: recoveryProblems(res.conflicts, final, true),
+      recoveryProblems: recoveryProblems(
+        res.conflicts,
+        final,
+        true,
+        res.conflicts.length ? rootsFor(res.doc.documentElement) : {},
+      ),
       stats: res.stats,
     };
   }
@@ -535,7 +654,12 @@ export async function observe(engine, shape, inputs) {
     return {
       html: live.body.innerHTML,
       nodeDestinations: destinations(label, final),
-      ...reported(report, label, final),
+      ...reported(
+        report,
+        label,
+        final,
+        report.conflicts.length ? rootsFor(live.body.firstElementChild) : {},
+      ),
     };
   }
   const live = parse(doc(shape === "clean" ? b : l));
@@ -562,6 +686,11 @@ export async function observe(engine, shape, inputs) {
   return {
     html: live.body.innerHTML,
     nodeDestinations: destinations(label, final),
-    ...reported(report, label, final),
+    ...reported(
+      report,
+      label,
+      final,
+      report.conflicts.length ? rootsFor(live.documentElement) : {},
+    ),
   };
 }

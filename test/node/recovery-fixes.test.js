@@ -2,7 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parse, doc } from "./lib/dom.js";
 import { mergeDocument, morphElement, merge3 } from "../../src/index.js";
-import { lockstepMap, observe } from "../lib/differential-observe.js";
+import {
+  lockstepMap,
+  recoveryProblems,
+  finalTree,
+  observe,
+} from "../lib/differential-observe.js";
 
 async function merge(b, l, r, options = {}, mutate = null) {
   const live = parse(doc(l));
@@ -481,4 +486,179 @@ test("F3: ordinary attribute veto does not cancel its sibling text operation", a
   assert.equal(attr.localLost, false);
   assert.equal(text.applied, true);
   assert.equal(text.localLost, true);
+});
+test("certification: rejects noncollapsed empty source spans and all live projection mismatches", async () => {
+  const { live, report, recoveries } = await merge(
+    '<p id="p">A quick <i>Z</i></p>',
+    '<p id="p">A fast <i>Z</i></p>',
+    '<p id="p">A <i>Z</i></p>',
+  );
+  const final = finalTree(live.documentElement);
+  assert.deepEqual(recoveryProblems(report.conflicts, final, false), []);
+  const t = recoveries[0].text;
+  const old = t.local.span;
+  t.local.span = {
+    start: { path: [1, 0], offset: 0 },
+    end: { path: [1, 0], offset: 1 },
+  };
+  const start = t.local.start,
+    end = t.local.end;
+  t.local.start = t.local.end = 0;
+  assert.ok(
+    recoveryProblems(report.conflicts, final, false).some((x) =>
+      x.includes("empty span not collapsed"),
+    ),
+  );
+  t.local.span = old;
+  t.local.start = start;
+  t.local.end = end;
+  t.liveScope.endOffset--;
+  assert.ok(
+    recoveryProblems(report.conflicts, final, false).some((x) =>
+      x.includes("projection differs"),
+    ),
+  );
+});
+test("certification: atom, break and comment spans are projected against their immutable roots", () => {
+  const triples = [
+    [
+      '<p id="p">a old z</p>',
+      '<p id="p">a mine z</p>',
+      '<p id="p">a <img src="r">theirs z</p>',
+    ],
+    [
+      "<p>alpha bravo charlie delta</p>",
+      "<p>alpha bravo</p><p>charlie delta</p>",
+      "<p>alpha BRAVO CHARLIE delta</p>",
+    ],
+    [
+      "<div><!--old--></div>",
+      "<div><!--mine--></div>",
+      "<div><!--theirs--></div>",
+    ],
+  ];
+  for (const [b, l, r] of triples) {
+    const roots = {
+      base: parse(doc(b)).documentElement,
+      local: parse(doc(l)).documentElement,
+      remote: parse(doc(r)).documentElement,
+    };
+    const res = merge3(roots.base, roots.local, roots.remote, {
+      hooks: { beforeNodeMorphed: () => {} },
+    });
+    assert.ok(res.conflicts.length > 0);
+    roots.merged = res.doc.documentElement;
+    const final = finalTree(roots.merged);
+    assert.deepEqual(recoveryProblems(res.conflicts, final, true, roots), []);
+    const text = res.conflicts.find((c) => c.recovery.text).recovery.text;
+    text.remote.text += "WRONG";
+    assert.ok(
+      recoveryProblems(res.conflicts, final, true, roots).some((x) =>
+        x.includes("projection differs"),
+      ),
+    );
+  }
+});
+
+test("F4: Opus repeated first word cannot impersonate the shifted clash", async () => {
+  const { live, recoveries } = await merge(
+    '<p id="p">fast X quick Y</p>',
+    '<p id="p">fast X slow Y</p>',
+    '<p id="p">fast X fast Y</p>',
+    {},
+    (d) => {
+      d.querySelector("p").firstChild.nodeValue = "typed! fast X slow Y";
+    },
+  );
+  assert.equal(live.body.textContent, "typed! fast X fast Y");
+  assert.equal(recoveries.length, 1);
+  assert.equal(recoveries[0].applied, false);
+  assert.equal(recoveries[0].unavailable, "missing-output");
+  assert.equal(recoveries[0].text.liveSpan, null);
+});
+test("F4: a rewritten participant order cannot claim the planned reorder", async () => {
+  const wrap = (ids) =>
+    `<div id="s">${ids.map((id) => `<p id="${id}">${id.toUpperCase()}</p>`).join("")}</div>`;
+  const { recoveries } = await merge(
+    wrap(["a", "b", "c"]),
+    wrap(["b", "a", "c"]),
+    wrap(["a", "c", "b"]),
+    {
+      beforeApply: (d) =>
+        d.querySelector("#s").appendChild(d.querySelector("#a")),
+    },
+  );
+  assert.equal(recoveries.length, 1);
+  assert.equal(recoveries[0].applied, false);
+  assert.equal(recoveries[0].unavailable, "missing-output");
+  assert.equal(recoveries[0].localLost, true);
+});
+for (const node of ["p", "BODY", "text"]) {
+  test(`F3: vetoing ${node} preserves the local T1 operation`, async () => {
+    const veto = (n) =>
+      node === "text"
+        ? n.nodeType !== 3
+        : node === "BODY"
+          ? n.tagName !== "BODY"
+          : n.id !== "p";
+    const { live, recoveries } = await merge(
+      '<p id="p">One quick fox</p>',
+      '<p id="p">One slow fox</p>',
+      '<p id="p">One fast fox</p>',
+      { hooks: { beforeNodeMorphed: veto } },
+    );
+    assert.equal(live.body.textContent, "One slow fox");
+    assert.equal(recoveries.length, 1);
+    assert.equal(recoveries[0].unavailable, "hook-veto");
+    assert.equal(recoveries[0].localLost, false);
+    assert.equal(recoveries[0].text.liveSpan, null);
+  });
+}
+for (const textOnly of [false, true]) {
+  test(`F3: S6 ${textOnly ? "text" : "element"} hook reports the operation that actually happened`, async () => {
+    const { live, recoveries } = await merge(
+      '<div id="s"></div>',
+      '<div id="s"><p id="p">LOCAL</p></div>',
+      '<div id="s"><p id="p">REMOTE</p></div>',
+      {
+        hooks: {
+          beforeNodeMorphed: (n) =>
+            textOnly ? n.nodeType !== 3 : n.id !== "p",
+        },
+      },
+    );
+    assert.equal(live.body.textContent, textOnly ? "REMOTE" : "LOCAL");
+    assert.equal(recoveries.length, 1);
+    assert.equal(recoveries[0].applied, textOnly);
+    assert.equal(recoveries[0].unavailable, textOnly ? null : "hook-veto");
+    assert.equal(recoveries[0].localLost, textOnly);
+  });
+}
+
+test("certification: moved formatting atoms project completely and reject changed scope text", () => {
+  const b = "<p>w0 <b>w6</b> w1 w2 w3 w4 w5</p><p>w7 w8 w9 w10 w11</p>";
+  const l = "<p>w13 w14 w15 w16</p><p>w12 w8 w9 w10 w11</p>";
+  const r =
+    "<p>w0 w1 w2 w3 w4 w5</p><p>w17 w18 w19 w20 w21</p><p>w7 w8 w9 w10 w11 <b>w6</b></p>";
+  const roots = {
+    base: parse(doc(b)).documentElement,
+    local: parse(doc(l)).documentElement,
+    remote: parse(doc(r)).documentElement,
+  };
+  const res = merge3(roots.base, roots.local, roots.remote, {
+    hooks: { beforeNodeMorphed: () => {} },
+  });
+  roots.merged = res.root;
+  const final = finalTree(res.root);
+  assert.ok(
+    res.conflicts.some((c) => c.recovery.text?.base.text.includes("\ufffc")),
+  );
+  assert.deepEqual(recoveryProblems(res.conflicts, final, true, roots), []);
+  const t = res.conflicts.find((c) => c.recovery.text).recovery.text;
+  t.base.text = t.base.text.replace("w0", "ZZ");
+  assert.ok(
+    recoveryProblems(res.conflicts, final, true, roots).some((x) =>
+      x.includes("projection differs"),
+    ),
+  );
 });

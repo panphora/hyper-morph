@@ -1456,15 +1456,16 @@ test("the pure route with stand-ins: the merged side reads through the stub, pat
   assert.deepEqual(side(r.text.merged), STUB_MERGED);
   assert.deepEqual(r.subject.live, []);
   assert.equal(r.applied, false);
+  const full = merge3(...parsed(), { hooks: { beforeNodeMorphed: () => {} } });
   assert.deepEqual(
     recoveryProblems(
       stubs.conflicts,
       finalTree(stubs.doc.documentElement),
       true,
+      { merged: full.root },
     ),
     [],
   );
-  const full = merge3(...parsed(), { hooks: { beforeNodeMorphed: () => {} } });
   assert.equal(full.doc.body.querySelector("b").outerHTML, "<b>w7 w8</b>");
   const project = (res) =>
     staticRecovery(
