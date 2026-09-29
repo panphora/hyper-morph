@@ -15,6 +15,5 @@ export function emptyStats() {
     ambiguousMoves: 0,
     certificationPairs: 0,
     certificationVisited: 0,
-    certificationBudgetExhausted: 0,
   };
 }

@@ -184,7 +184,6 @@ export interface MergeStats {
   ambiguousMoves: number;
   certificationPairs: number;
   certificationVisited: number;
-  certificationBudgetExhausted: number;
 }
 
 export interface MergeReport {

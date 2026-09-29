@@ -28,7 +28,6 @@ import { CODE_LIKE } from "./similarity.js";
 const NEAREST_WINDOW = 16;
 const MOVE_BUDGET = 2000;
 const POSITIONAL_LOOKAHEAD = 3;
-const CERTIFY_FAIL_FACTOR = 8;
 
 /**
  * @typedef {object} Alignment
@@ -54,11 +53,19 @@ const CERTIFY_FAIL_FACTOR = 8;
  * Work counters for the tests: a bound on steps holds where a wall clock
  * would be flaky. `align` counts the child units the passes examine.
  */
-export const steps = { align: 0, certifyVisited: 0 };
+export const steps = { align: 0, certifyVisited: 0, certifyScheduled: 0 };
 
 export function align(baseRoot, sideRoot, o) {
-  const { meta, unitsOf, unitHash, similar, score, childrenOf, equalUnits } =
-    o.analyzer;
+  const {
+    meta,
+    unitsOf,
+    unitHash,
+    similar,
+    score,
+    childrenOf,
+    equalUnits,
+    ignored,
+  } = o.analyzer;
   const baseId = o.baseId || (() => null),
     sideId = o.sideId || (() => null);
   const stats = o.stats || null;
@@ -131,9 +138,10 @@ export function align(baseRoot, sideRoot, o) {
   // Pass 1b: an identity pair is identical, as a pair Pass 0 makes by
   // position is, when one lockstep walk finds the two subtrees equal and
   // every identity pairing inside them (either direction) is exactly the
-  // positional counterpart. Outer pairs first, in logical document order
-  // (template content included); a pair inside a certified subtree is
-  // skipped; failed walks spend a budget and stop the moment it runs out.
+  // positional counterpart. Innermost pairs first (reverse logical order,
+  // template content included): a walk stops at an inner identity pair,
+  // taking a certified one as equal and a refused one as a difference, so
+  // each node is walked by one pair and the pass stays linear.
   if (identityPaired.size) {
     const order = [];
     const stack = [baseRoot];
@@ -144,31 +152,29 @@ export function align(baseRoot, sideRoot, o) {
       for (let i = kids.length - 1; i >= 0; i--)
         if (kids[i].nodeType === 1) stack.push(kids[i]);
     }
-    const covered = new Set();
-    const budget = { left: CERTIFY_FAIL_FACTOR * identityPaired.size + 64 };
-    for (const b of order) {
-      if (budget.left <= 0) {
-        if (stats) stats.certificationBudgetExhausted++;
-        break;
-      }
-      if (covered.has(b) || identical.has(b)) continue;
-      const seen = [];
-      if (!certify(b, map.get(b), seen, budget)) continue;
-      for (const el of seen) covered.add(el);
-      identical.add(b);
-      visited.add(b);
-      if (stats) stats.certificationPairs++;
-      complete(b);
+    const refusedPairs = new Set();
+    for (let k = order.length - 1; k >= 0; k--) {
+      const b = order[k];
+      if (certify(b, map.get(b), refusedPairs)) {
+        identical.add(b);
+        visited.add(b);
+        if (stats) stats.certificationPairs++;
+      } else refusedPairs.add(b);
     }
+    const completed = new Set();
+    for (const b of order)
+      if (identical.has(b) && !completed.has(b)) complete(b, completed);
   }
 
   // Pair everything under a certified pair now, level by level, so the map
   // is as complete as a drained alignment leaves it: the merge reads twins
   // under identical subtrees before it descends into them.
-  function complete(b) {
+  function complete(b, completed) {
     const stack = [b];
     while (stack.length) {
       const x = stack.pop();
+      if (completed.has(x)) continue;
+      completed.add(x);
       pairIdenticalChildren(x);
       for (const u of unitsOf(x)) if (isEl(u) && map.has(u)) stack.push(u);
     }
@@ -424,52 +430,47 @@ export function align(baseRoot, sideRoot, o) {
     }
   }
 
-  function certify(b, s, seen, budget) {
+  function certify(b, s, refusedPairs) {
     const stack = [[b, s]];
-    let n = 0;
     while (stack.length) {
       const [x, y] = stack.pop();
-      n++;
       steps.certifyVisited++;
       if (stats) stats.certificationVisited++;
-      if (n > budget.left) {
-        budget.left = 0;
-        return false;
-      }
-      if (x.nodeType !== y.nodeType) return fail();
+      if (x.nodeType !== y.nodeType) return false;
       if (x.nodeType === 3 || x.nodeType === 8) {
-        if (x.nodeValue !== y.nodeValue) return fail();
+        if (x.nodeValue !== y.nodeValue) return false;
         continue;
       }
       if (x.nodeType !== 1) {
-        if (!x.isEqualNode(y)) return fail();
+        if (!x.isEqualNode(y)) return false;
         continue;
       }
       if (x.tagName !== y.tagName || x.namespaceURI !== y.namespaceURI)
-        return fail();
+        return false;
+      if (ignored(x) !== ignored(y)) return false;
       const xa = x.attributes,
         ya = y.attributes;
-      if (xa.length !== ya.length) return fail();
+      if (xa.length !== ya.length) return false;
       for (let i = 0; i < xa.length; i++) {
         const a = xa[i];
         if (y.getAttributeNS(a.namespaceURI, a.localName) !== a.value)
-          return fail();
+          return false;
       }
       const mx = map.get(x);
-      if (mx !== undefined && mx !== y) return fail();
+      if (mx !== undefined && mx !== y) return false;
       const ry = reverse.get(y);
-      if (ry !== undefined && ry !== x) return fail();
-      seen.push(x);
+      if (ry !== undefined && ry !== x) return false;
+      if (x !== b) {
+        if (identical.has(x)) continue;
+        if (refusedPairs.has(x)) return false;
+      }
       const xk = childrenOf(x),
         yk = childrenOf(y);
-      if (xk.length !== yk.length) return fail();
+      if (xk.length !== yk.length) return false;
+      steps.certifyScheduled += xk.length;
       for (let i = xk.length - 1; i >= 0; i--) stack.push([xk[i], yk[i]]);
     }
     return true;
-    function fail() {
-      budget.left -= n;
-      return false;
-    }
   }
 
   /**

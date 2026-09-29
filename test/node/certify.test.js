@@ -55,9 +55,14 @@ const pathAt = (root, path) =>
   path === "" ? root : path.split(".").reduce((el, i) => el.children[+i], root);
 
 /** Dirty shape: the live tab has local edits, the base is a capture string. */
-async function dirtyLive(b, l, r) {
+async function dirtyLive(b, l, r, opts = {}) {
   const live = parse(doc(l));
-  const report = await mergeDocument({ live, base: doc(b), remote: doc(r) });
+  const report = await mergeDocument({
+    live,
+    base: doc(b),
+    remote: doc(r),
+    ...opts,
+  });
   return {
     live,
     html: live.body.innerHTML,
@@ -243,7 +248,6 @@ test("I6-S3 original copied elsewhere, nothing moved", async () => {
   assert.equal(c.ids.get(c.at("1.0.1")), c.labels.get("1.0.1"));
   assert.ok(got.report.stats.certificationPairs >= 1);
   assert.ok(got.report.stats.certificationVisited > 0);
-  assert.equal(got.report.stats.certificationBudgetExhausted, 0);
 });
 
 test("I6-S4 sender re-minted one id, the other landed on its sibling", async () => {
@@ -371,37 +375,37 @@ function alignOnce(baseRoot, sideRoot) {
   return steps.certifyVisited - before;
 }
 
-test("I6-B depth chain budget", async () => {
+test("I6-B depth chain is linear", async () => {
   // One alignment alone for n = 800: a full merge of the differing chain
   // 800 levels deep sits at merge.js's own recursion limit, so the number
   // the spec asks for is read off `align` directly (as its table says).
   for (const n of [400, 800]) {
     const b = chain(n, "base text"),
       r = chain(n, "remote text");
+    // Bottom-up: a walk visits its own div and its inner div, taken as a leaf
+    // once the inner pair is certified or refused. The innermost visits its
+    // div, its <p> and the text that differs, so 2n + 1 in all.
     const fail = alignOnce(
       parse(doc(b)).documentElement,
       parse(doc(r)).documentElement,
     );
-    // The walk that runs out of budget visits one node past `budget.left`
-    // before it stops, so a failing alignment visits 8 * pairs + 64 + 1.
     assert.ok(
-      fail <= 8 * n + 65,
+      fail <= 2 * (n + 3),
       `n=${n}: the failing alignment visited ${fail} nodes`,
     );
-    // The n divs, the <p> and its text node: the walk certifies at the root
-    // and stops there, everything below is covered.
+    assert.equal(
+      fail,
+      2 * n + 1,
+      `n=${n}: the failing alignment visited ${fail}`,
+    );
     const pass = alignOnce(
       parse(doc(b)).documentElement,
       parse(doc(b)).documentElement,
     );
     assert.equal(
       pass,
-      n + 2,
+      2 * n + 1,
       `n=${n}: the identical alignment visited ${pass}`,
-    );
-    assert.ok(
-      fail + pass <= 2 * (8 * n + 64),
-      `n=${n}: two alignments visited ${fail + pass} nodes`,
     );
   }
 
@@ -410,17 +414,19 @@ test("I6-B depth chain budget", async () => {
   const before = steps.certifyVisited;
   const got = await dirtyLive(b, b, r);
   const delta = steps.certifyVisited - before;
-  assert.ok(delta <= 2 * (8 * 400 + 64), `the merge visited ${delta} nodes`);
+  assert.ok(delta <= 2 * 2 * (400 + 3), `the merge visited ${delta} nodes`);
+  assert.equal(delta, 2 * (2 * 400 + 1));
   assert.equal(got.html, frame(r), got.html);
-  assert.equal(got.report.stats.certificationPairs, 1);
+  // The unchanged local side certifies every div; the changed remote side
+  // refuses every one.
+  assert.equal(got.report.stats.certificationPairs, 400);
   assert.equal(got.report.stats.certificationVisited, delta);
-  assert.equal(got.report.stats.certificationBudgetExhausted, 1);
 
   const same = chain(800, "same text");
   const mark = steps.certifyVisited;
   const sameGot = await dirtyLive(same, same, same);
   assert.equal(sameGot.html, frame(same));
-  assert.equal(steps.certifyVisited - mark, 2 * (800 + 2));
+  assert.equal(steps.certifyVisited - mark, 2 * (2 * 800 + 1));
 });
 
 const bijection = (A, label) => {
@@ -467,7 +473,7 @@ test("I6-E outgoing identity escape", async () => {
   const control = await cleanSynthetic(b, r).merge();
   assert.equal(
     got.report.stats.certificationPairs,
-    control.report.stats.certificationPairs - 1,
+    control.report.stats.certificationPairs - 2,
     `A certified: control ${control.report.stats.certificationPairs}, escaped ${got.report.stats.certificationPairs}`,
   );
   assert.equal(got.html, got.frame);
@@ -491,7 +497,7 @@ test("I6-E incoming identity escape", async () => {
   const control = await cleanSynthetic(b, r).merge();
   assert.equal(
     got.report.stats.certificationPairs,
-    control.report.stats.certificationPairs - 1,
+    control.report.stats.certificationPairs - 2,
     `A certified: control ${control.report.stats.certificationPairs}, escaped ${got.report.stats.certificationPairs}`,
   );
   assert.equal(got.html, got.frame);
@@ -514,10 +520,10 @@ test("I6-P internal permutation", async () => {
   assert.equal(got.html, frame(r));
   // A itself is refused: its two ids are not the positional counterparts, so
   // the children certify as the cross pairs the remote's ids name instead of
-  // the subtree, one certificate more than the control leaves.
+  // the subtree, one certificate fewer than the control leaves.
   assert.equal(
     got.report.stats.certificationPairs,
-    control.report.stats.certificationPairs + 1,
+    control.report.stats.certificationPairs - 1,
     `control ${control.report.stats.certificationPairs}, permuted ${got.report.stats.certificationPairs}`,
   );
 });
@@ -526,13 +532,14 @@ test("I6-U duplicate identity outside the pair", async () => {
   const b = `<div data-id="A"><p data-id="x">hello words</p></div><p>tail</p>`;
   const r = `<div data-id="A"><p data-id="x">hello words</p></div><p data-id="x">hello words</p><p>tail</p>`;
   const got = await dirtyLive(b, b, r);
-  // The same documents without the duplicate: the duplicate adds no
-  // certificate, and no conflict either.
+  // The same documents without the duplicate: the duplicated id identifies
+  // nothing, so the remote side drops it from its index and the pair is lost,
+  // and there is no conflict either.
   const control = await dirtyLive(b, b, b);
   assert.equal(got.html, frame(r));
   assert.equal(
     got.report.stats.certificationPairs,
-    control.report.stats.certificationPairs,
+    control.report.stats.certificationPairs - 1,
     `control ${control.report.stats.certificationPairs}, duplicated ${got.report.stats.certificationPairs}`,
   );
   assert.deepEqual(got.kinds, []);
@@ -582,10 +589,10 @@ test("I6-K split text declines", async () => {
   assert.ok(a.kept && c.kept, `a live <p> was replaced: ${a.html}`);
 });
 
-test("I6-X exhausted budget", async () => {
+test("I6-X many failing walks stay linear", async () => {
   // 200 pairs whose walks all fail at their last text node. Each walk visits
-  // nine nodes (the div, four p's and four text nodes), more than the eight
-  // the pass budgets per pair, so the budget runs out mid-pass.
+  // nine nodes (the div, four p's and four text nodes), so the two alignments
+  // visit one node per node of the base body.
   const divs = (tail) =>
     Array.from(
       { length: 200 },
@@ -596,12 +603,19 @@ test("I6-X exhausted budget", async () => {
     r = divs("final");
   const live = parse(doc(b));
   const divsBefore = [...live.body.children];
+  // Every node is walked by at most one pair's walk, plus once as the leaf of
+  // the enclosing pair's walk, in each of the two alignments.
+  const N = nodeCount(live.body) * 2;
   const report = await mergeDocument({
     live,
     base: doc(b),
     remote: doc(r),
   });
-  assert.equal(report.stats.certificationBudgetExhausted, 1);
+  assert.ok(
+    report.stats.certificationVisited <= 2 * N,
+    `the merge visited ${report.stats.certificationVisited} nodes`,
+  );
+  assert.equal(report.stats.certificationVisited, 3600);
   assert.equal(live.body.innerHTML, frame(r), live.body.innerHTML);
   for (const d of divsBefore)
     assert.ok(
@@ -684,7 +698,7 @@ const ECHO_CASES = [
     b: `<ul data-id="b0"><li data-id="b1">w0 w1 <img src="i4.png"> <b>w3</b> w2</li><li data-id="b2">w5</li><li data-id="b3"><img src="i14.png"> w9</li></ul><ul data-id="b4"><li data-id="b5">w15 <b>w19</b></li></ul>`,
     l: `<ul data-id="b0"><li data-id="b1">w0</li><li data-id="b7">w1</li><li data-id="b6"><img src="i4.png"> <b>w3</b> w2</li><li data-id="b2">w5</li><li data-id="b3"><img src="i14.png"> w9</li></ul><ul data-id="b4"><li data-id="b5">w15 <b>w19</b></li></ul>`,
     r: `<ul data-id="b0"><li data-id="b1">w0 w1 <img src="i4.png"> <b>w3</b> w2</li><li data-id="b2">w5</li><li data-id="b3">w9</li></ul><ul data-id="b4"><li data-id="b5">w15 <img src="i14.png"> <b>w19</b></li></ul>`,
-    pairs: 5,
+    pairs: 6,
     out: `<ul data-id="b0"><li data-id="b1">w0</li><li data-id="b7">w1</li><li data-id="b6"><img src="i4.png"> <b>w3</b> w2</li><li data-id="b2">w5</li><li data-id="b3">w9</li></ul><ul data-id="b4"><li data-id="b5">w15 <img src="i14.png"> <b>w19</b></li></ul>`,
   },
   {
@@ -700,7 +714,7 @@ const ECHO_CASES = [
     b: `<ul data-id="b0"><li data-id="b1">w0 w1 <img src="i4.png"> <b>w3</b> w2</li></ul><ul data-id="b4"><li data-id="b5">w15 <b>w19</b></li></ul>`,
     l: `<ul data-id="b0"><li data-id="b1">w0</li><li data-id="b7">w1</li><li data-id="b6"><img src="i4.png"> <b>w3</b> w2</li></ul><ul data-id="b4"><li data-id="b5">w15 <b>w19</b></li></ul>`,
     r: `<ul data-id="b0"><li data-id="b1">w0 w1 <img src="i4.png"> <b>w3</b> w2</li></ul><ul data-id="b4"><li data-id="b5">w15 <img src="i14.png"> <b>w19</b></li></ul>`,
-    pairs: 2,
+    pairs: 4,
     out: `<ul data-id="b0"><li data-id="b1">w0</li><li data-id="b7">w1</li><li data-id="b6"><img src="i4.png"> <b>w3</b> w2</li></ul><ul data-id="b4"><li data-id="b5">w15 <img src="i14.png"> <b>w19</b></li></ul>`,
   },
 ];
@@ -978,4 +992,126 @@ for (const c of TPL_CASES)
         );
     }
     assert.deepEqual(clean.kinds, [], clean.kinds.join("|"));
+  });
+
+/** Every node under an element, text nodes and comments included. */
+function nodeCount(el) {
+  let n = 0;
+  const walk = (x) => {
+    for (const c of x.childNodes) {
+      n++;
+      if (c.nodeType === 1) walk(c);
+    }
+  };
+  walk(el);
+  return n;
+}
+
+test("I6-V identified wrapper certifies its cards", async () => {
+  // One id'd wrapper around 400 id'd cards: bottom-up certification refuses
+  // nothing for the wrapper's sake and certifies every unchanged card.
+  const cards = Array.from(
+    { length: 400 },
+    (_, i) =>
+      `<section data-id="c${i}"><h2>title ${i}</h2><p>body ${i} words here</p></section>`,
+  ).join("");
+  const b = `<div id="app">${cards}</div>`;
+  const r = b.replace("body 399 words here", "body 399 edited here");
+  const live = parse(doc(b));
+  const sections = [...live.body.querySelectorAll("section")];
+  const report = await mergeDocument({ live, base: doc(b), remote: doc(r) });
+  assert.equal(live.body.innerHTML, frame(r), live.body.innerHTML);
+  assert.ok(
+    report.stats.certificationPairs >= 2 * 399,
+    `too few pairs certified: ${report.stats.certificationPairs}`,
+  );
+  // The 400 cards of the unchanged local alignment, the 399 unchanged cards
+  // of the remote one and the wrapper itself.
+  assert.equal(report.stats.certificationPairs, 800);
+  for (const s of sections)
+    assert.ok(
+      live.body.contains(s),
+      `a live <section> was replaced: ${s.outerHTML}`,
+    );
+});
+
+test("I6-F wide fanout under a deep stem", async () => {
+  // A deep id'd stem around one id'd section with 1600 id'd children: the
+  // refused stem and section must not reschedule the wide fanout for every
+  // ancestor above them.
+  let stem = `<section data-id="w"><p>changed</p>${Array.from(
+    { length: 1600 },
+    (_, j) => `<i data-id="i${j}"></i>`,
+  ).join("")}</section>`;
+  for (let k = 40; k >= 1; k--) stem = `<div data-id="s${k}">${stem}</div>`;
+  const b = stem;
+  const r = stem.replace("<p>changed</p>", "<p>CHANGED</p>");
+  const N = nodeCount(parse(doc(b)).body);
+  const before = steps.certifyVisited,
+    beforeScheduled = steps.certifyScheduled;
+  const got = await dirtyLive(b, b, r);
+  const visited = steps.certifyVisited - before,
+    scheduled = steps.certifyScheduled - beforeScheduled;
+  assert.equal(got.html, frame(r), got.html);
+  assert.ok(visited <= 2 * 2 * N, `visited ${visited} nodes`);
+  assert.ok(scheduled <= 2 * 2 * N, `scheduled ${scheduled} children`);
+  assert.equal(visited, 4966);
+  assert.equal(scheduled, 3284);
+});
+
+/** The E4 review's context-dependent `ignore` shapes: an identity pair moved
+ * across the ignoring boundary. Pass 1b must refuse the pair, so the raw walk
+ * and the unitsOf lists completion reads agree. Each expected value is the
+ * pre-E4b1 reference engine's on the same inputs. */
+const IGNORE_CASES = [
+  {
+    name: "I6-G frozen: A moved into the ignoring container",
+    b: `<div data-id="A"><p>x one</p><span>keep</span></div><section class="frozen"></section>`,
+    l: `<div data-id="A"><p>x one</p><span>keep LOCAL</span></div><section class="frozen"></section>`,
+    r: `<section class="frozen"><div data-id="A"><p>x one</p><span>keep</span></div></section>`,
+    ignore: (el) => el.matches(".frozen p"),
+    out: `<section class="frozen"><div data-id="A"><span>keep LOCAL</span></div></section>`,
+    conflicts: [],
+  },
+  {
+    name: "I6-G aside: A moved into the ignoring container",
+    b: `<section><div data-id="A"><p>first words</p><p data-id="y">second words</p><!--tail--></div></section><aside></aside>`,
+    l: `<section><div data-id="A"><p>first LOCAL words</p><p data-id="y">second words</p><!--tail--></div></section><aside></aside>`,
+    r: `<section></section><aside><div data-id="A"><p>first words</p><p data-id="y">second words</p><!--tail--></div></aside>`,
+    ignore: (el) => el.matches("aside p:not([data-id])"),
+    out: `<section></section><aside><div data-id="A"><p data-id="y">second words</p><!--tail--></div></aside>`,
+    conflicts: ["text:"],
+  },
+  {
+    name: "I6-G aside with whitespace: A moved into the ignoring container",
+    b: `<section><div data-id="A"><p>first words</p> <p data-id="y">second words</p><!--tail--></div></section><aside></aside>`,
+    l: `<section><div data-id="A"><p>first words</p> <p data-id="y">second words</p><!--tail--></div></section><aside></aside>`,
+    r: `<section></section><aside><div data-id="A"><p>first words</p> <p data-id="y">second words</p><!--tail--></div></aside>`,
+    ignore: (el) => el.matches("aside p:not([data-id])"),
+    out: `<section></section><aside><div data-id="A"> <p data-id="y">second words</p><!--tail--></div></aside>`,
+    conflicts: [],
+  },
+];
+
+for (const c of IGNORE_CASES)
+  test(c.name, async () => {
+    const got = await dirtyLive(c.b, c.l, c.r, { ignore: c.ignore });
+    assert.equal(got.html, c.out, got.html);
+    assert.deepEqual(got.kinds, c.conflicts, c.name);
+    // A no-op hook forces the merge to descend, as the differential's pure
+    // shape does: without one the pure output leaves an unchanged subtree to
+    // apply and carries no children for it.
+    const res = merge3(parse(doc(c.b)), parse(doc(c.l)), parse(doc(c.r)), {
+      ignore: c.ignore,
+      hooks: { beforeNodeMorphed: () => {} },
+    });
+    assert.equal(res.doc.body.innerHTML, c.out, c.name);
+    assert.deepEqual(kinds(res), c.conflicts, c.name);
+    const plain = merge3(parse(doc(c.b)), parse(doc(c.l)), parse(doc(c.r)), {
+      ignore: c.ignore,
+    });
+    bijection(res.L, `${c.name} L`);
+    bijection(res.R, `${c.name} R`);
+    bijection(plain.L, `${c.name} plain L`);
+    bijection(plain.R, `${c.name} plain R`);
   });

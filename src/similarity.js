@@ -327,5 +327,6 @@ export function createAnalyzer({
     childrenOf,
     equalUnits,
     exactUnitKey,
+    ignored,
   };
 }
