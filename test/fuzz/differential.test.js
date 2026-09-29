@@ -7,23 +7,27 @@
 // The parent freezes `src/` into a reference directory before an engine
 // milestone and points HM_REFERENCE_ENTRY at its `src/index.js`. Differences
 // are accepted only through test/fuzz/differential-accepted.json, keyed by
-// reference revision, then `mode:seed:shape`, with the differing fields and a
-// classification. A new reference revision starts a new file: nothing
-// carries over.
+// reference revision, then `mode:seed:shape` or `fixture:<name>:<shape>`,
+// with the differing fields, a digest of both engines' values in them, and a
+// classification. A difference whose values change is unaccepted again until
+// its digest is rewritten, and an entry no difference matches any more fails
+// the test. A new reference revision starts a new file: nothing carries over.
 //
 //   HM_REFERENCE_ENTRY=/private/tmp/hm-reference-m2/src/index.js \
 //   HM_REFERENCE_REV=dea289b npm run test:diff
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { parse, doc } from "../node/lib/dom.js";
+import { pathToFileURL, fileURLToPath } from "node:url";
+import path from "node:path";
+import { observe } from "../lib/differential-observe.js";
 import { generate, setIdMode } from "../lib/structure-fuzz.js";
 import * as candidate from "../../src/index.js";
 
 const MODES = [0, 1, 2, 3, 4, 5, 6];
 const SEEDS = 1000;
-const SHAPES = ["pure", "dirty", "clean"];
+const SHAPES = ["pure", "dirty", "clean", "element"];
 const FIELDS = [
   "html",
   "nodeDestinations",
@@ -38,145 +42,86 @@ const ACCEPTED = fileURLToPath(
   new URL("./differential-accepted.json", import.meta.url),
 );
 
-const contentOf = (n) =>
-  n.nodeType === 1 && n.tagName === "TEMPLATE" && n.content ? n.content : null;
-
-/** Number every node of a tree, template content included, so two engines'
- * trees can be compared by position. */
-function labelTree(root) {
-  const ids = new WeakMap();
-  const nodes = [];
-  const visit = (n) => {
-    ids.set(n, nodes.length);
-    nodes.push(n);
-    const content = contentOf(n);
-    if (content) visit(content);
-    for (let c = n.firstChild; c; c = c.nextSibling) visit(c);
-  };
-  visit(root);
-  return { ids, nodes };
-}
-
-/** The nodes still reachable from the live root after the merge. */
-function reachable(root) {
-  const seen = new Set();
-  const visit = (n) => {
-    seen.add(n);
-    const content = contentOf(n);
-    if (content) visit(content);
-    for (let c = n.firstChild; c; c = c.nextSibling) visit(c);
-  };
-  visit(root);
-  return seen;
-}
-
-/** Where every pre-merge live node went: connected or not, and, when it is
- * connected, the label of its parent (or "new") and its index there. */
-function destinations(root, label) {
-  const live = reachable(root);
-  return label.nodes.map((n, i) => {
-    if (!live.has(n)) return [i, 0];
-    const parent = n.parentNode;
-    const p = label.ids.get(parent);
-    return [
-      i,
-      1,
-      p === undefined ? "new" : p,
-      Array.prototype.indexOf.call(parent.childNodes, n),
-    ];
-  });
-}
-
-/** The capture's nodes, paired with the live nodes they became. */
-function lockstepMap(a, b) {
-  const m = new WeakMap();
-  const wa = a.ownerDocument.createTreeWalker(a),
-    wb = b.ownerDocument.createTreeWalker(b);
-  let x = a,
-    y = b;
-  do {
-    m.set(x, y);
-    x = wa.nextNode();
-    y = wb.nextNode();
-  } while (x && y);
-  return m;
-}
-
-const conflictList = (conflicts) =>
-  conflicts
-    .map((c) =>
-      JSON.stringify([c.kind, c.detail === undefined ? null : c.detail]),
-    )
-    .sort();
-
-const decisionList = (decisions) => [
-  decisions.length,
-  decisions.map((d) => d.kind).sort(),
+// Hand-written fixtures from the E2e/E2f twin-routing work and the template
+// content path, run in id mode 0 in every shape: the generator makes no
+// templates, so nothing else here covers template content.
+const B = `<template><p>w0 w1 w2 w3 w4</p></template>`;
+const FIXTURES = [
+  {
+    name: "moved-out-to-new-section",
+    b: B,
+    l: B,
+    r: `<section><p>w0 w1 w2 w3 w4</p></section><template></template>`,
+  },
+  {
+    name: "moved-out-local-edit-elsewhere",
+    b: `${B}<p>tail x y</p>`,
+    l: `${B}<p>tail x Y</p>`,
+    r: `<section><p>w0 w1 w2 w3 w4</p></section><template></template><p>tail x y</p>`,
+  },
+  {
+    name: "moved-out-inline-child",
+    b: `<template><p>w0 <b>w1</b> w2 w3</p></template>`,
+    l: `<template><p>w0 <b>w1</b> w2 w3</p></template>`,
+    r: `<section><p>w0 <b>w1</b> w2 w3</p></section><template></template>`,
+  },
+  {
+    name: "moved-out-whole-div-subtree",
+    b: `<template><div><p>w0 w1</p><p>w2 w3</p></div></template>`,
+    l: `<template><div><p>w0 w1</p><p>w2 w3</p></div></template>`,
+    r: `<section><div><p>w0 w1</p><p>w2 w3</p></div></section><template></template>`,
+  },
+  {
+    name: "moved-out-nested-template-below-a-section",
+    b: `<section><template><p>w0 w1 w2 w3 w4</p></template></section>`,
+    l: `<section><template><p>w0 w1 w2 w3 w4</p></template></section>`,
+    r: `<article><p>w0 w1 w2 w3 w4</p></article><section><template></template></section>`,
+  },
+  {
+    name: "moved-out-div-source-control",
+    b: `<div><p>w0 w1 w2 w3 w4</p></div>`,
+    l: `<div><p>w0 w1 w2 w3 w4</p></div>`,
+    r: `<section><p>w0 w1 w2 w3 w4</p></section><div></div>`,
+  },
+  {
+    name: "cross-rewrite-under-containers",
+    b: `<div><p>first block words</p></div><section><p>second block words</p></section>`,
+    l: `<div><p>brand new text here</p></div><section><p>second block words</p></section>`,
+    r: `<div><p>first block words</p></div><section><p>brand new text here</p></section>`,
+  },
+  {
+    name: "echo-under-containers",
+    b: `<div><p>alpha bravo</p></div><section><p>beta gamma</p></section>`,
+    l: `<div><p>Done</p></div><section><p>beta gamma</p></section>`,
+    r: `<div><p>alpha bravo</p></div><section><p>beta gamma</p><p>Done</p></section>`,
+  },
+  {
+    name: "split-inside-a-template",
+    b: `<template><p>alpha bravo charlie delta echo foxtrot</p><p>golf hotel india</p></template>`,
+    l: `<template><p>alpha bravo charlie</p><p>delta echo foxtrot</p><p>golf hotel india</p></template>`,
+    r: `<template><p>alpha bravo charlie delta echo FOXTROT</p><p>golf hotel india</p></template>`,
+  },
+  {
+    name: "morph-children-crash",
+    b: `<section><p>alpha bravo charlie</p></section><p>tail words</p>`,
+    l: `<section></section><p>alpha bravo charlie</p><p>tail words</p>`,
+    r: `<section><p>alpha bravo charlie</p></section><p>tail words here</p>`,
+  },
+  {
+    name: "nested-template",
+    b: `<template><section><template><p>w0 w1 w2</p></template></section></template><p>tail a b</p>`,
+    l: `<template><section><template><p>w0 w1 w2</p></template></section></template><p>tail a b</p>`,
+    r: `<template><section><template><p>w0 w1 w2</p></template></section></template><p>tail a B</p>`,
+  },
 ];
 
-const identityList = (identities, label) =>
-  identities
-    .map(([el, id]) => {
-      const n = label.ids.get(el);
-      return JSON.stringify([n === undefined ? null : n, id]);
-    })
-    .sort();
-
-/**
- * One engine's view of one (mode, seed, shape): the merged bytes and every
- * live-node, identity, conflict and decision field a merge can observe.
- */
-async function observe(engine, shape, inputs) {
-  const { b, l, r } = inputs;
-  if (shape === "pure") {
-    // The pure merge without hooks omits subtrees identical on both sides:
-    // its output is an instruction for apply, not a document. The fuzz gate's
-    // pure merge reads the whole output, so ask for a visit.
-    const res = engine.merge3(parse(doc(b)), parse(doc(l)), parse(doc(r)), {
-      hooks: { beforeNodeMorphed: () => {} },
-    });
-    return {
-      html: res.doc.body.innerHTML,
-      nodeDestinations: [],
-      adoptedIdentities: [],
-      conflicts: conflictList(res.conflicts),
-      decisions: decisionList(res.decisions),
-      localDiverged: res.localDiverged,
-      moved: 0,
-      replaced: 0,
-    };
-  }
-  const live = parse(doc(shape === "clean" ? b : l));
-  const label = labelTree(live.documentElement);
-  let base, local;
-  if (shape === "clean") {
-    const cap = parse(doc(b));
-    const toLive = lockstepMap(cap.documentElement, live.documentElement);
-    base = cap;
-    local = {
-      root: cap.documentElement,
-      toLive: (n) => toLive.get(n) || null,
-    };
-  } else {
-    base = doc(b);
-  }
-  const report = await engine.mergeDocument({
-    live,
-    base,
-    local,
-    remote: doc(r),
-  });
-  return {
-    html: live.body.innerHTML,
-    nodeDestinations: destinations(live.documentElement, label),
-    adoptedIdentities: identityList(report.identities || [], label),
-    conflicts: conflictList(report.conflicts),
-    decisions: decisionList(report.decisions || []),
-    localDiverged: report.localDiverged,
-    moved: report.moved.length,
-    replaced: report.replaced.length,
-  };
-}
+/** The two engines' values in the differing fields, so an entry stops
+ * accepting a difference whose values moved. */
+const digestOf = (d) =>
+  createHash("sha1")
+    .update(JSON.stringify(d.fields.map((f) => [f, d.ref[f], d.cand[f]])))
+    .digest("hex")
+    .slice(0, 16);
 
 const comparable = (o) =>
   Object.fromEntries(FIELDS.map((f) => [f, JSON.stringify(o[f])]));
@@ -200,36 +145,60 @@ async function classify(reference, rev) {
   const table = accepted[rev] || {};
   const diffs = [];
   let runs = 0;
+  const runCase = async (key, name, mode, inputs) => {
+    for (const shape of SHAPES) {
+      runs++;
+      const ref = comparable(await observe(reference, shape, inputs));
+      const cand = comparable(await observe(candidate, shape, inputs));
+      const fields = FIELDS.filter((f) => ref[f] !== cand[f]);
+      if (fields.length)
+        diffs.push({
+          key: `${key}:${shape}`,
+          name,
+          mode,
+          shape,
+          fields,
+          ref,
+          cand,
+          inputs,
+        });
+    }
+  };
   for (const mode of MODES) {
     setIdMode(mode);
     try {
-      for (let seed = 1; seed <= SEEDS; seed++) {
-        for (const shape of SHAPES) {
-          runs++;
-          const inputs = generate(seed);
-          const ref = comparable(await observe(reference, shape, inputs));
-          const cand = comparable(await observe(candidate, shape, inputs));
-          const fields = FIELDS.filter((f) => ref[f] !== cand[f]);
-          if (fields.length)
-            diffs.push({ mode, seed, shape, fields, ref, cand, inputs });
-        }
-      }
+      for (let seed = 1; seed <= SEEDS; seed++)
+        await runCase(`${mode}:${seed}`, `seed ${seed}`, mode, generate(seed));
     } finally {
       setIdMode(0);
     }
   }
+  for (const fixture of FIXTURES)
+    await runCase(
+      `fixture:${fixture.name}`,
+      `fixture ${fixture.name}`,
+      0,
+      fixture,
+    );
 
-  const unaccepted = diffs.filter((d) => {
-    const entry = table[`${d.mode}:${d.seed}:${d.shape}`];
-    return !entry || !sameFields(entry.fields, d.fields);
-  });
+  const entryFor = (d) => {
+    const entry = table[d.key];
+    return entry &&
+      sameFields(entry.fields, d.fields) &&
+      entry.digest === digestOf(d)
+      ? entry
+      : null;
+  };
+  const unaccepted = diffs.filter((d) => !entryFor(d));
   const classifications = new Map();
   for (const d of diffs) {
-    const entry = table[`${d.mode}:${d.seed}:${d.shape}`];
-    if (!entry || !sameFields(entry.fields, d.fields)) continue;
+    const entry = entryFor(d);
+    if (!entry) continue;
     const key = entry.classification;
     classifications.set(key, (classifications.get(key) || 0) + 1);
   }
+  const used = new Set(diffs.map((d) => d.key));
+  const stale = Object.keys(table).filter((k) => !used.has(k));
 
   const summary = [
     `differential ${rev}: ${runs} runs, ${diffs.length} differences ` +
@@ -237,16 +206,19 @@ async function classify(reference, rev) {
   ];
   for (const [key, n] of countBy(diffs)) summary.push(`  mode ${key}: ${n}`);
   for (const [key, n] of classifications) summary.push(`  "${key}": ${n}`);
+  if (stale.length)
+    summary.push(`  stale accepted entries: ${stale.join(", ")}`);
   console.log(summary.join("\n"));
 
   if (unaccepted.length) {
     const blocks = unaccepted.slice(0, 20).map((d) => {
       const { inputs } = d;
       return [
-        `mode ${d.mode}, seed ${d.seed}, ${d.shape}: ${d.fields.join(", ")}`,
+        `mode ${d.mode}, ${d.name}, ${d.shape}: ${d.fields.join(", ")}`,
         `  base:    ${inputs.b}`,
         `  local:   ${inputs.l}`,
         `  remote:  ${inputs.r}`,
+        `  digest:  ${digestOf(d)}`,
         ...d.fields.map((f) => `  ref  ${f}: ${d.ref[f]}`),
         ...d.fields.map((f) => `  cand ${f}: ${d.cand[f]}`),
       ].join("\n");
@@ -255,12 +227,17 @@ async function classify(reference, rev) {
     if (unaccepted.length > blocks.length)
       console.log(`... and ${unaccepted.length - blocks.length} more`);
   }
-  assert.equal(
-    unaccepted.length,
-    0,
-    `${unaccepted.length} of ${diffs.length} differences are not accepted in ` +
-      `${ACCEPTED} for ${rev}`,
-  );
+  const failures = [];
+  if (unaccepted.length)
+    failures.push(
+      `${unaccepted.length} of ${diffs.length} differences are not accepted in ` +
+        `${ACCEPTED} for ${rev}`,
+    );
+  if (stale.length)
+    failures.push(
+      `${stale.length} accepted entries no longer occur: ${stale.join(", ")}`,
+    );
+  assert.deepEqual(failures, []);
 }
 
 const referenceEntry = process.env.HM_REFERENCE_ENTRY;
@@ -274,11 +251,12 @@ if (!referenceEntry) {
       referenceRev,
       "HM_REFERENCE_REV must be set when HM_REFERENCE_ENTRY is set",
     );
+    const entry = path.resolve(process.cwd(), referenceEntry);
     assert.ok(
-      existsSync(referenceEntry),
+      existsSync(entry),
       `reference entry not found: ${referenceEntry}`,
     );
-    const reference = await import(referenceEntry);
+    const reference = await import(pathToFileURL(entry).href);
     await classify(reference, referenceRev);
   });
 }

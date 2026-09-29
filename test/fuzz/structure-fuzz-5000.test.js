@@ -3,6 +3,7 @@
 // the aligner, the echo pairing or the block sequence merge.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { mergeBodies } from "../node/lib/merge.js";
 import { parse, doc } from "../node/lib/dom.js";
 import { mergeDocument } from "../../src/index.js";
@@ -54,6 +55,27 @@ const KNOWN = {
 };
 const failedSeeds = (fails) => fails.map((f) => f.seed);
 
+// What each known seed fails with, pinned per mode and shape, so a seed that
+// turns from duplicating text into losing it is a change the gate reports.
+// UPDATE_GOLDENS=1 rewrites the file instead of comparing.
+const GOLDEN = new URL(
+  "../fixtures/structure-fuzz-known.json",
+  import.meta.url,
+);
+const readGolden = () =>
+  existsSync(GOLDEN) ? JSON.parse(readFileSync(GOLDEN, "utf8")) : {};
+
+function pinProblems(key, fails) {
+  const got = Object.fromEntries(fails.map((f) => [f.seed, f.problems]));
+  if (process.env.UPDATE_GOLDENS) {
+    const all = readGolden();
+    all[key] = got;
+    writeFileSync(GOLDEN, JSON.stringify(all, null, 2) + "\n");
+    return;
+  }
+  assert.deepEqual(got, readGolden()[key], JSON.stringify(fails, null, 1));
+}
+
 for (const mode of [1, 3, 4, 5, 6]) {
   test(`structural fuzz, id mode ${mode}, seeds 1 to 1000`, async () => {
     setIdMode(mode);
@@ -71,6 +93,7 @@ for (const mode of [1, 3, 4, 5, 6]) {
       KNOWN[mode],
       JSON.stringify(fails.slice(0, 5), null, 1),
     );
+    pinProblems(`${mode}:pure`, fails);
   });
 
   test(`structural fuzz on a live page, id mode ${mode}, seeds 1 to 1000`, async () => {
@@ -95,5 +118,6 @@ for (const mode of [1, 3, 4, 5, 6]) {
       KNOWN[mode],
       JSON.stringify(fails.slice(0, 5), null, 1),
     );
+    pinProblems(`${mode}:live`, fails);
   });
 }

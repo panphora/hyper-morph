@@ -2,99 +2,3100 @@
   "dea289b": {
     "0:37:pure": {
       "fields": ["conflicts"],
-      "classification": "spurious move-beats-delete removed: the reference reports it and the candidate does not; merged bytes equal"
+      "classification": "spurious move-beats-delete removed: the reference reports it and the candidate does not; merged bytes equal",
+      "digest": "8e01ace25f259eda"
     },
     "0:37:dirty": {
       "fields": ["nodeDestinations", "conflicts", "moved", "replaced"],
-      "classification": "spurious move-beats-delete removed; the moved live node is kept by a move instead of being replaced; bytes equal"
+      "classification": "spurious move-beats-delete removed; the moved live node is kept by a move instead of being replaced; bytes equal",
+      "digest": "9d133a9a28f63885"
     },
     "0:158:pure": {
       "fields": ["conflicts"],
-      "classification": "spurious move-beats-delete removed: the reference reports it and the candidate does not; merged bytes equal"
+      "classification": "spurious move-beats-delete removed: the reference reports it and the candidate does not; merged bytes equal",
+      "digest": "8e01ace25f259eda"
     },
     "0:158:dirty": {
       "fields": ["nodeDestinations", "conflicts", "moved", "replaced"],
-      "classification": "spurious move-beats-delete removed; the moved live node is kept by a move instead of being replaced; bytes equal"
+      "classification": "spurious move-beats-delete removed; the moved live node is kept by a move instead of being replaced; bytes equal",
+      "digest": "32f2ed75705302c6"
     },
     "0:190:pure": {
       "fields": ["conflicts"],
-      "classification": "spurious move-beats-delete removed: the reference reports it and the candidate does not; merged bytes equal"
+      "classification": "spurious move-beats-delete removed: the reference reports it and the candidate does not; merged bytes equal",
+      "digest": "8e01ace25f259eda"
     },
     "0:190:dirty": {
       "fields": ["nodeDestinations", "conflicts", "moved", "replaced"],
-      "classification": "spurious move-beats-delete removed; the moved live node is kept by a move instead of being replaced; bytes equal"
+      "classification": "spurious move-beats-delete removed; the moved live node is kept by a move instead of being replaced; bytes equal",
+      "digest": "1f945fcae6c8128e"
     },
     "0:416:dirty": {
       "fields": ["nodeDestinations", "moved"],
-      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal"
+      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal",
+      "digest": "b516730d4e173ada"
     },
     "0:654:pure": {
       "fields": ["conflicts"],
-      "classification": "spurious move-beats-delete removed: the reference reports it and the candidate does not; merged bytes equal"
+      "classification": "spurious move-beats-delete removed: the reference reports it and the candidate does not; merged bytes equal",
+      "digest": "8e01ace25f259eda"
     },
     "0:654:dirty": {
       "fields": ["nodeDestinations", "conflicts", "moved", "replaced"],
-      "classification": "spurious move-beats-delete removed; the moved live node is kept by a move instead of being replaced; bytes equal"
+      "classification": "spurious move-beats-delete removed; the moved live node is kept by a move instead of being replaced; bytes equal",
+      "digest": "3c8a03fd3ebf2f26"
     },
     "0:912:pure": {
       "fields": ["conflicts"],
-      "classification": "spurious move-beats-delete removed: the reference reports it and the candidate does not; merged bytes equal"
+      "classification": "spurious move-beats-delete removed: the reference reports it and the candidate does not; merged bytes equal",
+      "digest": "8e01ace25f259eda"
     },
     "0:912:dirty": {
       "fields": ["nodeDestinations", "conflicts", "moved", "replaced"],
-      "classification": "spurious move-beats-delete removed; the moved live node is kept by a move instead of being replaced; bytes equal"
+      "classification": "spurious move-beats-delete removed; the moved live node is kept by a move instead of being replaced; bytes equal",
+      "digest": "93b9b05ac813a183"
     },
     "2:263:dirty": {
       "fields": ["nodeDestinations", "moved"],
-      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal"
+      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal",
+      "digest": "e6f2235848683039"
     },
     "2:344:dirty": {
       "fields": ["nodeDestinations", "moved"],
-      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal"
+      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal",
+      "digest": "b05d6b43148307a3"
     },
     "2:580:dirty": {
       "fields": ["nodeDestinations", "moved"],
-      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal"
+      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal",
+      "digest": "5798ce24ea41d00d"
     },
     "2:598:dirty": {
       "fields": ["nodeDestinations", "moved"],
-      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal"
+      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal",
+      "digest": "6501bcc0a1a40830"
     },
     "2:639:dirty": {
       "fields": ["nodeDestinations", "moved"],
-      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; same edit-beats-delete conflict both sides; bytes equal"
+      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; same edit-beats-delete conflict both sides; bytes equal",
+      "digest": "89c8785bdb7f5580"
     },
     "2:754:dirty": {
       "fields": ["nodeDestinations", "moved"],
-      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal"
+      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal",
+      "digest": "fcda93d599371349"
     },
     "2:768:dirty": {
       "fields": ["nodeDestinations", "moved"],
-      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal"
+      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal",
+      "digest": "c89339414deb2753"
     },
     "2:867:dirty": {
       "fields": ["nodeDestinations", "moved"],
-      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal"
+      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal",
+      "digest": "d2f9f0a7011ac1c2"
     },
     "2:948:dirty": {
       "fields": ["nodeDestinations", "moved"],
-      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; same edit-beats-delete conflict both sides; bytes equal"
+      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; same edit-beats-delete conflict both sides; bytes equal",
+      "digest": "777565a83d76a7ec"
     },
     "2:996:dirty": {
       "fields": ["nodeDestinations", "moved"],
-      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal"
+      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal",
+      "digest": "12dbf1c2d72f952b"
     },
     "3:190:pure": {
       "fields": ["conflicts"],
-      "classification": "spurious move-beats-delete removed: the reference reports it and the candidate does not; merged bytes equal"
+      "classification": "spurious move-beats-delete removed: the reference reports it and the candidate does not; merged bytes equal",
+      "digest": "8e01ace25f259eda"
     },
     "3:190:dirty": {
       "fields": ["nodeDestinations", "conflicts", "moved", "replaced"],
-      "classification": "spurious move-beats-delete removed; the moved live node is kept by a move instead of being replaced; bytes equal"
+      "classification": "spurious move-beats-delete removed; the moved live node is kept by a move instead of being replaced; bytes equal",
+      "digest": "1f945fcae6c8128e"
     },
     "5:416:dirty": {
       "fields": ["nodeDestinations", "moved"],
-      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal"
+      "classification": "replace became move: the live node under the rebuilt parent is kept instead of rebuilt; no conflict either side; bytes equal",
+      "digest": "b516730d4e173ada"
+    },
+    "0:5:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "047b4c4562b59df9",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:24:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "3cf91c70fad7297e",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:25:element": {
+      "fields": ["decisions"],
+      "digest": "19da2f8e1249578e",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:27:element": {
+      "fields": ["decisions"],
+      "digest": "c395cbb951318e8d",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:37:element": {
+      "fields": ["nodeDestinations", "conflicts", "moved", "replaced"],
+      "digest": "2a2112ce67ffa84e",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:48:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "efc868a104267ee8",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:59:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "916d9c11e097ea13",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:82:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "93c3abc9b73cb170",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:87:element": {
+      "fields": ["html", "nodeDestinations", "replaced"],
+      "digest": "b2accdf21f754d68",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:89:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "2bb192ff0a01452a",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:90:element": {
+      "fields": ["decisions"],
+      "digest": "7492d9ec76758d1f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:114:element": {
+      "fields": ["html", "nodeDestinations", "localDiverged"],
+      "digest": "ebcca2b150746572",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:120:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "dd515635c7bb01f1",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:124:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "d1872896bde940cc",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:158:element": {
+      "fields": ["nodeDestinations", "conflicts", "moved", "replaced"],
+      "digest": "b759792300128d3a",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:184:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:190:element": {
+      "fields": ["nodeDestinations", "conflicts", "moved", "replaced"],
+      "digest": "a4b84549beb2b2a8",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:193:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "d8b06608467475ca",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:199:element": {
+      "fields": ["decisions"],
+      "digest": "6adde9927266759a",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:203:element": {
+      "fields": ["nodeDestinations", "decisions", "replaced"],
+      "digest": "de1ccb30b72be9d8",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:253:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "eda571c692c2c50f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:271:element": {
+      "fields": ["decisions"],
+      "digest": "dcb58eed379a7805",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:279:element": {
+      "fields": ["conflicts"],
+      "digest": "3d6dab7cbdb29e52",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:285:element": {
+      "fields": ["html", "nodeDestinations", "decisions", "replaced"],
+      "digest": "91855c2fd8be72be",
+      "classification": "children-mode path changed on a seed where it already diverged from the whole-document merge in both engines; the candidate passes the structural oracle here (parent ran)"
+    },
+    "0:290:element": {
+      "fields": ["html", "nodeDestinations"],
+      "digest": "1853d73115f773ce",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:336:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "927014a2826acd19",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:348:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "51ab0a34bba741f2",
+      "classification": "children-mode path changed on a seed where it already diverged from the whole-document merge in both engines; the candidate passes the structural oracle here (parent ran)"
+    },
+    "0:350:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "3af9356955fbbbbe",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:371:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "334aeb780649f58e",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:377:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "6d303f27d3fcf727",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:383:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:384:element": {
+      "fields": ["html", "conflicts", "decisions"],
+      "digest": "d10605af81c2f612",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:397:element": {
+      "fields": ["decisions"],
+      "digest": "f49d849832f25187",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:402:element": {
+      "fields": ["nodeDestinations", "decisions", "moved", "replaced"],
+      "digest": "cf444bc6a3bb33bf",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:404:element": {
+      "fields": ["nodeDestinations", "decisions", "replaced"],
+      "digest": "8000120c23ea484d",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:416:element": {
+      "fields": ["nodeDestinations", "moved"],
+      "digest": "d83a29a8aac80645",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:452:element": {
+      "fields": ["nodeDestinations", "decisions", "replaced"],
+      "digest": "7fa46416912b06ef",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:462:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "efc868a104267ee8",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:468:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "f06745c8d9d57549",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:517:element": {
+      "fields": ["decisions"],
+      "digest": "ae7566dbc0da4cbc",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:518:element": {
+      "fields": ["nodeDestinations"],
+      "digest": "05fffc7184b74d3d",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:525:element": {
+      "fields": ["decisions"],
+      "digest": "c87a4944a3fa1325",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:531:element": {
+      "fields": ["nodeDestinations"],
+      "digest": "a0e27c3b67e14797",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:539:element": {
+      "fields": ["nodeDestinations", "decisions"],
+      "digest": "72dbb3b5b8eec577",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:564:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:575:element": {
+      "fields": ["conflicts"],
+      "digest": "3d6dab7cbdb29e52",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:577:element": {
+      "fields": ["decisions"],
+      "digest": "c87a4944a3fa1325",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:586:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "c0c06c82e29035a7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:589:element": {
+      "fields": ["decisions"],
+      "digest": "7110d6b6b139e41d",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:602:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "8999f32c01fd9490",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:632:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "conflicts",
+        "decisions",
+        "replaced"
+      ],
+      "digest": "c3875f0db2259fa7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:654:element": {
+      "fields": ["nodeDestinations", "conflicts", "moved", "replaced"],
+      "digest": "9811961cb47e9c94",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:706:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "conflicts",
+        "decisions",
+        "localDiverged"
+      ],
+      "digest": "8bc5b880835985cc",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:750:element": {
+      "fields": ["nodeDestinations", "decisions", "moved", "replaced"],
+      "digest": "4d887ace7a361504",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:760:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:761:element": {
+      "fields": ["decisions"],
+      "digest": "4b0622b55284727d",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:768:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "3bf95661ce8bf589",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:780:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:796:element": {
+      "fields": ["nodeDestinations", "decisions", "replaced"],
+      "digest": "824992c067210d3f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:838:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "f96faba2c07107c2",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:840:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "927014a2826acd19",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:842:element": {
+      "fields": ["decisions"],
+      "digest": "dcb58eed379a7805",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:848:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "bf22f3ddc7a7cc76",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:856:element": {
+      "fields": ["decisions"],
+      "digest": "377a1cfac86ccc79",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:857:element": {
+      "fields": ["nodeDestinations", "decisions", "replaced"],
+      "digest": "bca8f570566544b5",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:862:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:863:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "a3d7f87dfadc3d3a",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:900:element": {
+      "fields": ["decisions"],
+      "digest": "038f05ae648fbe49",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:904:element": {
+      "fields": ["decisions"],
+      "digest": "dd6253d28705718a",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:912:element": {
+      "fields": ["nodeDestinations", "conflicts", "moved", "replaced"],
+      "digest": "ac042307f60a5e26",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:916:element": {
+      "fields": ["html", "nodeDestinations", "localDiverged"],
+      "digest": "873108929c9c2ac5",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:952:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:972:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "decisions",
+        "localDiverged",
+        "replaced"
+      ],
+      "digest": "af347859c523e2b0",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:981:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "1684fced81fe957f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "0:988:element": {
+      "fields": ["nodeDestinations", "decisions"],
+      "digest": "86bf778bc46d6546",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:5:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "96a9f07d02036acd",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:24:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "9d89015a0cf6041a",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:27:element": {
+      "fields": ["decisions"],
+      "digest": "c395cbb951318e8d",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:48:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "206f700ec00c5fcd",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:59:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "fa248148ea067b1a",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:82:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "11e9b5b79b3cb54e",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:87:element": {
+      "fields": ["html", "nodeDestinations", "adoptedIdentities", "replaced"],
+      "digest": "9b2d02c06603f1cb",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:89:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "eacd44476fcb99c1",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:90:element": {
+      "fields": ["decisions"],
+      "digest": "7492d9ec76758d1f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:114:element": {
+      "fields": ["html", "nodeDestinations", "adoptedIdentities"],
+      "digest": "fd1cb2d296428f15",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:120:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "0e2508710af811a8",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:124:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "f5cad916abb9ebf8",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:184:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:193:element": {
+      "fields": ["decisions"],
+      "digest": "657099c3046058da",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:215:element": {
+      "fields": ["nodeDestinations"],
+      "digest": "bc84946b521325ab",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:253:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "da5bee41aaae82b2",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:266:element": {
+      "fields": ["nodeDestinations"],
+      "digest": "d0fee91ff0548a8f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:271:element": {
+      "fields": ["decisions"],
+      "digest": "c9e077401f696ac4",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:279:element": {
+      "fields": ["conflicts"],
+      "digest": "3d6dab7cbdb29e52",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:285:element": {
+      "fields": ["decisions"],
+      "digest": "d73b7c9f71751c72",
+      "classification": "children-mode path changed on a seed where it already diverged from the whole-document merge in both engines; the candidate passes the structural oracle here (parent ran)"
+    },
+    "1:290:element": {
+      "fields": ["html", "nodeDestinations", "adoptedIdentities"],
+      "digest": "f73c4ae0f5260bb7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:336:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "927014a2826acd19",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:350:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "11d5877af416b730",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:371:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "174091a707592a77",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:377:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "77d0822ae84e826b",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:383:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:394:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "a1b79317f28f65c5",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:397:element": {
+      "fields": ["decisions"],
+      "digest": "b1c2dd4bb98b13c1",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:402:element": {
+      "fields": ["nodeDestinations", "decisions"],
+      "digest": "671269baf3a6207c",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:462:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "206f700ec00c5fcd",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:468:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "dd262ec03fd79b57",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:478:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions",
+        "localDiverged",
+        "replaced"
+      ],
+      "digest": "7d7523e30b0f39d9",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:518:element": {
+      "fields": ["nodeDestinations"],
+      "digest": "05fffc7184b74d3d",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:525:element": {
+      "fields": ["decisions"],
+      "digest": "d1c697301eacf65b",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:531:element": {
+      "fields": ["nodeDestinations"],
+      "digest": "a0e27c3b67e14797",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:533:element": {
+      "fields": ["decisions"],
+      "digest": "83131e7ad7cdf07e",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:535:element": {
+      "fields": ["nodeDestinations", "decisions"],
+      "digest": "82713d40bf092b5f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:564:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:575:element": {
+      "fields": ["conflicts"],
+      "digest": "3d6dab7cbdb29e52",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:586:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "9c6cbbcc8dffff8c",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:589:element": {
+      "fields": ["decisions"],
+      "digest": "7110d6b6b139e41d",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:602:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "8999f32c01fd9490",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:632:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions",
+        "replaced"
+      ],
+      "digest": "6adc0be6c6c5bcf5",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:706:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions",
+        "replaced"
+      ],
+      "digest": "b87051aa74ea47f8",
+      "classification": "known seed 706 defect (Deferred, recheck at E4): on the children-mode path the echoed-split duplicate now drops i6.png from the b2 copy instead of keeping it; the whole-document path still duplicates text"
+    },
+    "1:750:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "decisions",
+        "replaced"
+      ],
+      "digest": "ff864f605491e5a1",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:760:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:768:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "9a48cda9982703f9",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:780:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:837:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "6566bb5551ae198a",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:838:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "e3d61d11d2f14dcd",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:840:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "927014a2826acd19",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:842:element": {
+      "fields": ["decisions"],
+      "digest": "c9e077401f696ac4",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:848:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "f479d12e0bdcf84f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:856:element": {
+      "fields": ["decisions"],
+      "digest": "377a1cfac86ccc79",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:857:element": {
+      "fields": ["decisions"],
+      "digest": "cd3e92cec66baaa5",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:862:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:863:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "1d40984707e2127e",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:904:element": {
+      "fields": ["decisions"],
+      "digest": "dd6253d28705718a",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:916:element": {
+      "fields": ["html", "nodeDestinations", "adoptedIdentities"],
+      "digest": "f5f59edf9baf7241",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:926:element": {
+      "fields": ["decisions"],
+      "digest": "7492d9ec76758d1f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:952:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:972:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "decisions",
+        "localDiverged",
+        "replaced"
+      ],
+      "digest": "22e1762f69a5886e",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:976:element": {
+      "fields": ["html", "nodeDestinations", "adoptedIdentities", "decisions"],
+      "digest": "39bd30fcfd6d20bb",
+      "classification": "children-mode path changed on a seed where it already diverged from the whole-document merge in both engines; the candidate passes the structural oracle here (parent ran)"
+    },
+    "1:981:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "decisions",
+        "replaced"
+      ],
+      "digest": "a794a5d6cac6bb77",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "1:988:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "decisions",
+        "localDiverged",
+        "replaced"
+      ],
+      "digest": "b41fc8c5c9785aad",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:5:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "96a9f07d02036acd",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:24:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "6455e9c24a4488d6",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:27:element": {
+      "fields": ["decisions"],
+      "digest": "cc45b0cd93b99001",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:48:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "6fdd251fd4ddb510",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:82:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "11e9b5b79b3cb54e",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:87:element": {
+      "fields": ["html", "nodeDestinations", "adoptedIdentities", "replaced"],
+      "digest": "9b2d02c06603f1cb",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:89:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "eacd44476fcb99c1",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:90:element": {
+      "fields": ["decisions"],
+      "digest": "7492d9ec76758d1f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:120:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "0e2508710af811a8",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:124:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "d160eba9d071083c",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:184:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:193:element": {
+      "fields": ["decisions"],
+      "digest": "657099c3046058da",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:215:element": {
+      "fields": ["nodeDestinations"],
+      "digest": "bc84946b521325ab",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:253:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "da5bee41aaae82b2",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:263:element": {
+      "fields": ["nodeDestinations", "moved"],
+      "digest": "22be5d28db5a0a70",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:266:element": {
+      "fields": ["nodeDestinations"],
+      "digest": "d0fee91ff0548a8f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:271:element": {
+      "fields": ["decisions"],
+      "digest": "c9e077401f696ac4",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:279:element": {
+      "fields": ["conflicts"],
+      "digest": "3d6dab7cbdb29e52",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:285:element": {
+      "fields": ["decisions"],
+      "digest": "d73b7c9f71751c72",
+      "classification": "children-mode path changed on a seed where it already diverged from the whole-document merge in both engines; the candidate passes the structural oracle here (parent ran)"
+    },
+    "2:336:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "927014a2826acd19",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:344:element": {
+      "fields": ["nodeDestinations", "moved"],
+      "digest": "2651b5b85f7a97cf",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:350:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions",
+        "replaced"
+      ],
+      "digest": "4c0627499db8c962",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:377:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "77d0822ae84e826b",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:383:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:384:element": {
+      "fields": ["html", "adoptedIdentities", "conflicts", "decisions"],
+      "digest": "e9d34dffeb8eef04",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:397:element": {
+      "fields": ["decisions"],
+      "digest": "b1c2dd4bb98b13c1",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:402:element": {
+      "fields": ["nodeDestinations", "decisions"],
+      "digest": "671269baf3a6207c",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:452:element": {
+      "fields": ["html", "nodeDestinations", "adoptedIdentities", "replaced"],
+      "digest": "f39096bbde2a7cbe",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:462:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions",
+        "replaced"
+      ],
+      "digest": "8999840c48eb7a48",
+      "classification": "mode 2 duplicate authored ids (b1 twice), where the oracle does not apply: the candidate drops i5.png from b2 with a text conflict; recheck with seed 706 at E4"
+    },
+    "2:468:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "dd262ec03fd79b57",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:478:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions",
+        "localDiverged",
+        "replaced"
+      ],
+      "digest": "7d7523e30b0f39d9",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:515:element": {
+      "fields": [
+        "html",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions",
+        "replaced"
+      ],
+      "digest": "07f9ad8f08285c92",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:518:element": {
+      "fields": ["nodeDestinations"],
+      "digest": "05fffc7184b74d3d",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:525:element": {
+      "fields": ["decisions"],
+      "digest": "d1c697301eacf65b",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:531:element": {
+      "fields": ["nodeDestinations"],
+      "digest": "a0e27c3b67e14797",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:533:element": {
+      "fields": ["decisions"],
+      "digest": "83131e7ad7cdf07e",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:535:element": {
+      "fields": ["nodeDestinations", "decisions"],
+      "digest": "82713d40bf092b5f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:564:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:575:element": {
+      "fields": ["conflicts"],
+      "digest": "3d6dab7cbdb29e52",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:580:element": {
+      "fields": ["nodeDestinations", "moved"],
+      "digest": "8547e23e80fefcbc",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:586:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "9c6cbbcc8dffff8c",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:589:element": {
+      "fields": ["decisions"],
+      "digest": "7110d6b6b139e41d",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:598:element": {
+      "fields": ["nodeDestinations", "moved"],
+      "digest": "b34e89157d4eae5b",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:602:element": {
+      "fields": [
+        "html",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions",
+        "localDiverged",
+        "replaced"
+      ],
+      "digest": "c76ecc29d0a893ed",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:639:element": {
+      "fields": ["nodeDestinations", "moved"],
+      "digest": "8bd53a4783d706f0",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:706:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions",
+        "replaced"
+      ],
+      "digest": "b87051aa74ea47f8",
+      "classification": "known seed 706 defect (Deferred, recheck at E4): on the children-mode path the echoed-split duplicate now drops i6.png from the b2 copy instead of keeping it; the whole-document path still duplicates text"
+    },
+    "2:750:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "decisions",
+        "replaced"
+      ],
+      "digest": "5b43fee5415005e3",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:754:element": {
+      "fields": ["nodeDestinations", "moved"],
+      "digest": "984bbd94af2728ce",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:760:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:768:element": {
+      "fields": ["nodeDestinations", "moved"],
+      "digest": "f6d778bd0cc382ae",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:838:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "21b87968248eb233",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:848:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "f479d12e0bdcf84f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:856:element": {
+      "fields": ["decisions"],
+      "digest": "377a1cfac86ccc79",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:857:element": {
+      "fields": ["decisions"],
+      "digest": "ab83465220cb9d47",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:863:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions",
+        "replaced"
+      ],
+      "digest": "172b191313b43299",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:867:element": {
+      "fields": ["nodeDestinations", "moved"],
+      "digest": "76e1956c4083a9db",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:904:element": {
+      "fields": ["decisions"],
+      "digest": "741ceeda27eb078a",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:916:element": {
+      "fields": ["html", "nodeDestinations", "adoptedIdentities"],
+      "digest": "f5f59edf9baf7241",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:926:element": {
+      "fields": ["decisions"],
+      "digest": "7492d9ec76758d1f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:948:element": {
+      "fields": ["nodeDestinations", "moved"],
+      "digest": "6feac5fecbfe1b99",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:952:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:972:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "decisions",
+        "localDiverged",
+        "replaced"
+      ],
+      "digest": "22e1762f69a5886e",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:976:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions",
+        "replaced"
+      ],
+      "digest": "3004c569e2314e18",
+      "classification": "children-mode path changed on a seed where it already diverged from the whole-document merge in both engines; the candidate passes the structural oracle here (parent ran)"
+    },
+    "2:981:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "c4496abb21604c7e",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:988:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions",
+        "moved",
+        "replaced"
+      ],
+      "digest": "a1098c6be975e406",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "2:996:element": {
+      "fields": ["nodeDestinations", "moved"],
+      "digest": "28c43253f9bac0be",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:5:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "852b770b13f74ecd",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:24:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "9d89015a0cf6041a",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:25:element": {
+      "fields": ["decisions"],
+      "digest": "19da2f8e1249578e",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:27:element": {
+      "fields": ["decisions"],
+      "digest": "c395cbb951318e8d",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:48:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "efc868a104267ee8",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:59:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "955d1a09358749c5",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:82:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "93c3abc9b73cb170",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:87:element": {
+      "fields": ["html", "nodeDestinations", "adoptedIdentities", "replaced"],
+      "digest": "97fc598be7e44e69",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:89:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "2bb192ff0a01452a",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:90:element": {
+      "fields": ["decisions"],
+      "digest": "7492d9ec76758d1f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:114:element": {
+      "fields": ["html", "nodeDestinations"],
+      "digest": "7f1c92571fb09daf",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:120:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "8ce8bdbc89cf571f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:124:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "a3b565143912525e",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:184:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:190:element": {
+      "fields": ["nodeDestinations", "conflicts", "moved", "replaced"],
+      "digest": "a4b84549beb2b2a8",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:193:element": {
+      "fields": ["decisions"],
+      "digest": "657099c3046058da",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:199:element": {
+      "fields": ["decisions"],
+      "digest": "f58dde4f3e3f568d",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:203:element": {
+      "fields": ["nodeDestinations", "decisions", "replaced"],
+      "digest": "de1ccb30b72be9d8",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:253:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "9e52d2bc7fc8e1b2",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:266:element": {
+      "fields": ["nodeDestinations"],
+      "digest": "d0fee91ff0548a8f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:271:element": {
+      "fields": ["decisions"],
+      "digest": "dcb58eed379a7805",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:279:element": {
+      "fields": ["conflicts"],
+      "digest": "3d6dab7cbdb29e52",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:285:element": {
+      "fields": ["decisions"],
+      "digest": "d73b7c9f71751c72",
+      "classification": "children-mode path changed on a seed where it already diverged from the whole-document merge in both engines; the candidate passes the structural oracle here (parent ran)"
+    },
+    "3:290:element": {
+      "fields": ["html", "nodeDestinations", "adoptedIdentities"],
+      "digest": "982ecb1a480d921d",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:336:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "927014a2826acd19",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:350:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "47a30aa534b39e25",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:371:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "4bbab85d534437a3",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:377:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "34333749e3d920cf",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:383:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:394:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "a1b79317f28f65c5",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:397:element": {
+      "fields": ["decisions"],
+      "digest": "f49d849832f25187",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:402:element": {
+      "fields": ["nodeDestinations", "decisions"],
+      "digest": "671269baf3a6207c",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:452:element": {
+      "fields": ["nodeDestinations", "decisions", "replaced"],
+      "digest": "7fa46416912b06ef",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:462:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "efc868a104267ee8",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:468:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "f06745c8d9d57549",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:517:element": {
+      "fields": ["decisions"],
+      "digest": "f9d19720522b0f18",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:518:element": {
+      "fields": ["nodeDestinations"],
+      "digest": "05fffc7184b74d3d",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:525:element": {
+      "fields": ["decisions"],
+      "digest": "d1c697301eacf65b",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:531:element": {
+      "fields": ["nodeDestinations"],
+      "digest": "a0e27c3b67e14797",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:535:element": {
+      "fields": ["nodeDestinations", "decisions"],
+      "digest": "82713d40bf092b5f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:539:element": {
+      "fields": ["nodeDestinations", "decisions"],
+      "digest": "72dbb3b5b8eec577",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:564:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:575:element": {
+      "fields": ["conflicts"],
+      "digest": "3d6dab7cbdb29e52",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:577:element": {
+      "fields": ["decisions"],
+      "digest": "c87a4944a3fa1325",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:586:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "6bd3f5650fd898f8",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:589:element": {
+      "fields": ["decisions"],
+      "digest": "7110d6b6b139e41d",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:602:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "8999f32c01fd9490",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:632:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions",
+        "replaced"
+      ],
+      "digest": "d4625c3b9c52eebf",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:706:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "conflicts",
+        "decisions",
+        "localDiverged"
+      ],
+      "digest": "662b96e2af966d1c",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:750:element": {
+      "fields": ["nodeDestinations", "decisions", "moved", "replaced"],
+      "digest": "4d887ace7a361504",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:760:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:768:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "695bf69c4225dcb6",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:780:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:796:element": {
+      "fields": ["nodeDestinations", "decisions", "replaced"],
+      "digest": "824992c067210d3f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:838:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "e3d61d11d2f14dcd",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:840:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "927014a2826acd19",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:842:element": {
+      "fields": ["decisions"],
+      "digest": "dcb58eed379a7805",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:848:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "cb17298702cc426d",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:856:element": {
+      "fields": ["decisions"],
+      "digest": "377a1cfac86ccc79",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:857:element": {
+      "fields": ["decisions"],
+      "digest": "cd3e92cec66baaa5",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:862:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:863:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "4ee87ae11d51e40f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:900:element": {
+      "fields": ["decisions"],
+      "digest": "038f05ae648fbe49",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:904:element": {
+      "fields": ["decisions"],
+      "digest": "dd6253d28705718a",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:916:element": {
+      "fields": ["html", "nodeDestinations", "localDiverged"],
+      "digest": "fdb9b10d9393a75a",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:952:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:972:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "decisions",
+        "localDiverged",
+        "replaced"
+      ],
+      "digest": "0a82b9d25446cfa9",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:976:element": {
+      "fields": ["html", "nodeDestinations", "adoptedIdentities", "decisions"],
+      "digest": "add26ad4fd0941aa",
+      "classification": "children-mode path changed on a seed where it already diverged from the whole-document merge in both engines; the candidate passes the structural oracle here (parent ran)"
+    },
+    "3:981:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "496b87b44602d201",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "3:988:element": {
+      "fields": ["nodeDestinations", "decisions"],
+      "digest": "09785cd3857edeb2",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:5:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "f33041f807b15bb3",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:24:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "9d89015a0cf6041a",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:25:element": {
+      "fields": ["decisions"],
+      "digest": "d428cab5f174d510",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:27:element": {
+      "fields": ["decisions"],
+      "digest": "c395cbb951318e8d",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:48:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "206f700ec00c5fcd",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:59:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "974e5b3de504d6e9",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:82:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "93c3abc9b73cb170",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:87:element": {
+      "fields": ["html", "nodeDestinations", "replaced"],
+      "digest": "e72cc4c48cb2f411",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:89:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "2bb192ff0a01452a",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:90:element": {
+      "fields": ["decisions"],
+      "digest": "7492d9ec76758d1f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:114:element": {
+      "fields": ["html", "nodeDestinations", "adoptedIdentities"],
+      "digest": "df1e9deb3083a8ec",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:120:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "c2273f01273552e8",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:124:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "9c428498783e191a",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:184:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:193:element": {
+      "fields": ["decisions"],
+      "digest": "657099c3046058da",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:199:element": {
+      "fields": ["decisions"],
+      "digest": "6266864d0cdc5f5f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:203:element": {
+      "fields": [
+        "nodeDestinations",
+        "adoptedIdentities",
+        "decisions",
+        "replaced"
+      ],
+      "digest": "883d507e489daff4",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:253:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "4e6d753cbc0d6617",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:266:element": {
+      "fields": ["nodeDestinations"],
+      "digest": "d0fee91ff0548a8f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:271:element": {
+      "fields": ["decisions"],
+      "digest": "a96a43784e0da5f8",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:279:element": {
+      "fields": ["conflicts"],
+      "digest": "3d6dab7cbdb29e52",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:285:element": {
+      "fields": ["decisions"],
+      "digest": "d73b7c9f71751c72",
+      "classification": "children-mode path changed on a seed where it already diverged from the whole-document merge in both engines; the candidate passes the structural oracle here (parent ran)"
+    },
+    "4:290:element": {
+      "fields": ["html", "nodeDestinations"],
+      "digest": "bab0a54e82a13b07",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:336:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "927014a2826acd19",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:350:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "103648c66cddc05c",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:371:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "5ed9485dc38da676",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:377:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "e4b64efdbbeabc78",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:383:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:394:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "a1b79317f28f65c5",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:397:element": {
+      "fields": ["decisions"],
+      "digest": "e1528b98f28f8650",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:402:element": {
+      "fields": ["nodeDestinations", "decisions"],
+      "digest": "671269baf3a6207c",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:452:element": {
+      "fields": [
+        "nodeDestinations",
+        "adoptedIdentities",
+        "decisions",
+        "replaced"
+      ],
+      "digest": "193da2f321734138",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:462:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "efc868a104267ee8",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:468:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "f06745c8d9d57549",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:517:element": {
+      "fields": ["decisions"],
+      "digest": "ae7566dbc0da4cbc",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:518:element": {
+      "fields": ["nodeDestinations"],
+      "digest": "05fffc7184b74d3d",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:525:element": {
+      "fields": ["decisions"],
+      "digest": "d1c697301eacf65b",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:531:element": {
+      "fields": ["nodeDestinations"],
+      "digest": "a0e27c3b67e14797",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:535:element": {
+      "fields": ["nodeDestinations", "decisions"],
+      "digest": "82713d40bf092b5f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:539:element": {
+      "fields": ["nodeDestinations", "decisions"],
+      "digest": "72dbb3b5b8eec577",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:564:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:575:element": {
+      "fields": ["conflicts"],
+      "digest": "3d6dab7cbdb29e52",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:577:element": {
+      "fields": ["decisions"],
+      "digest": "5c487f620ee25503",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:586:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "10c482143161d7e9",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:589:element": {
+      "fields": ["decisions"],
+      "digest": "7110d6b6b139e41d",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:602:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "8999f32c01fd9490",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:632:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions",
+        "replaced"
+      ],
+      "digest": "0c78f5a6659d22f8",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:706:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "conflicts",
+        "decisions",
+        "localDiverged"
+      ],
+      "digest": "2b96e3f63f3e3116",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:750:element": {
+      "fields": ["html", "nodeDestinations", "decisions", "replaced"],
+      "digest": "f756a916fc56f911",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:760:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:761:element": {
+      "fields": ["decisions"],
+      "digest": "45c24a126ec5685b",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:768:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "16241570ecf602ba",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:780:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:796:element": {
+      "fields": [
+        "nodeDestinations",
+        "adoptedIdentities",
+        "decisions",
+        "replaced"
+      ],
+      "digest": "7687075d7d8968c1",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:838:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "e3d61d11d2f14dcd",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:840:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "927014a2826acd19",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:842:element": {
+      "fields": ["decisions"],
+      "digest": "a96a43784e0da5f8",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:848:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "16c510915372c132",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:856:element": {
+      "fields": ["decisions"],
+      "digest": "377a1cfac86ccc79",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:857:element": {
+      "fields": ["decisions"],
+      "digest": "cd3e92cec66baaa5",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:862:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:863:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "b055c0ad37873ce0",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:900:element": {
+      "fields": ["decisions"],
+      "digest": "fe7f696ad93be30e",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:904:element": {
+      "fields": ["decisions"],
+      "digest": "dd6253d28705718a",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:916:element": {
+      "fields": ["html", "nodeDestinations"],
+      "digest": "b2d8ef6e023c1299",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:952:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:972:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "decisions",
+        "localDiverged",
+        "replaced"
+      ],
+      "digest": "0a82b9d25446cfa9",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:976:element": {
+      "fields": ["html", "nodeDestinations", "adoptedIdentities", "decisions"],
+      "digest": "80c449eb22e9274a",
+      "classification": "children-mode path changed on a seed where it already diverged from the whole-document merge in both engines; the candidate passes the structural oracle here (parent ran)"
+    },
+    "4:981:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "1684fced81fe957f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "4:988:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions",
+        "localDiverged",
+        "replaced"
+      ],
+      "digest": "97fa73d4813e90a2",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:5:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "852b770b13f74ecd",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:24:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "3cf91c70fad7297e",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:25:element": {
+      "fields": ["decisions"],
+      "digest": "19da2f8e1249578e",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:27:element": {
+      "fields": ["decisions"],
+      "digest": "c395cbb951318e8d",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:48:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "efc868a104267ee8",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:59:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "91816b91480ff083",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:82:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "93c3abc9b73cb170",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:87:element": {
+      "fields": ["html", "nodeDestinations", "replaced"],
+      "digest": "b2accdf21f754d68",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:89:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "2bb192ff0a01452a",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:90:element": {
+      "fields": ["decisions"],
+      "digest": "7492d9ec76758d1f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:114:element": {
+      "fields": ["html", "nodeDestinations", "localDiverged"],
+      "digest": "966dbacb99d99ad6",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:120:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "4bd81154c7b2a691",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:124:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "d83dc49739df3cf4",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:184:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:193:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "d8b06608467475ca",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:199:element": {
+      "fields": ["decisions"],
+      "digest": "6adde9927266759a",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:203:element": {
+      "fields": ["nodeDestinations", "decisions", "replaced"],
+      "digest": "de1ccb30b72be9d8",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:253:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "f59ace9cdf1fcf0e",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:271:element": {
+      "fields": ["decisions"],
+      "digest": "dcb58eed379a7805",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:279:element": {
+      "fields": ["conflicts"],
+      "digest": "3d6dab7cbdb29e52",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:285:element": {
+      "fields": ["html", "nodeDestinations", "decisions", "replaced"],
+      "digest": "91855c2fd8be72be",
+      "classification": "children-mode path changed on a seed where it already diverged from the whole-document merge in both engines; the candidate passes the structural oracle here (parent ran)"
+    },
+    "5:290:element": {
+      "fields": ["html", "nodeDestinations"],
+      "digest": "ee0c88b32ee9eead",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:336:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "927014a2826acd19",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:348:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "51ab0a34bba741f2",
+      "classification": "children-mode path changed on a seed where it already diverged from the whole-document merge in both engines; the candidate passes the structural oracle here (parent ran)"
+    },
+    "5:350:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "6589b490ddaf6a4a",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:371:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "3179a8a8eb195955",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:377:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "c4680ce97dc8a3ee",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:383:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:384:element": {
+      "fields": ["html", "conflicts", "decisions"],
+      "digest": "d10605af81c2f612",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:397:element": {
+      "fields": ["decisions"],
+      "digest": "f49d849832f25187",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:402:element": {
+      "fields": ["nodeDestinations", "decisions", "moved", "replaced"],
+      "digest": "cf444bc6a3bb33bf",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:404:element": {
+      "fields": ["nodeDestinations", "decisions", "replaced"],
+      "digest": "8000120c23ea484d",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:416:element": {
+      "fields": ["nodeDestinations", "moved"],
+      "digest": "d83a29a8aac80645",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:452:element": {
+      "fields": ["nodeDestinations", "decisions", "replaced"],
+      "digest": "7fa46416912b06ef",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:462:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "efc868a104267ee8",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:468:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "f06745c8d9d57549",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:517:element": {
+      "fields": ["decisions"],
+      "digest": "ae7566dbc0da4cbc",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:518:element": {
+      "fields": ["nodeDestinations"],
+      "digest": "05fffc7184b74d3d",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:525:element": {
+      "fields": ["decisions"],
+      "digest": "c87a4944a3fa1325",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:531:element": {
+      "fields": ["nodeDestinations"],
+      "digest": "a0e27c3b67e14797",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:539:element": {
+      "fields": ["nodeDestinations", "decisions"],
+      "digest": "72dbb3b5b8eec577",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:564:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:575:element": {
+      "fields": ["conflicts"],
+      "digest": "3d6dab7cbdb29e52",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:577:element": {
+      "fields": ["decisions"],
+      "digest": "c87a4944a3fa1325",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:586:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "da748b756765ea58",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:589:element": {
+      "fields": ["decisions"],
+      "digest": "7110d6b6b139e41d",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:602:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "8999f32c01fd9490",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:632:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "conflicts",
+        "decisions",
+        "replaced"
+      ],
+      "digest": "a8b0d5508867ef8b",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:706:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "conflicts",
+        "decisions",
+        "localDiverged"
+      ],
+      "digest": "8bc5b880835985cc",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:750:element": {
+      "fields": ["nodeDestinations", "decisions", "moved", "replaced"],
+      "digest": "4d887ace7a361504",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:760:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:761:element": {
+      "fields": ["decisions"],
+      "digest": "4b0622b55284727d",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:768:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "695bf69c4225dcb6",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:780:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:796:element": {
+      "fields": ["nodeDestinations", "decisions", "replaced"],
+      "digest": "824992c067210d3f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:838:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "f96faba2c07107c2",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:840:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "927014a2826acd19",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:842:element": {
+      "fields": ["decisions"],
+      "digest": "dcb58eed379a7805",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:848:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "cb17298702cc426d",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:856:element": {
+      "fields": ["decisions"],
+      "digest": "377a1cfac86ccc79",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:857:element": {
+      "fields": ["nodeDestinations", "decisions", "replaced"],
+      "digest": "bca8f570566544b5",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:862:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:863:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "49058a91e327c5ad",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:900:element": {
+      "fields": ["decisions"],
+      "digest": "038f05ae648fbe49",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:904:element": {
+      "fields": ["decisions"],
+      "digest": "dd6253d28705718a",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:916:element": {
+      "fields": ["html", "nodeDestinations", "localDiverged"],
+      "digest": "873108929c9c2ac5",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:952:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:972:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "decisions",
+        "localDiverged",
+        "replaced"
+      ],
+      "digest": "af347859c523e2b0",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:981:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "1684fced81fe957f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "5:988:element": {
+      "fields": ["nodeDestinations", "decisions"],
+      "digest": "86bf778bc46d6546",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:5:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "3760d0976602e582",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:24:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "9d89015a0cf6041a",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:27:element": {
+      "fields": ["decisions"],
+      "digest": "c395cbb951318e8d",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:48:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "206f700ec00c5fcd",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:59:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "974e5b3de504d6e9",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:82:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "11e9b5b79b3cb54e",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:87:element": {
+      "fields": ["html", "nodeDestinations", "adoptedIdentities", "replaced"],
+      "digest": "9b2d02c06603f1cb",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:89:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "eacd44476fcb99c1",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:90:element": {
+      "fields": ["decisions"],
+      "digest": "7492d9ec76758d1f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:114:element": {
+      "fields": ["html", "nodeDestinations", "adoptedIdentities"],
+      "digest": "f479c049e3eaa6f5",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:120:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "6cf033618a53d305",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:124:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "e2ec150c52e5d1c2",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:184:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:193:element": {
+      "fields": ["decisions"],
+      "digest": "657099c3046058da",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:215:element": {
+      "fields": ["nodeDestinations"],
+      "digest": "bc84946b521325ab",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:253:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "4e6d753cbc0d6617",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:266:element": {
+      "fields": ["nodeDestinations"],
+      "digest": "d0fee91ff0548a8f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:271:element": {
+      "fields": ["decisions"],
+      "digest": "c9e077401f696ac4",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:279:element": {
+      "fields": ["conflicts"],
+      "digest": "3d6dab7cbdb29e52",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:285:element": {
+      "fields": ["decisions"],
+      "digest": "d73b7c9f71751c72",
+      "classification": "children-mode path changed on a seed where it already diverged from the whole-document merge in both engines; the candidate passes the structural oracle here (parent ran)"
+    },
+    "6:290:element": {
+      "fields": ["html", "nodeDestinations", "adoptedIdentities"],
+      "digest": "a6d893f6c3d07f04",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:336:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "927014a2826acd19",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:350:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "fbdad5b2290db099",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:371:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "5ed9485dc38da676",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:377:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "5989a5faefe7834b",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:383:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:394:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "a1b79317f28f65c5",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:397:element": {
+      "fields": ["decisions"],
+      "digest": "b1c2dd4bb98b13c1",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:402:element": {
+      "fields": ["nodeDestinations", "decisions"],
+      "digest": "671269baf3a6207c",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:462:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "206f700ec00c5fcd",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:468:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "dd262ec03fd79b57",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:478:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions",
+        "localDiverged",
+        "replaced"
+      ],
+      "digest": "7d7523e30b0f39d9",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:518:element": {
+      "fields": ["nodeDestinations"],
+      "digest": "05fffc7184b74d3d",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:525:element": {
+      "fields": ["decisions"],
+      "digest": "d1c697301eacf65b",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:531:element": {
+      "fields": ["nodeDestinations"],
+      "digest": "a0e27c3b67e14797",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:533:element": {
+      "fields": ["decisions"],
+      "digest": "83131e7ad7cdf07e",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:535:element": {
+      "fields": ["nodeDestinations", "decisions"],
+      "digest": "82713d40bf092b5f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:564:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:575:element": {
+      "fields": ["conflicts"],
+      "digest": "3d6dab7cbdb29e52",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:586:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "32e6a671d6fb07ae",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:589:element": {
+      "fields": ["decisions"],
+      "digest": "7110d6b6b139e41d",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:602:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "8999f32c01fd9490",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:632:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions",
+        "replaced"
+      ],
+      "digest": "1bc4ede102fda4e2",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:706:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions",
+        "replaced"
+      ],
+      "digest": "b87051aa74ea47f8",
+      "classification": "known seed 706 defect (Deferred, recheck at E4): on the children-mode path the echoed-split duplicate now drops i6.png from the b2 copy instead of keeping it; the whole-document path still duplicates text"
+    },
+    "6:750:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "decisions",
+        "replaced"
+      ],
+      "digest": "7f25747b50653572",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:760:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:768:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "cf70f86f172698d6",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:780:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:837:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "245f62c2cd33bbc6",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:838:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "e3d61d11d2f14dcd",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:840:element": {
+      "fields": ["conflicts", "decisions"],
+      "digest": "927014a2826acd19",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:842:element": {
+      "fields": ["decisions"],
+      "digest": "c9e077401f696ac4",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:848:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "conflicts",
+        "decisions"
+      ],
+      "digest": "9116dbddf815535d",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:856:element": {
+      "fields": ["decisions"],
+      "digest": "377a1cfac86ccc79",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:857:element": {
+      "fields": ["decisions"],
+      "digest": "cd3e92cec66baaa5",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:862:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:863:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions"],
+      "digest": "19966c20c2629382",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:904:element": {
+      "fields": ["decisions"],
+      "digest": "dd6253d28705718a",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:916:element": {
+      "fields": ["html", "nodeDestinations", "adoptedIdentities"],
+      "digest": "f5f59edf9baf7241",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:926:element": {
+      "fields": ["decisions"],
+      "digest": "7492d9ec76758d1f",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:952:element": {
+      "fields": ["conflicts"],
+      "digest": "ff32fe0aca6765d7",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:972:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "decisions",
+        "localDiverged",
+        "replaced"
+      ],
+      "digest": "22e1762f69a5886e",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:976:element": {
+      "fields": ["html", "nodeDestinations", "adoptedIdentities", "decisions"],
+      "digest": "39bd30fcfd6d20bb",
+      "classification": "children-mode path changed on a seed where it already diverged from the whole-document merge in both engines; the candidate passes the structural oracle here (parent ran)"
+    },
+    "6:981:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "decisions",
+        "replaced"
+      ],
+      "digest": "a794a5d6cac6bb77",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "6:988:element": {
+      "fields": [
+        "html",
+        "nodeDestinations",
+        "adoptedIdentities",
+        "decisions",
+        "localDiverged",
+        "replaced"
+      ],
+      "digest": "b41fc8c5c9785aad",
+      "classification": "children-mode morphElement now merges exactly as the whole-document merge does on the same inputs (E2 twin routing reaches the detached template root); the reference's children path diverged"
+    },
+    "fixture:moved-out-to-new-section:clean": {
+      "fields": ["html"],
+      "digest": "6cd672a93fdf4568",
+      "classification": "reference empties the paragraph moved out of template content in the clean shape; candidate keeps its content (E2e graft fallback)"
+    },
+    "fixture:moved-out-local-edit-elsewhere:clean": {
+      "fields": ["html"],
+      "digest": "b8954b4cc72b8d45",
+      "classification": "reference empties the paragraph moved out of template content in the clean shape; candidate keeps its content (E2e graft fallback)"
+    },
+    "fixture:moved-out-inline-child:clean": {
+      "fields": ["html"],
+      "digest": "5c7ddb0340c18ecb",
+      "classification": "reference empties the paragraph moved out of template content in the clean shape; candidate keeps its content (E2e graft fallback)"
+    },
+    "fixture:moved-out-whole-div-subtree:clean": {
+      "fields": ["html"],
+      "digest": "c530fe16f45308d1",
+      "classification": "reference empties the paragraph moved out of template content in the clean shape; candidate keeps its content (E2e graft fallback)"
+    },
+    "fixture:moved-out-nested-template-below-a-section:clean": {
+      "fields": ["html"],
+      "digest": "210b56b6ae28daea",
+      "classification": "reference empties the paragraph moved out of template content in the clean shape; candidate keeps its content (E2e graft fallback)"
+    },
+    "fixture:moved-out-div-source-control:dirty": {
+      "fields": ["nodeDestinations", "moved"],
+      "digest": "fdd9c8561da22c35",
+      "classification": "the moved live paragraph is kept by a move instead of dropped; bytes equal"
+    },
+    "fixture:moved-out-div-source-control:element": {
+      "fields": ["nodeDestinations", "moved"],
+      "digest": "e117b166aa4f855c",
+      "classification": "the moved live paragraph is kept by a move instead of dropped; bytes equal"
+    },
+    "fixture:cross-rewrite-under-containers:pure": {
+      "fields": ["html", "conflicts", "decisions"],
+      "digest": "0d16b6f7bd21d7c2",
+      "classification": "both matching rewrites land instead of one side's being dropped with both-moved (E2f)"
+    },
+    "fixture:cross-rewrite-under-containers:dirty": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions", "moved"],
+      "digest": "c104539d36e629f4",
+      "classification": "both matching rewrites land instead of one side's being dropped with both-moved (E2f)"
+    },
+    "fixture:cross-rewrite-under-containers:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "decisions", "moved"],
+      "digest": "8d4fc5774242b8d6",
+      "classification": "both matching rewrites land instead of one side's being dropped with both-moved (E2f)"
+    },
+    "fixture:echo-under-containers:pure": {
+      "fields": ["html", "conflicts"],
+      "digest": "1239b4228ba4deee",
+      "classification": "a rewrite and an append that match both land instead of one being dropped with both-moved (E2f)"
+    },
+    "fixture:echo-under-containers:dirty": {
+      "fields": ["html", "nodeDestinations", "conflicts", "moved", "replaced"],
+      "digest": "e5ae9c0201f480c8",
+      "classification": "a rewrite and an append that match both land instead of one being dropped with both-moved (E2f)"
+    },
+    "fixture:echo-under-containers:element": {
+      "fields": ["html", "nodeDestinations", "conflicts", "moved", "replaced"],
+      "digest": "eddd3de15ee51707",
+      "classification": "a rewrite and an append that match both land instead of one being dropped with both-moved (E2f)"
+    },
+    "fixture:split-inside-a-template:pure": {
+      "fields": ["html", "conflicts", "decisions"],
+      "digest": "2b38287516653604",
+      "classification": "a split inside a template merges like a split inside a div instead of duplicating text with a text conflict (E2f)"
+    },
+    "fixture:split-inside-a-template:dirty": {
+      "fields": ["html", "conflicts", "decisions"],
+      "digest": "2b38287516653604",
+      "classification": "a split inside a template merges like a split inside a div instead of duplicating text with a text conflict (E2f)"
+    },
+    "fixture:split-inside-a-template:element": {
+      "fields": ["html", "conflicts", "decisions"],
+      "digest": "9b7e67be947c677b",
+      "classification": "a split inside a template merges like a split inside a div instead of duplicating text with a text conflict (E2f)"
     }
   }
 }

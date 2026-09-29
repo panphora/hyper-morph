@@ -32,9 +32,11 @@ plan stays greppable.
 current tree on the same inputs and compares every observable field, so an
 engine milestone can list what each change did: the merged bytes, where every
 live node of the pre-merge page ended up, the identities adopted, the
-conflicts, the decisions, `localDiverged`, and the moved and replaced counts.
-It covers id modes 0 to 6, seeds 1 to 1000, in three shapes (pure merge, a
-dirty live page, and a clean capture merged through `toLive`).
+conflicts, the decisions, `localDiverged`, and the moved and replaced nodes
+(named, not counted). It covers id modes 0 to 6, seeds 1 to 1000, in four
+shapes (pure merge, a dirty live page, a clean capture merged through `toLive`,
+and a children-only `morphElement`), then hand-written fixtures, template
+content included. The observer it compares through is `test/lib/differential-observe.js`.
 
 It runs only when `HM_REFERENCE_ENTRY` is set to the absolute path of a frozen
 engine's `src/index.js`; with that unset it reports one skipped test, and a
@@ -42,9 +44,11 @@ path that does not exist fails the test. `HM_REFERENCE_REV` names the
 reference revision (for example `dea289b`) and is required with the entry: it
 is the key the accepted differences live under in
 `test/fuzz/differential-accepted.json`. A difference not in that file, or one
-whose differing fields do not match its entry, fails the test, and the test
-prints the unaccepted differences so a person can classify them. A new
-reference revision starts a new file; nothing carries over.
+whose differing fields or whose two engines' values in them (a digest) do not
+match its entry, fails the test, and the test prints the unaccepted differences
+so a person can classify them. An accepted entry no difference matches any more
+fails too, so a difference that stops occurring is reported. A new reference
+revision starts a new file; nothing carries over.
 
 ```
 HM_REFERENCE_ENTRY=/private/tmp/hm-reference-m2/src/index.js \
