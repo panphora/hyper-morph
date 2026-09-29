@@ -55,7 +55,7 @@ const POSITIONAL_LOOKAHEAD = 3;
 export const steps = { align: 0 };
 
 export function align(baseRoot, sideRoot, o) {
-  const { meta, unitsOf, unitHash, similar, score } = o.analyzer;
+  const { meta, unitsOf, unitHash, similar, score, equalUnits } = o.analyzer;
   const baseId = o.baseId || (() => null),
     sideId = o.sideId || (() => null);
   const map = new Map(),
@@ -83,6 +83,17 @@ export function align(baseRoot, sideRoot, o) {
     return !!set && set.has(s);
   };
   const codeLike = (el) => CODE_LIKE.has(el.tagName);
+  const equalNodes = (b, s) => {
+    if (!b.isEqualNode(s)) return false;
+    if (b.tagName === "TEMPLATE") return equalUnits(b, s);
+    const tb = b.getElementsByTagName("template");
+    if (tb.length === 0) return true;
+    const ts = s.getElementsByTagName("template");
+    if (tb.length !== ts.length) return false;
+    for (let i = 0; i < tb.length; i++)
+      if (!equalUnits(tb[i], ts[i])) return false;
+    return true;
+  };
   // Elements with different identities are different elements, whatever
   // their content or position says.
   const keysAgree = (b, s) => {
@@ -237,7 +248,7 @@ export function align(baseRoot, sideRoot, o) {
         s = sUnits[i];
       if (map.has(b) || reverse.has(s)) continue;
       if (isEl(b)) {
-        if (isEl(s) && b.tagName === s.tagName && b.isEqualNode(s))
+        if (isEl(s) && b.tagName === s.tagName && equalNodes(b, s))
           lockstep(b, s);
       } else if (!isEl(s) && b.kind === s.kind && b.value === s.value)
         lockstep(b, s);
@@ -354,7 +365,7 @@ export function align(baseRoot, sideRoot, o) {
       const h = unitHash(b);
       if (byHashB.get(h) !== 1) continue;
       const s = sideByHash.get(h);
-      if (s && !reverse.has(s)) lockstep(b, s);
+      if (s && !reverse.has(s) && equalUnits(b, s)) lockstep(b, s);
     }
   }
 
@@ -565,8 +576,13 @@ export function align(baseRoot, sideRoot, o) {
         keysAgree(b, s) &&
         !isBanned(b, s)
       ) {
-        pair(b, s);
-        weak.add(b);
+        // An equal pair is identical, not merely the only candidate: pairing
+        // it weakly would make the merge descend into content nobody changed.
+        if (equalUnits(b, s)) lockstep(b, s);
+        else {
+          pair(b, s);
+          weak.add(b);
+        }
       }
     }
   }
@@ -587,7 +603,13 @@ export function align(baseRoot, sideRoot, o) {
         const list = weakByHash.get(meta(s).hash);
         const b =
           list &&
-          list.find((x) => weak.has(x) && !isBanned(x, s) && keysAgree(x, s));
+          list.find(
+            (x) =>
+              weak.has(x) &&
+              !isBanned(x, s) &&
+              keysAgree(x, s) &&
+              equalUnits(x, s),
+          );
         if (!b) continue;
         unpair(b);
         lockstep(b, s);
@@ -646,7 +668,9 @@ export function align(baseRoot, sideRoot, o) {
       };
       const same = byHash.get(meta(b).hash);
       if (same) {
-        const s = same.find((x) => x !== was && free(x, b) && !isBanned(b, x));
+        const s = same.find(
+          (x) => x !== was && free(x, b) && !isBanned(b, x) && equalUnits(b, x),
+        );
         if (s) {
           claim(s);
           lockstep(b, s);

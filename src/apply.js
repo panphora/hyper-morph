@@ -58,6 +58,7 @@ export function apply(liveRoot, mergedRoot, result, o) {
   const liveOf = new Map(); // merged node -> live node (element, or first text node of a run)
   const mergedOf = new Map(); // live node -> the merged node it is the twin of
   const runOf = new Map(); // merged text node -> live text nodes of its run
+  const keptRuns = new Set(); // merged text nodes whose live run was left split
   // live text node -> { merged, shift } for a run merged whole, or a list of
   // { merged, from, to, flatStart } when an inline merge spread the node's
   // characters over several output nodes (provenance.caret).
@@ -137,7 +138,7 @@ export function apply(liveRoot, mergedRoot, result, o) {
     removeNode(node, parent);
   }
 
-  restoreFocus(doc, focus, liveTextInfo, textMappers, runOf, heldBy);
+  restoreFocus(doc, focus, liveTextInfo, textMappers, runOf, heldBy, keptRuns);
 
   return { applied, moved, replaced, identities, mergedScriptsLive, liveOf };
 
@@ -416,16 +417,42 @@ export function apply(liveRoot, mergedRoot, result, o) {
       if (lv && lv.nodeType !== 1) {
         // Text or comment run: reuse the first live member, drop the rest.
         const run = runOf.get(m) || [lv];
-        if (lv !== cursor) moveBefore(liveParent, lv, cursor);
+        const current = run.map((n) => n.nodeValue).join("");
         let text = m.nodeValue;
         if (m.nodeType === 3) {
           // Typing landed after the snapshot: merge it in.
           const snapshotValue = provenanceLocalValue(m);
-          const current = run.map((n) => n.nodeValue).join("");
           if (snapshotValue != null && current !== snapshotValue) {
             text = merge3Text(snapshotValue, current, m.nodeValue).text;
           }
         }
+        // A run the merge leaves as it is keeps every node typing split it
+        // into: folding it into the first would drop the rest, and every
+        // range pointing into them, for no change.
+        if (
+          run.length > 1 &&
+          current === text &&
+          !run.includes(cursor, 1) &&
+          run.every(
+            (n, i) =>
+              n.parentNode === liveParent &&
+              (i === 0 || run[i - 1].nextSibling === n),
+          )
+        ) {
+          if (lv !== cursor)
+            for (const n of run) moveBefore(liveParent, n, cursor);
+          if (hooks.beforeNodeMorphed(lv, m) !== false)
+            hooks.afterNodeMorphed(lv, m);
+          for (const n of run) {
+            claimed.add(n);
+            seenHere.add(n);
+          }
+          heldBy.set(m, lv);
+          keptRuns.add(m);
+          cursor = nextUsable(run[run.length - 1].nextSibling);
+          continue;
+        }
+        if (lv !== cursor) moveBefore(liveParent, lv, cursor);
         if (hooks.beforeNodeMorphed(lv, m) !== false) {
           if (lv.nodeValue !== text) {
             applied.push({
@@ -969,7 +996,15 @@ function captureFocus(doc, liveTextInfo) {
   return state;
 }
 
-function restoreFocus(doc, state, liveTextInfo, textMappers, runOf, heldBy) {
+function restoreFocus(
+  doc,
+  state,
+  liveTextInfo,
+  textMappers,
+  runOf,
+  heldBy,
+  keptRuns,
+) {
   if (!state) return;
   let el = state.el;
   if (!el.isConnected && state.id) el = doc.getElementById(state.id);
@@ -1020,7 +1055,7 @@ function restoreFocus(doc, state, liveTextInfo, textMappers, runOf, heldBy) {
     }
     // A text node inside a merged run: map through the run's offset mapper
     // into the run's surviving first member.
-    if (info) {
+    if (info && !keptRuns.has(info.merged)) {
       const survivor = (runOf.get(info.merged) || [node])[0];
       if (!survivor.isConnected) return null;
       const mapper = textMappers.get(info.merged);

@@ -110,20 +110,21 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   const fastSel = "[id],[data-id],script,head>*";
   const fast = (fn) => (fn === defaultIdentity ? fastSel : null);
   const bIndex = indexByIdentity(bRoot, idBase, ignored, fast(o.identity.base));
-  const L = o.localIsBase || bRoot === lRoot
-    ? identityAlignment()
-    : align(bRoot, lRoot, {
-        analyzer,
-        baseIndex: bIndex,
-        sideIndex: indexByIdentity(
-          lRoot,
-          idLocal,
-          ignored,
-          fast(o.identity.local),
-        ),
-        baseId: authored.base,
-        sideId: authored.local,
-      });
+  const L =
+    o.localIsBase || bRoot === lRoot
+      ? identityAlignment()
+      : align(bRoot, lRoot, {
+          analyzer,
+          baseIndex: bIndex,
+          sideIndex: indexByIdentity(
+            lRoot,
+            idLocal,
+            ignored,
+            fast(o.identity.local),
+          ),
+          baseId: authored.base,
+          sideId: authored.local,
+        });
   const R = align(bRoot, rRoot, {
     analyzer,
     baseIndex: bIndex,
@@ -267,9 +268,12 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       if (covered.has(lu)) continue;
       const bp = baseParentOf(L, lu);
       const free = (x) =>
-        !taken.has(x) && !covered.has(x) && x.tagName === lu.tagName;
+        !taken.has(x) &&
+        !covered.has(x) &&
+        x.tagName === lu.tagName &&
+        analyzer.equalUnits(lu, x);
       const ru =
-        rs.find((x) => free(x) && bp && baseParentOf(R, x) === bp) ||
+        rs.find((x) => bp && baseParentOf(R, x) === bp && free(x)) ||
         (crossable ? rs.find(free) : null);
       if (!ru) continue;
       taken.add(ru);
@@ -290,7 +294,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     const lu = side === "local" ? su : partner,
       ru = side === "local" ? partner : su;
     let node;
-    if (analyzer.unitHash(lu) === analyzer.unitHash(ru)) {
+    if (analyzer.equalUnits(lu, ru)) {
       node = cloneUnit(lu, "local", true);
       provenance.get(node).remote = ru;
     } else node = mergeEchoPair(lu, ru);
@@ -331,6 +335,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       if (!lb || lb === b || !L.weak.has(lb)) continue;
       if (L.map.has(b) && R.map.has(lb)) continue;
       if (L.map.get(lb).tagName !== y.tagName) continue;
+      if (!analyzer.equalUnits(L.map.get(lb), y)) continue;
       L.unpair(lb);
       R.unpair(b);
       any = true;
@@ -350,7 +355,10 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       const su = A.map.get(bk);
       if (!su) continue;
       const list = ins.get(analyzer.unitHash(su));
-      if (list && list.some((x) => x.tagName === su.tagName)) {
+      if (
+        list &&
+        list.some((x) => x.tagName === su.tagName && analyzer.equalUnits(x, su))
+      ) {
         A.unpair(bk);
         any = true;
       }
@@ -437,7 +445,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   function changed(bk, su, A) {
     if (!su) return false;
     if (A && A.identical.has(bk)) return false;
-    if (isEl(bk)) return meta(bk).hash !== meta(su).hash;
+    if (isEl(bk)) return !analyzer.equalUnits(bk, su);
     return bk.value !== su.value;
   }
 
@@ -1034,7 +1042,8 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
                 (x) =>
                   !echo.has(x) &&
                   isEl(x) === isEl(lu) &&
-                  (isEl(x) ? x.tagName === lu.tagName : x.kind === lu.kind),
+                  (isEl(x) ? x.tagName === lu.tagName : x.kind === lu.kind) &&
+                  analyzer.equalUnits(lu, x),
               ) || null;
         }
         if (!ru && isEl(lu)) {
@@ -1157,7 +1166,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           ru = side === "local" ? partner : su;
         let node;
         if (isEl(lu)) {
-          if (analyzer.unitHash(lu) === analyzer.unitHash(ru)) {
+          if (analyzer.equalUnits(lu, ru)) {
             node = cloneUnit(lu, "local");
             provenance.get(node).remote = ru;
           } else node = mergeEchoPair(lu, ru);
@@ -1811,7 +1820,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       };
       const sameUnits = (a, s) =>
         a.length === s.length &&
-        a.every((u, i) => analyzer.unitHash(u) === analyzer.unitHash(s[i]));
+        a.every((u, i) => analyzer.equalUnits(u, s[i]));
       const isComment = (u) => !isEl(u) && u.kind === "comment";
       // The segment's nodes as they sit in the DOM: the units' nodes plus the
       // ignored elements among and beside them, which the inline merge pins.
@@ -1868,7 +1877,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           mergeElement: (bk, lk, rk) => mergeElement(bk, lk, rk, false),
           cloneUnit,
           mergeAttrs,
-          atomKey: analyzer.unitHash,
+          atomKey: analyzer.exactUnitKey,
           moveIn: moveInto,
           provenance,
           textMappers,

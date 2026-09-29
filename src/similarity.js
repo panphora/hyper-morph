@@ -230,5 +230,90 @@ export function createAnalyzer({
     return !!s && s.coef >= 0.5;
   }
 
-  return { meta, unitsOf, unitHash, similar, score, childrenOf };
+  const tupleCache = new WeakMap();
+  function attrTuples(el) {
+    let t = tupleCache.get(el);
+    if (t) return t;
+    t = [];
+    for (const a of el.attributes)
+      if (!ignoreAttribute(el, a.name))
+        t.push([a.namespaceURI || "", a.localName, a.value]);
+    t.sort((x, y) =>
+      x[0] < y[0]
+        ? -1
+        : x[0] > y[0]
+          ? 1
+          : x[1] < y[1]
+            ? -1
+            : x[1] > y[1]
+              ? 1
+              : 0,
+    );
+    tupleCache.set(el, t);
+    return t;
+  }
+
+  const eqCache = new WeakMap();
+  function equalUnits(a, b) {
+    if (a === b) return true;
+    if (unitHash(a) !== unitHash(b)) return false;
+    let row = eqCache.get(a);
+    if (row && row.has(b)) return row.get(b);
+    const eq = equalUncached(a, b);
+    if (!row) eqCache.set(a, (row = new WeakMap()));
+    row.set(b, eq);
+    return eq;
+  }
+
+  function equalUncached(a, b) {
+    if (a.nodeType === 1) {
+      if (b.nodeType !== 1 || a.tagName !== b.tagName) return false;
+      if (a.namespaceURI !== b.namespaceURI) return false;
+      const ta = attrTuples(a),
+        tb = attrTuples(b);
+      if (ta.length !== tb.length) return false;
+      for (let i = 0; i < ta.length; i++)
+        if (
+          ta[i][0] !== tb[i][0] ||
+          ta[i][1] !== tb[i][1] ||
+          ta[i][2] !== tb[i][2]
+        )
+          return false;
+      const ua = unitsOf(a),
+        ub = unitsOf(b);
+      if (ua.length !== ub.length) return false;
+      for (let i = 0; i < ua.length; i++)
+        if (!equalUnits(ua[i], ub[i])) return false;
+      return true;
+    }
+    if (b.nodeType === 1) return false;
+    return a.kind === b.kind && a.value === b.value;
+  }
+
+  const keyCache = new WeakMap();
+  const keyBuckets = new Map();
+  let nextKey = 0;
+  function exactUnitKey(u) {
+    let k = keyCache.get(u);
+    if (k) return k;
+    const h = unitHash(u);
+    let bucket = keyBuckets.get(h);
+    if (!bucket) keyBuckets.set(h, (bucket = []));
+    const rep = bucket.find((x) => equalUnits(x.unit, u));
+    k = rep ? rep.key : "K" + nextKey++;
+    if (!rep) bucket.push({ unit: u, key: k });
+    keyCache.set(u, k);
+    return k;
+  }
+
+  return {
+    meta,
+    unitsOf,
+    unitHash,
+    similar,
+    score,
+    childrenOf,
+    equalUnits,
+    exactUnitKey,
+  };
 }

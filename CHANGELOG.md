@@ -3,13 +3,13 @@
 ## [1.0.1] - 2026-09-27
 
 ### Changed
+
 - Rebuilt dist to include the echo-gap fix
 - Tests now fail when the behavior they name breaks, covering one-sided edits and images in the structure fuzz, text-node and provenance identity by reference, exact pins for weak checks, and remote-policy conflict resolution in the text fuzz
 
 ### Fixed
+
 - An echoed phrase across a non-breaking space now lands once when each side also edited next to it
-
-
 
 ## [1.0.0] - 2026-09-25
 
