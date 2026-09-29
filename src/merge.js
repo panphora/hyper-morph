@@ -258,7 +258,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       const bp = A.reverse.get(x.parentNode);
       if (bp)
         for (const b of bp.children)
-          if (!O.map.has(b) && !ignored(b)) return true;
+          if (!twinIn(O, b) && !ignored(b)) return true;
       return false;
     };
     for (const [h, ls] of lIns) {
@@ -352,7 +352,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       if (!isEl(b) || !isEl(y)) continue;
       const lb = lBy.get(analyzer.unitHash(y));
       if (!lb || lb === b || !L.weak.has(lb)) continue;
-      if (L.map.has(b) && R.map.has(lb)) continue;
+      if (twinIn(L, b) && twinIn(R, lb)) continue;
       const lt = twinIn(L, lb);
       if (lt.tagName !== y.tagName) continue;
       if (!analyzer.equalUnits(lt, y)) continue;
@@ -1732,7 +1732,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           const t = twinIn(A, u);
           if (
             t &&
-            t.parentNode !== (A === L ? l : r) &&
+            !isSameParent(t, A === L ? l : r, A) &&
             !(A === L ? Lv : Rv).asBase
           )
             out.delete(u);

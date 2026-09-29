@@ -152,34 +152,108 @@ test("actual delete: a truly deleted twin still returns null and keeps today's c
   );
 });
 
-test("lookup idempotence: a repeated lookup returns the same twin without pairing again", async () => {
-  const b = `<div><p>one one one</p><p>two two two</p><p>three three three</p></div>`;
-  const l = b.replace("three three three", "three three THREE");
-  const r = `<p>one one one</p><div><p>two two two</p><p>three three three</p></div>`;
-  const { html, report } = await dirtyLive(b, l, r);
-  assert.equal(html, r.replace("three three three", "three three THREE"));
-  assert.deepEqual(kinds(report), []);
-});
-
-test("mixed authored and lazy: an identified container with id-less children", async () => {
-  const b = `<div id="c"><p>one one one</p><p>two two two</p></div>`;
-  const l = b.replace("two two two", "two two TWO");
-  const r = `<div id="c"><p>two two two</p><p>one one one</p></div>`;
-  const { html, report } = await dirtyLive(b, l, r);
-  assert.equal(html, `<div id="c"><p>two two TWO</p><p>one one one</p></div>`);
-  assert.deepEqual(kinds(report), []);
-});
-
-test("mixed authored and lazy: id-less container with identified children", async () => {
-  const b = `<div><p id="a">one one one</p><p id="b">two two two</p></div>`;
-  const l = b.replace("two two two", "two two TWO");
-  const r = `<div><p id="b">two two two</p><p id="a">one one one</p></div>`;
+test("cross rewrite under containers: both rewrites land", async () => {
+  const b = `<div><p>first block words</p></div><section><p>second block words</p></section>`;
+  const l = `<div><p>brand new text here</p></div><section><p>second block words</p></section>`;
+  const r = `<div><p>first block words</p></div><section><p>brand new text here</p></section>`;
   const { html, report } = await dirtyLive(b, l, r);
   assert.equal(
     html,
-    `<div><p id="b">two two TWO</p><p id="a">one one one</p></div>`,
+    `<div><p>brand new text here</p></div><section><p>brand new text here</p></section>`,
   );
   assert.deepEqual(kinds(report), []);
+});
+
+test("echo under containers: a rewrite and an append that match both land", async () => {
+  const b = `<div><p>alpha bravo</p></div><section><p>beta gamma</p></section>`;
+  const l = `<div><p>Done</p></div><section><p>beta gamma</p></section>`;
+  const r = `<div><p>alpha bravo</p></div><section><p>beta gamma</p><p>Done</p></section>`;
+  const { html, report } = await dirtyLive(b, l, r);
+  assert.equal(
+    html,
+    `<div><p>Done</p></div><section><p>beta gamma</p><p>Done</p></section>`,
+  );
+  assert.deepEqual(kinds(report), []);
+});
+
+test("split inside a template merges like a split inside a div", async () => {
+  const b = `<template><p>alpha bravo charlie delta echo foxtrot</p><p>golf hotel india</p></template>`;
+  const l = `<template><p>alpha bravo charlie</p><p>delta echo foxtrot</p><p>golf hotel india</p></template>`;
+  const r = `<template><p>alpha bravo charlie delta echo FOXTROT</p><p>golf hotel india</p></template>`;
+  const { live, html, report } = await dirtyLive(b, l, r);
+  assert.equal(
+    html,
+    `<template><p>alpha bravo charlie</p><p>delta echo FOXTROT</p><p>golf hotel india</p></template>`,
+  );
+  assert.equal(
+    live.body.querySelector("template").innerHTML,
+    `<p>alpha bravo charlie</p><p>delta echo FOXTROT</p><p>golf hotel india</p>`,
+  );
+  assert.deepEqual(kinds(report), []);
+});
+
+test("lookup idempotence: a repeated lookup returns the same twin without pairing again", async () => {
+  const b = `<p>alpha bravo charlie</p><div><p>delta echo foxtrot golf</p><p>hotel india juliet kilo</p></div><p>tail words here</p>`;
+  const l = b.replace("tail words here", "tail words HERE");
+  const r = `<p>DELTA echo foxtrot golf</p><p>alpha bravo charlie</p><p>HOTEL india juliet kilo</p><div></div><p>tail words here</p>`;
+  const live = parse(doc(l));
+  const moved = Array.from(live.querySelectorAll("div > p"));
+  const report = await mergeDocument({ live, base: doc(b), remote: doc(r) });
+  assert.deepEqual(kinds(report), []);
+  assert.equal(
+    live.body.children[0],
+    moved[0],
+    `the live paragraph was rebuilt: ${live.body.innerHTML}`,
+  );
+  assert.equal(
+    live.body.children[2],
+    moved[1],
+    `the live paragraph was rebuilt: ${live.body.innerHTML}`,
+  );
+  assert.equal(
+    live.body.innerHTML,
+    `<p>DELTA echo foxtrot golf</p><p>alpha bravo charlie</p><p>HOTEL india juliet kilo</p><div></div><p>tail words HERE</p>`,
+  );
+});
+
+test("mixed authored and lazy: an identified container with id-less children", async () => {
+  const b = `<p>alpha bravo charlie</p><div id="box"><p>delta echo foxtrot golf</p></div><p>tail words here</p>`;
+  const l = b.replace("tail words here", "tail words HERE");
+  const r = `<p>DELTA echo foxtrot golf</p><p>alpha bravo charlie</p><div id="box"></div><p>tail words here</p>`;
+  const live = parse(doc(l));
+  const movedP = live.querySelector("div > p");
+  const report = await mergeDocument({ live, base: doc(b), remote: doc(r) });
+  assert.deepEqual(kinds(report), []);
+  assert.equal(
+    live.body.firstElementChild,
+    movedP,
+    `the live paragraph was rebuilt: ${live.body.innerHTML}`,
+  );
+  assert.equal(movedP.textContent, "DELTA echo foxtrot golf");
+  assert.equal(
+    live.body.innerHTML,
+    `<p>DELTA echo foxtrot golf</p><p>alpha bravo charlie</p><div id="box"></div><p>tail words HERE</p>`,
+  );
+});
+
+test("mixed authored and lazy: id-less container with identified children", async () => {
+  const b = `<p>alpha bravo charlie</p><div><p id="m">delta echo foxtrot golf</p></div><p>tail words here</p>`;
+  const l = b.replace("tail words here", "tail words HERE");
+  const r = `<p id="m">DELTA echo foxtrot golf</p><p>alpha bravo charlie</p><div></div><p>tail words here</p>`;
+  const live = parse(doc(l));
+  const movedP = live.querySelector("div > p");
+  const report = await mergeDocument({ live, base: doc(b), remote: doc(r) });
+  assert.deepEqual(kinds(report), []);
+  assert.equal(
+    live.body.firstElementChild,
+    movedP,
+    `the live paragraph was rebuilt: ${live.body.innerHTML}`,
+  );
+  assert.equal(movedP.textContent, "DELTA echo foxtrot golf");
+  assert.equal(
+    live.body.innerHTML,
+    `<p id="m">DELTA echo foxtrot golf</p><p>alpha bravo charlie</p><div></div><p>tail words HERE</p>`,
+  );
 });
 
 test("collision is not lazy equality: a colliding pair is never materialized as identical children", async () => {
