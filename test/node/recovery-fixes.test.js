@@ -679,3 +679,49 @@ test("F2: differing-tag ordinary text retains the legacy original-root pointer",
     live.querySelector("section"),
   );
 });
+
+for (const [name, b, l, r] of [
+  [
+    "paragraph",
+    '<p>w0 w1 w2 <img src="i6.png"> w3 w4 w5</p><p><img src="i13.png"> w7 w8 w9 w10 w11 w12</p>',
+    '<p>w0</p><p>w16 w17 w18 w19</p><p>w1 w2 <img src="i6.png"> w3 w4 w5</p><p><img src="i13.png"> w15 w14 w8 w9 w10 w11 w12</p>',
+    '<p>w0</p><p>w1 w2 <img src="i6.png"> w3 w4 w5</p><p><img src="i13.png"> w20 w14 w8 w9 w10 w11 w12</p>',
+  ],
+  [
+    "list",
+    "<ul><li>w0 w1 w2 w3 w4 <b>w6</b> w5</li><li>w7 w8 w9 w10 w11 w12</li></ul><ul><li>w13 w14 w15 <b>w17</b> w16</li></ul>",
+    "<p>w25 w26 w27 w28</p><ul><li>w0 w1 w2 w3 w4 <b>w6</b></li><li>w5</li><li>w7 w8 w9 w10 w11 w12</li></ul><ul><li>w18 w19 <b>w24</b> w20 w21 w22 w23</li><li>w13 w14 w15 <b>w17</b> w16</li></ul>",
+    '<ul><li>w0 w1 w2 w3 w4 <b>w6</b></li><li><img src="i32.png"> w29</li><li>w30 w31</li><li>w5</li><li>w7 w8 w9 w10 w11 w12</li></ul><ul><li>w18 w19 <b>w24</b> w20 w21 w22 w23</li><li>w13 w14 w15 <b>w17</b> w16</li></ul>',
+  ],
+]) {
+  test(`certification: opaque inserted blocks in a ${name} scope project exactly`, () => {
+    const roots = {
+      base: parse(doc(b)).documentElement,
+      local: parse(doc(l)).documentElement,
+      remote: parse(doc(r)).documentElement,
+    };
+    const res = merge3(roots.base, roots.local, roots.remote, {
+      hooks: { beforeNodeMorphed: () => {} },
+    });
+    roots.merged = res.root;
+    assert.ok(res.conflicts.length > 0);
+    const final = finalTree(res.root);
+    assert.deepEqual(recoveryProblems(res.conflicts, final, true, roots), []);
+    const t = res.conflicts.find((c) => c.recovery.text).recovery.text;
+    if (name === "list") {
+      assert.equal(t.remote.start, 18);
+      assert.equal(t.remote.end, 21);
+      assert.deepEqual(t.remote.span.end, { path: [1, 0, 3], offset: 0 });
+      assert.equal(
+        t.remote.text.slice(t.remote.start, t.remote.end),
+        "\ufffc\ufffc\u001e",
+      );
+    }
+    t.local.text = t.local.text.replace("w0", "ZZ");
+    assert.ok(
+      recoveryProblems(res.conflicts, final, true, roots).some((x) =>
+        x.includes("projection differs"),
+      ),
+    );
+  });
+}

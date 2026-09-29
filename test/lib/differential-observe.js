@@ -1,5 +1,5 @@
 import { parse, doc } from "../node/lib/dom.js";
-import { MARK_TAGS } from "../../src/inline-merge.js";
+import { BLOCK_TAGS, MARK_TAGS } from "../../src/inline-merge.js";
 import {
   orderedSpan,
   projectSpan,
@@ -321,26 +321,43 @@ const projectionOptions = (scope, text, encoding) => {
   const range = scope.startContainer.ownerDocument.createRange();
   range.setStart(scope.startContainer, scope.startOffset);
   range.setEnd(scope.endContainer, scope.endOffset);
-  const candidates = [];
+  const root = range.commonAncestorContainer;
+  const candidates = [],
+    blocks = new Set();
   const walk = (n) => {
-    if (!range.intersectsNode(n)) return;
-    if (n.nodeType === 1 && MARK_TAGS.has(n.tagName)) candidates.push(n);
+    if (
+      n !== root &&
+      n.nodeType === 1 &&
+      BLOCK_TAGS.has(n.tagName) &&
+      text.includes("\u001e")
+    )
+      blocks.add(n);
+    if (
+      n.nodeType === 1 &&
+      range.intersectsNode(n) &&
+      (MARK_TAGS.has(n.tagName) || blocks.has(n))
+    )
+      candidates.push(n);
     for (const child of n.childNodes) walk(child);
   };
-  walk(range.commonAncestorContainer);
+  walk(root);
   const atoms = new Set();
   const search = (i) => {
     if (i === candidates.length) {
-      const choice = { ...options, atoms };
+      const choice = { blocks, atoms };
       return projectSpan(scope, encoding, choice) === text
-        ? { ...choice, atoms: new Set(atoms) }
+        ? { blocks: new Set(blocks), atoms: new Set(atoms) }
         : null;
     }
     const plain = search(i + 1);
     if (plain) return plain;
-    atoms.add(candidates[i]);
+    const n = candidates[i],
+      block = blocks.has(n);
+    if (block) blocks.delete(n);
+    atoms.add(n);
     const opaque = search(i + 1);
-    atoms.delete(candidates[i]);
+    atoms.delete(n);
+    if (block) blocks.add(n);
     return opaque;
   };
   return search(0);

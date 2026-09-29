@@ -454,8 +454,8 @@ export function createRecovery(ctx) {
         const opening = f.marks.find((m) => m.block && m.from === at + 1);
         if (opening)
           return edge === "start"
-            ? { kind: "startOf", node: opening.el }
-            : { kind: "before", node: opening.el };
+            ? { kind: "before", node: opening.el }
+            : { kind: "startOf", node: opening.el };
       }
       return touching();
     };
@@ -540,6 +540,13 @@ export function createRecovery(ctx) {
       if (a) return pt.kind === "after" ? a.i + 1 : a.i;
       const m = fo.marks.find((x) => x.el === pt.node);
       if (!m) return null;
+      if (
+        pt.kind === "before" &&
+        m.block &&
+        fo.text[m.from - 1] === BREAK &&
+        !fo.marks.some((other) => other.block && other.to === m.from)
+      )
+        return m.from - 1;
       if (pt.kind === "startOf" || pt.kind === "before") return m.from;
       return pt.kind === "end" && m.block ? m.to - 1 : m.to;
     };
@@ -560,6 +567,11 @@ export function createRecovery(ctx) {
           return edge === "start"
             ? { kind: "end", node: closing.el }
             : { kind: "after", node: closing.el };
+        const opening = fo.marks.find((m) => m.block && m.from === at + 1);
+        if (opening)
+          return edge === "start"
+            ? { kind: "before", node: opening.el }
+            : { kind: "startOf", node: opening.el };
       }
       const opening = fo.marks.find((m) => m.block && m.from === i);
       if (opening) return { kind: "startOf", node: opening.el };
