@@ -392,6 +392,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   // A side's twin of a base element inside a subtree that side left
   // identical: the alignment pairs such children only on demand.
   function twinIn(A, bk) {
+    if (!bk) return null;
     if (A.map.has(bk)) return A.map.get(bk);
     const chain = [];
     let p = logicalParent(bk);

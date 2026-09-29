@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parse, doc } from "./lib/dom.js";
-import { mergeDocument } from "../../src/index.js";
+import { merge3, mergeDocument } from "../../src/index.js";
 
 const kinds = (rep) => rep.conflicts.map((c) => `${c.kind}:${c.detail || ""}`);
 
@@ -191,4 +191,76 @@ test("collision is not lazy equality: a colliding pair is never materialized as 
   const { html, report } = await dirtyLive(b, l, r);
   assert.ok(!html.includes(T1), `stale base text kept: ${html}`);
   assert.ok(html.includes(T2), `remote rewrite lost: ${html}`);
+});
+
+const B = `<template><p>w0 w1 w2 w3 w4</p></template>`;
+const MOVED_OUT_ROWS = [
+  {
+    name: "to new section",
+    base: B,
+    local: B,
+    remote: `<section><p>w0 w1 w2 w3 w4</p></section><template></template>`,
+    expected: `<section><p>w0 w1 w2 w3 w4</p></section><template></template>`,
+  },
+  {
+    name: "to new section, local edit elsewhere",
+    base: `${B}<p>tail x y</p>`,
+    local: `${B}<p>tail x Y</p>`,
+    remote: `<section><p>w0 w1 w2 w3 w4</p></section><template></template><p>tail x y</p>`,
+    expected: `<section><p>w0 w1 w2 w3 w4</p></section><template></template><p>tail x Y</p>`,
+  },
+  {
+    name: "inline child",
+    base: `<template><p>w0 <b>w1</b> w2 w3</p></template>`,
+    local: `<template><p>w0 <b>w1</b> w2 w3</p></template>`,
+    remote: `<section><p>w0 <b>w1</b> w2 w3</p></section><template></template>`,
+    expected: `<section><p>w0 <b>w1</b> w2 w3</p></section><template></template>`,
+  },
+  {
+    name: "whole div subtree",
+    base: `<template><div><p>w0 w1</p><p>w2 w3</p></div></template>`,
+    local: `<template><div><p>w0 w1</p><p>w2 w3</p></div></template>`,
+    remote: `<section><div><p>w0 w1</p><p>w2 w3</p></div></section><template></template>`,
+    expected: `<section><div><p>w0 w1</p><p>w2 w3</p></div></section><template></template>`,
+  },
+  {
+    name: "nested template below a section",
+    base: `<section><template><p>w0 w1 w2 w3 w4</p></template></section>`,
+    local: `<section><template><p>w0 w1 w2 w3 w4</p></template></section>`,
+    remote: `<article><p>w0 w1 w2 w3 w4</p></article><section><template></template></section>`,
+    expected: `<article><p>w0 w1 w2 w3 w4</p></article><section><template></template></section>`,
+  },
+  {
+    name: "div source (control)",
+    base: `<div><p>w0 w1 w2 w3 w4</p></div>`,
+    local: `<div><p>w0 w1 w2 w3 w4</p></div>`,
+    remote: `<section><p>w0 w1 w2 w3 w4</p></section><div></div>`,
+    expected: `<section><p>w0 w1 w2 w3 w4</p></section><div></div>`,
+  },
+];
+
+for (const row of MOVED_OUT_ROWS)
+  test(`unchanged element moved out of template content into a new wrapper keeps its content: ${row.name}`, async () => {
+    const { html, report } = await dirtyLive(row.base, row.local, row.remote);
+    assert.equal(html, row.expected, html);
+    assert.deepEqual(kinds(report), []);
+  });
+
+test("detached element roots: a move whose destination climbs to the root does not throw", async () => {
+  const det = (inner) => {
+    const el = parse(doc(`<section>${inner}</section>`)).body.firstElementChild;
+    el.remove();
+    return el;
+  };
+  const res = merge3(
+    det(`<div><p>delta echo foxtrot golf</p></div><p>tail words here</p>`),
+    det(`<div><p>delta echo foxtrot golf</p></div><p>tail words HERE</p>`),
+    det(`<div></div><p>DELTA echo foxtrot golf</p><p>tail words here</p>`),
+    { hooks: { beforeNodeMorphed: () => {} } },
+  );
+  assert.equal(
+    res.root.outerHTML,
+    `<section><div></div><p>DELTA echo foxtrot golf</p><p>tail words HERE</p></section>`,
+  );
+  assert.deepEqual(res.conflicts, []);
 });

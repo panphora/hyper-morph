@@ -710,8 +710,15 @@ export function apply(liveRoot, mergedRoot, result, o) {
       }
       claimed.add(cc);
       if (cc.nodeType === 3) heldBy.set(mc, cc);
-      if (mc.nodeType === 1 && !isHtmlScript(mc)) graft(cc, mc);
+      if (pm && pm.unchanged && pm.remote) fillFrom(cc, pm.remote);
+      else if (mc.nodeType === 1 && !isHtmlScript(mc)) graft(cc, mc);
     }
+  }
+
+  function fillFrom(el, src) {
+    const to = el.tagName === "TEMPLATE" && el.content ? el.content : el;
+    const from = src.tagName === "TEMPLATE" && src.content ? src.content : src;
+    for (const k of Array.from(from.childNodes)) to.appendChild(deepInert(k));
   }
 
   function syncAttributes(liveEl, mergedEl) {
