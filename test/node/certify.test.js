@@ -624,11 +624,33 @@ test("I6-X many failing walks stay linear", async () => {
     );
 });
 
+const formCase = (i) =>
+  `<input name="q${i}"><input type="checkbox" name="c${i}"><select name="s${i}"><option>a</option><option>b</option></select><textarea name="t${i}"></textarea>`;
+
+const typeInto = (live) => {
+  const held = [];
+  for (let i = 0; i < 50; i += 10) {
+    const input = live.querySelector(`input[name="q${i}"]`);
+    input.value = `typed ${i}`;
+    held.push([input, "value", ""]);
+    const box = live.querySelector(`input[name="c${i}"]`);
+    box.checked = true;
+    held.push([box, "checked", false]);
+    const select = live.querySelector(`select[name="s${i}"]`);
+    select.value = "b";
+    held.push([select, "value", "a"]);
+    const area = live.querySelector(`textarea[name="t${i}"]`);
+    area.value = `note ${i}`;
+    held.push([area, "value", ""]);
+  }
+  return held;
+};
+
 test("I6-W certification used", async () => {
   const sections = Array.from(
     { length: 50 },
     (_, i) =>
-      `<section data-id="s${i}"><h2>title ${i}</h2><p>body ${i} words</p></section>`,
+      `<section data-id="s${i}"><h2>title ${i}</h2><p>body ${i} words</p>${i % 10 === 0 ? formCase(i) : ""}</section>`,
   ).join("");
   const b = sections + `<p>tail</p>`;
   const r = sections + `<p>tail edited</p>`;
@@ -638,6 +660,28 @@ test("I6-W certification used", async () => {
     got.report.stats.certificationPairs >= 1,
     `no pair certified: ${got.report.stats.certificationPairs}`,
   );
+  for (const formState of ["attribute", "property"]) {
+    const live = parse(doc(b));
+    const held = typeInto(live);
+    const report = await mergeDocument({
+      live,
+      base: doc(b),
+      remote: doc(r),
+      formState,
+    });
+    assert.ok(
+      report.stats.certificationPairs >= 1,
+      `${formState}: no pair certified: ${report.stats.certificationPairs}`,
+    );
+    assert.equal(live.body.innerHTML, frame(r), formState);
+    for (const [el, prop, want] of held) {
+      assert.ok(
+        live.body.contains(el),
+        `${formState}: a live form control was replaced: ${el.outerHTML}`,
+      );
+      assert.equal(el[prop], want, `${formState}: ${el.outerHTML}`);
+    }
+  }
   const c = cleanSynthetic(b, r);
   const syn = await c.merge();
   assert.equal(syn.html, syn.frame);
@@ -674,6 +718,43 @@ test("I6-W certification used", async () => {
       report.identities.map(([el, id]) => [refIds.get(el), id]),
       syn.report.identities.map(([el, id]) => [c.ids.get(el), id]),
       "the reference paired different ids",
+    );
+  }
+});
+
+const TPL_IDS = `<template><div data-id="c"><p data-id="t">x y</p></div><p>one</p></template><p>tail</p>`;
+
+const CLONE_CASES = [
+  {
+    name: "remote edits the paragraph beside the template",
+    r: `<template><div data-id="c"><p data-id="t">x y</p></div><p>ONE</p></template><p>tail</p>`,
+  },
+  {
+    name: "remote moves the div out of the template",
+    r: `<section><div data-id="c"><p data-id="t">x y</p></div></section><template><p>ONE</p></template><p>tail</p>`,
+  },
+];
+
+test("I6-I custom identity reaches a cloned stand-in's descendants", async () => {
+  for (const c of CLONE_CASES) {
+    const got = await dirtyLive(TPL_IDS, TPL_IDS, c.r, {
+      identity: { base: authored, local: authored, remote: authored },
+    });
+    assert.equal(got.html, frame(c.r), c.name);
+    const entry = got.report.identities.find(([, id]) => id === "t");
+    assert.ok(
+      entry,
+      `${c.name}: no identity reported for the copied inner p: ${JSON.stringify(
+        got.report.identities.map(([, id]) => id),
+      )}`,
+    );
+    const liveP = logicalElements(got.live.body).find(
+      (el) => el.getAttribute("data-id") === "t",
+    );
+    assert.equal(
+      entry[0],
+      liveP,
+      `${c.name}: the reported node is not the live p`,
     );
   }
 });

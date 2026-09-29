@@ -24,6 +24,16 @@ const bodyOf = (html, strip) => {
 const IGNORED = "[data-ignore]";
 const isIgnored = (el) => el.hasAttribute("data-ignore");
 
+function keyed(html) {
+  const d = parse(doc(html));
+  const wm = new WeakMap();
+  for (const el of [...d.querySelectorAll("[k]")]) {
+    wm.set(el, el.getAttribute("k"));
+    el.removeAttribute("k");
+  }
+  return { d, id: (el) => wm.get(el) || null };
+}
+
 /** One row in both shapes: the pure merge's `localDiverged` and the dirty
  * live document's report, each against the merged bytes and the remote. */
 async function check(row) {
@@ -52,6 +62,26 @@ async function check(row) {
   assert.equal(
     report.localDiverged,
     dirtyOut !== remote,
+    `${row.name} (dirty): the flag disagrees with the live bytes`,
+  );
+}
+
+async function checkKeyed(row) {
+  const b = keyed(row.b),
+    l = keyed(row.l),
+    r = keyed(row.r);
+  const report = await mergeDocument({
+    live: l.d,
+    base: b.d,
+    remote: r.d,
+    ignore: isIgnored,
+    identity: { base: b.id, local: l.id, remote: r.id },
+  });
+  const remote = bodyOf(r.d.body.innerHTML, IGNORED);
+  assert.equal(report.localDiverged, row.expect, `${row.name} (dirty)`);
+  assert.equal(
+    report.localDiverged,
+    bodyOf(l.d.body.innerHTML, IGNORED) !== remote,
     `${row.name} (dirty): the flag disagrees with the live bytes`,
   );
 }
@@ -90,10 +120,11 @@ const ROWS = [
   },
   {
     name: "I6-D5 identical blocks swapped, each holding an ignored child",
-    b: `<ul><li>same</li><li data-ignore>x</li></ul><ul><li>same</li><li data-ignore>x</li></ul>`,
-    l: `<ul><li>same</li><li data-ignore>x</li></ul><ul><li>same</li><li data-ignore>x</li></ul>`,
-    r: `<ul><li>same</li><li data-ignore>x</li></ul><ul><li>same</li><li data-ignore>x</li></ul>`,
+    b: `<ul k="u1"><li k="a">same</li><li data-ignore>x</li></ul><ul k="u2"><li k="b">same</li><li data-ignore>x</li></ul>`,
+    l: `<ul k="u2"><li k="b">same</li><li data-ignore>x</li></ul><ul k="u1"><li k="a">same</li><li data-ignore>x</li></ul>`,
+    r: `<ul k="u1"><li k="a">same</li><li data-ignore>x</li></ul><ul k="u2"><li k="b">same</li><li data-ignore>x</li></ul>`,
     ignored: true,
+    keyed: true,
     expect: false,
   },
   {
@@ -112,4 +143,5 @@ const ROWS = [
   },
 ];
 
-for (const row of ROWS) test(row.name, () => check(row));
+for (const row of ROWS)
+  test(row.name, () => (row.keyed ? checkKeyed(row) : check(row)));

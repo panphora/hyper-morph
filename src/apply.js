@@ -508,6 +508,8 @@ export function apply(liveRoot, mergedRoot, result, o) {
       if (clone.nodeType === 1) {
         replaced.push(clone);
         recordIdentities(clone, m);
+        if (result.customIdentity && pm && pm.unchanged && pm.remote)
+          adoptLockstep(clone, pm.remote);
         if (!isHtmlScript(clone)) graft(clone, m);
         // A copy carries attributes only. In property mode the caller's
         // built node is the source of form state, so the copy takes the
@@ -710,8 +712,10 @@ export function apply(liveRoot, mergedRoot, result, o) {
       }
       claimed.add(cc);
       if (cc.nodeType === 3) heldBy.set(mc, cc);
-      if (pm && pm.unchanged && pm.remote) fillFrom(cc, pm.remote);
-      else if (mc.nodeType === 1 && !isHtmlScript(mc)) graft(cc, mc);
+      if (pm && pm.unchanged && pm.remote) {
+        fillFrom(cc, pm.remote);
+        if (result.customIdentity) adoptLockstep(cc, pm.remote);
+      } else if (mc.nodeType === 1 && !isHtmlScript(mc)) graft(cc, mc);
     }
   }
 
