@@ -296,10 +296,11 @@ function run({
     return n ? active(n) : null;
   };
   const live = (n) => {
-    if (!n) return null;
-    const twin = ap.liveOf.get(n);
-    if (twin) return active(twin);
-    const v = lookup(n);
+    const twin = n && ap.liveOf.get(n);
+    return twin ? active(twin) : null;
+  };
+  const recovered = (n) => {
+    const v = n && lookup(n);
     return Array.isArray(v) ? v[0] : v;
   };
   if (result.recoveryLinks) {
@@ -328,8 +329,16 @@ function run({
     ),
     conflicts: result.conflicts.map((c) =>
       Object.assign({}, c, {
-        node: c.node ? live(c.node) : c.node,
-        el: c.el ? live(c.el) : c.el,
+        node: c.node
+          ? c.kind === "text" && c.recovery.subject.nodeType === 8
+            ? recovered(c.node)
+            : live(c.node)
+          : c.node,
+        el: c.el
+          ? c.kind === "structure"
+            ? recovered(c.el)
+            : live(c.el)
+          : c.el,
       }),
     ),
     localDiverged: result.localDiverged,

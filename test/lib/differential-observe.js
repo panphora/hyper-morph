@@ -156,17 +156,26 @@ const explained = (c, final, pure) => {
     );
   };
   return {
-    node: c.kind === "text" && ok(c.node, false),
-    el: c.kind !== "text" && ok(c.el, r.subject.nodeType !== 1),
+    node:
+      c.kind === "text" &&
+      (r.subject.nodeType === 8 ||
+        c.node?.parentElement?.tagName === "SCRIPT" ||
+        c.node?.tagName === "SCRIPT") &&
+      ok(c.node, false),
+    el: c.kind === "structure" && ok(c.el, r.subject.nodeType !== 1),
   };
 };
 export const pointerList = (conflicts, final, pure) =>
   conflicts.map((c) => explained(c, final, pure));
 
-const decisionList = (decisions) => [
-  decisions.length,
-  decisions.map((d) => d.kind).sort(),
-];
+const decisionList = (decisions, label, final) =>
+  decisions.map((d) => ({
+    kind: d.kind,
+    source: d.source === undefined ? null : d.source,
+    applied: d.applied === undefined ? null : d.applied,
+    node: pointer(d.node, label, final),
+    el: pointer(d.el, label, final),
+  }));
 
 const pathList = (paths) => paths.map((p) => p.join("/"));
 
@@ -454,7 +463,7 @@ const reported = (report, label, final) => ({
   adoptedIdentities: identityList(report.identities || [], label, final),
   conflicts: conflictList(report.conflicts || [], label, final),
   pointers: pointerList(report.conflicts || [], final, false),
-  decisions: decisionList(report.decisions || []),
+  decisions: decisionList(report.decisions || [], label, final),
   localDiverged: report.localDiverged,
   moved:
     report.moved === undefined ? null : nodeList(report.moved, label, final),
@@ -464,6 +473,7 @@ const reported = (report, label, final) => ({
       : nodeList(report.replaced, label, final),
   recovery: recoveryList(report.conflicts || [], label, final),
   recoveryProblems: recoveryProblems(report.conflicts || [], final, false),
+  stats: report.stats,
 });
 
 /**
@@ -487,12 +497,13 @@ export async function observe(engine, shape, inputs) {
       adoptedIdentities: [],
       conflicts: conflictList(res.conflicts, label, final),
       pointers: pointerList(res.conflicts, final, true),
-      decisions: decisionList(res.decisions),
+      decisions: decisionList(res.decisions, label, final),
       localDiverged: res.localDiverged,
       moved: [],
       replaced: [],
       recovery: recoveryList(res.conflicts, label, final),
       recoveryProblems: recoveryProblems(res.conflicts, final, true),
+      stats: res.stats,
     };
   }
   if (shape === "element") {

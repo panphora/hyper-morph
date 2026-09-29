@@ -40,6 +40,7 @@ const FIELDS = [
   "adoptedIdentities",
   "conflicts",
   "decisions",
+  "stats",
   "localDiverged",
   "moved",
   "replaced",
