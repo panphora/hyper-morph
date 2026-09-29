@@ -480,21 +480,29 @@ live side is filled after apply:
 - `key` is the operation key (`text:<subject>:<baseStart>:<baseEnd>:<n>`,
   `attr:<subject>:<namespace>:<localName>`, `structure:<subject>:<detail>`).
   Records that report the same operation twice, as `both-moved` and
-  `move-beats-delete` do today, share one `recovery` object.
+  `move-beats-delete` do today, share one `recovery` object. A comment
+  deletion reported as both text and structure shares the structural key and
+  one object containing both payloads. Its `localLost` follows the resolved
+  comment value.
 - `localLost` is true when the local operation did not survive: a local
   deletion beaten by a remote edit, a local text under the `remote` policy, a
   local move that did not land. A retained local edit or move is not a loss.
 - `applied` is true when the conflict's output reached the live DOM;
-  otherwise `unavailable` says why (`hook-veto` when a hook kept it out,
-  `missing-output` otherwise). A hook-vetoed record has `localLost` false,
-  since the hook kept the local content; a `missing-output` record keeps the
-  policy's `localLost`. On the pure `merge3` route `applied` is false,
-  `unavailable` is null and `live` arrays are empty.
+  otherwise `unavailable` says why. `hook-veto` means a recorded veto prevented
+  this operation while its local unit remained in its local place. A morph veto
+  after a completed move does not undo the move. `missing-output` retains
+  policy loss. On the pure `merge3` route `applied` is false, `unavailable` is
+  null and `live` arrays are empty.
 - `text` gives the whole merge scope and the clash offsets on each side
   (`base` is null when local stood in for a missing base), `fragment`s,
   static spans into the input trees, and the live span and scope after apply.
   For inline content the `text` is the flattened sequence (an atom is U+FFFC,
   a block break U+001E) and the fragments are markup.
+- Empty intervals use one collapsed insertion point. Live spans are available
+  only when both the clash and the complete scope project to the recorded
+  merged text, including atoms and block breaks. A shifted replay or a
+  `beforeApply` rewrite that fails this check returns `missing-output` with
+  null live spans.
 - `attribute` gives the namespace and names for `setAttributeNS`.
 - `structure` gives both sides' actions, the local, remote and merged
   placements (parent ref, following and preceding sibling refs nearest first),

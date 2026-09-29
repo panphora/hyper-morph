@@ -207,7 +207,7 @@ export type ConflictAction =
   | "reordered"
   | "inserted";
 
-/** What a consumer needs to show, undo or redo one conflict. Records that report one operation share one object. */
+/** What a consumer needs to show, undo or redo one conflict. Records that report one operation share one object. A comment deletion pair shares the structural key and carries both text and structure. */
 export interface ConflictRecovery {
   version: 1;
   /** `text:<subject>:<bs>:<be>:<n>`, `attr:<subject>:<ns>:<localName>` or `structure:<subject>:<detail>`. */

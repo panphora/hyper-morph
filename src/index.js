@@ -291,6 +291,7 @@ function run({
       baseURI: doc.baseURI,
       beforeNodeAdded: o.hooks.beforeNodeAdded,
       afterNodeAdded: o.hooks.afterNodeAdded,
+      trackRecovery: !!result.recoveryLinks,
     });
     loads.push(...ex.loads);
     swapped = ex.swapped;

@@ -1362,8 +1362,8 @@ export function remapLive(conflicts, from, to) {
   };
   const done = new Set();
   for (const c of conflicts) {
-    if (c.node === from) c.node = to;
-    if (c.el === from) c.el = to;
+    if (c.node === from && to.tagName === "SCRIPT") c.node = to;
+    if (c.el === from && c.kind === "structure") c.el = to;
     const rv = c.recovery;
     if (!rv || done.has(rv)) continue;
     done.add(rv);

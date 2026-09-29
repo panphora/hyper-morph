@@ -1352,7 +1352,7 @@ test("an attribute veto is per operation: the sibling text clash still applied",
 
 // The live side follows what apply and activation put in the document.
 
-test("morphElement with a differing tag: the report points at the replacement root", async () => {
+test("morphElement with a differing tag: recovery follows the replacement, legacy node stays original", async () => {
   const d = parse(doc(`<div id="s">One slow fox sleeps.</div>`));
   const old = d.getElementById("s");
   const report = await morphElement(
@@ -1373,7 +1373,7 @@ test("morphElement with a differing tag: the report points at the replacement ro
   const r = report.conflicts[0].recovery;
   assert.equal(r.key, "text:b:[]:4:9:0");
   assert.deepEqual(r.subject.live, [fresh]);
-  assert.equal(report.conflicts[0].node, fresh);
+  assert.equal(report.conflicts[0].node, old);
   assert.equal(r.applied, true);
   assert.deepEqual(liveSpan(r.text.liveSpan), [
     fresh.firstChild,

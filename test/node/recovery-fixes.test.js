@@ -330,7 +330,7 @@ for (const [name, b, l, r, rewrite] of [
     '<p id="p">One slow fox.</p>',
     '<p id="p">One fast fox.</p>',
     (d) => {
-      d.querySelector("#p").textContent = "ABCDfast One fast fox.";
+      d.querySelector("#p").firstChild.nodeValue = "ABCDfast One fast fox.";
     },
   ],
 ]) {
@@ -660,5 +660,22 @@ test("certification: moved formatting atoms project completely and reject change
     recoveryProblems(res.conflicts, final, true, roots).some((x) =>
       x.includes("projection differs"),
     ),
+  );
+});
+
+test("F2: differing-tag ordinary text retains the legacy original-root pointer", async () => {
+  const live = parse(doc('<div id="s">One slow fox.</div>'));
+  const old = live.querySelector("#s");
+  const report = await morphElement(
+    old,
+    '<section id="s">One fast fox.</section>',
+    { base: '<div id="s">One quick fox.</div>', scripts: { execute: false } },
+  );
+  assert.equal(report.conflicts.length, 1);
+  assert.equal(report.conflicts[0].node, old);
+  assert.equal(old.isConnected, false);
+  assert.equal(
+    report.conflicts[0].recovery.subject.live[0],
+    live.querySelector("section"),
   );
 });
