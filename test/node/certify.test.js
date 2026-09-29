@@ -735,6 +735,124 @@ for (const c of ECHO_CASES)
     assert.equal(got.report.stats.certificationPairs, c.pairs);
   });
 
+// The ten cross-echo cases of review-probes/crossecho.mjs and crossecho2.mjs:
+// both sides insert the same element (an echo) into a container of their own.
+// Each output is pinned after checking it by the rule: every block of base,
+// local and remote appears as often as the merge rules say, each side's insert
+// into a different identified container is kept with no both-moved, and the two
+// id-less-container cases and "telling 3 words" keep the echo heuristic's
+// behaviour (finding (c) of deep-fable-A.md) and are marked as such.
+const X_B = `<section><div id="b"><p>one</p></div></section><div id="c"><p>two</p></div>`;
+const X_H = `<section><div id="b"><p>one</p><hr></div></section><div id="c"><p>two</p></div>`;
+const X_R = `<section><div id="b"><p>one</p></div></section><div id="c"><p>two</p><hr></div>`;
+const X_HD = X_H.replace("<hr>", "<p>Done</p>"),
+  X_RD = X_R.replace("<hr>", "<p>Done</p>");
+
+const CROSS_ECHO_CASES = [
+  {
+    name: "pure hr",
+    b: X_B,
+    l: X_H,
+    r: X_R,
+    out: `<section><div id="b"><p></p><hr></div></section><div id="c"><p></p><hr></div>`,
+    conflicts: [],
+  },
+  {
+    name: "pure hr noSkip",
+    b: X_B,
+    l: X_H,
+    r: X_R,
+    hooks: true,
+    out: `<section><div id="b"><p>one</p><hr></div></section><div id="c"><p>two</p><hr></div>`,
+    conflicts: [],
+  },
+  {
+    name: "dirty hr",
+    b: X_B,
+    l: X_H,
+    r: X_R,
+    dirty: true,
+    out: `<section><div id="b"><p>one</p><hr></div></section><div id="c"><p>two</p><hr></div>`,
+    conflicts: [],
+  },
+  {
+    name: "pure Done",
+    b: X_B,
+    l: X_HD,
+    r: X_RD,
+    out: `<section><div id="b"><p></p><p>Done</p></div></section><div id="c"><p></p><p>Done</p></div>`,
+    conflicts: [],
+  },
+  {
+    name: "dirty Done",
+    b: X_B,
+    l: X_HD,
+    r: X_RD,
+    dirty: true,
+    out: `<section><div id="b"><p>one</p><p>Done</p></div></section><div id="c"><p>two</p><p>Done</p></div>`,
+    conflicts: [],
+  },
+  {
+    name: "no-id containers",
+    b: `<div class="b"><p>one</p></div><div class="c"><p>two</p></div>`,
+    l: `<div class="b"><p>one</p><hr></div><div class="c"><p>two</p></div>`,
+    r: `<div class="b"><p>one</p></div><div class="c"><p>two</p><hr></div>`,
+    dirty: true,
+    out: `<div class="b"><p>one</p><hr></div><div class="c"><p>two</p><hr></div>`,
+    conflicts: [],
+  },
+  {
+    name: "id containers top level",
+    b: `<div id="b"><p>one</p></div><div id="c"><p>two</p></div>`,
+    l: `<div id="b"><p>one</p><hr></div><div id="c"><p>two</p></div>`,
+    r: `<div id="b"><p>one</p></div><div id="c"><p>two</p><hr></div>`,
+    dirty: true,
+    out: `<div id="b"><p>one</p><hr></div><div id="c"><p>two</p><hr></div>`,
+    conflicts: [],
+  },
+  {
+    name: "id b under section, c no id",
+    b: `<section><div id="b"><p>one</p></div></section><div class="c"><p>two</p></div>`,
+    l: `<section><div id="b"><p>one</p><hr></div></section><div class="c"><p>two</p></div>`,
+    r: `<section><div id="b"><p>one</p></div></section><div class="c"><p>two</p><hr></div>`,
+    dirty: true,
+    out: `<section><div id="b"><p>one</p><hr></div></section><div class="c"><p>two</p><hr></div>`,
+    conflicts: [],
+  },
+  {
+    name: "both id'd under sections",
+    b: `<section><div id="b"><p>one</p></div></section><section><div id="c"><p>two</p></div></section>`,
+    l: `<section><div id="b"><p>one</p><hr></div></section><section><div id="c"><p>two</p></div></section>`,
+    r: `<section><div id="b"><p>one</p></div></section><section><div id="c"><p>two</p><hr></div></section>`,
+    dirty: true,
+    out: `<section><div id="b"><p>one</p><hr></div></section><section><div id="c"><p>two</p><hr></div></section>`,
+    conflicts: [],
+  },
+  {
+    name: "telling 3 words (known limitation: echo heuristic)",
+    b: X_B,
+    l: `<section><div id="b"><p>one</p><p>buy more milk</p></div></section><div id="c"><p>two</p></div>`,
+    r: `<section><div id="b"><p>one</p></div></section><div id="c"><p>two</p><p>buy more milk</p></div>`,
+    dirty: true,
+    out: `<section><div id="b"><p>one</p></div></section><div id="c"><p>two</p><p>buy more milk</p></div>`,
+    conflicts: ["structure:both-moved"],
+  },
+];
+
+for (const c of CROSS_ECHO_CASES)
+  test(`I6-X cross-echo ${c.name}`, async () => {
+    if (c.dirty) {
+      const got = await dirtyLive(c.b, c.l, c.r);
+      assert.equal(got.html, c.out, c.name);
+      assert.deepEqual(got.kinds, c.conflicts, c.name);
+      return;
+    }
+    const opts = c.hooks ? { hooks: { beforeNodeMorphed: () => {} } } : {};
+    const res = merge3(parse(doc(c.b)), parse(doc(c.l)), parse(doc(c.r)), opts);
+    assert.equal(res.doc.body.innerHTML, c.out, c.name);
+    assert.deepEqual(kinds(res), c.conflicts, c.name);
+  });
+
 const TPL_CASES = [
   {
     name: "I6-T1 template content under identity: id-less template, content changed",

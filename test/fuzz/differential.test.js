@@ -42,9 +42,11 @@ const ACCEPTED = fileURLToPath(
   new URL("./differential-accepted.json", import.meta.url),
 );
 
-// Hand-written fixtures from the E2e/E2f twin-routing work and the template
-// content path, run in id mode 0 in every shape: the generator makes no
-// templates, so nothing else here covers template content.
+// Hand-written fixtures from the E2e/E2f twin-routing work, the template
+// content path and the D1 to D7 `localDiverged` rows of diverged.test.js, run
+// in id mode 0 in every shape: the generator makes no templates, so nothing
+// else here covers template content, and its corpus has no local-reorder shape
+// for the `localDiverged` rows.
 const B = `<template><p>w0 w1 w2 w3 w4</p></template>`;
 const FIXTURES = [
   {
@@ -112,6 +114,42 @@ const FIXTURES = [
     b: `<template><section><template><p>w0 w1 w2</p></template></section></template><p>tail a b</p>`,
     l: `<template><section><template><p>w0 w1 w2</p></template></section></template><p>tail a b</p>`,
     r: `<template><section><template><p>w0 w1 w2</p></template></section></template><p>tail a B</p>`,
+  },
+  {
+    name: "diverged-d1",
+    b: `<ul><li>A one</li></ul><ul><li>B two</li></ul>`,
+    l: `<ul><li>B two</li></ul><ul><li>A one</li></ul>`,
+    r: `<ul><li>A one</li></ul><ul><li>B two</li></ul>`,
+  },
+  {
+    name: "diverged-d2",
+    b: `<ul data-id="u1"><li>A one</li></ul><ul data-id="u2"><li>B two</li></ul>`,
+    l: `<ul data-id="u2"><li>B two</li></ul><ul data-id="u1"><li>A one</li></ul>`,
+    r: `<ul data-id="u1"><li>A one</li></ul><ul data-id="u2"><li>B two</li></ul>`,
+  },
+  {
+    name: "diverged-d3",
+    b: `<ul data-id="u1"><li data-id="a">A one</li></ul><ul data-id="u2"><li data-id="b">B two</li></ul>`,
+    l: `<ul data-id="u2"><li data-id="b">B two</li></ul><ul data-id="u1"><li data-id="a">A one</li></ul>`,
+    r: `<ul data-id="u1"><li data-id="a">A one</li></ul><ul data-id="u2"><li data-id="b">B two</li></ul>`,
+  },
+  {
+    name: "diverged-d4",
+    b: `<ul><li>same</li></ul><ul><li>same</li></ul>`,
+    l: `<ul><li>same</li></ul><ul><li>same</li></ul>`,
+    r: `<ul><li>same</li></ul><ul><li>same</li></ul>`,
+  },
+  {
+    name: "diverged-d6",
+    b: `<section><p>a b</p></section><aside></aside><p>c d</p>`,
+    l: `<section><p>a b</p></section><aside></aside><p>c D</p>`,
+    r: `<section></section><aside><p>a b</p></aside><p>c d</p>`,
+  },
+  {
+    name: "diverged-d7",
+    b: `<p>alpha beta</p><p>gamma delta</p>`,
+    l: `<p>alpha beta</p><p>gamma delta</p>`,
+    r: `<p>alpha BETA</p><p>gamma delta</p>`,
   },
 ];
 
