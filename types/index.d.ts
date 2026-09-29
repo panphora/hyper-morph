@@ -182,6 +182,9 @@ export interface MergeStats {
   similarTiesStrict: number;
   similarTiesLoose: number;
   ambiguousMoves: number;
+  certificationPairs: number;
+  certificationVisited: number;
+  certificationBudgetExhausted: number;
 }
 
 export interface MergeReport {

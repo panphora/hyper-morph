@@ -13,5 +13,8 @@ export function emptyStats() {
     similarTiesStrict: 0,
     similarTiesLoose: 0,
     ambiguousMoves: 0,
+    certificationPairs: 0,
+    certificationVisited: 0,
+    certificationBudgetExhausted: 0,
   };
 }

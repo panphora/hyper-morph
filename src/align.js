@@ -28,6 +28,7 @@ import { CODE_LIKE } from "./similarity.js";
 const NEAREST_WINDOW = 16;
 const MOVE_BUDGET = 2000;
 const POSITIONAL_LOOKAHEAD = 3;
+const CERTIFY_FAIL_FACTOR = 8;
 
 /**
  * @typedef {object} Alignment
@@ -53,10 +54,11 @@ const POSITIONAL_LOOKAHEAD = 3;
  * Work counters for the tests: a bound on steps holds where a wall clock
  * would be flaky. `align` counts the child units the passes examine.
  */
-export const steps = { align: 0 };
+export const steps = { align: 0, certifyVisited: 0 };
 
 export function align(baseRoot, sideRoot, o) {
-  const { meta, unitsOf, unitHash, similar, score, equalUnits } = o.analyzer;
+  const { meta, unitsOf, unitHash, similar, score, childrenOf, equalUnits } =
+    o.analyzer;
   const baseId = o.baseId || (() => null),
     sideId = o.sideId || (() => null);
   const stats = o.stats || null;
@@ -118,10 +120,58 @@ export function align(baseRoot, sideRoot, o) {
 
   // Pass 1: identity.
   pair(baseRoot, sideRoot);
+  const identityPaired = new Set();
   for (const [id, b] of o.baseIndex) {
     const s = o.sideIndex.get(id);
-    if (s && s.tagName === b.tagName && !map.has(b) && !reverse.has(s))
+    if (s && s.tagName === b.tagName && !map.has(b) && !reverse.has(s)) {
       pair(b, s);
+      identityPaired.add(b);
+    }
+  }
+  // Pass 1b: an identity pair is identical, as a pair Pass 0 makes by
+  // position is, when one lockstep walk finds the two subtrees equal and
+  // every identity pairing inside them (either direction) is exactly the
+  // positional counterpart. Outer pairs first, in logical document order
+  // (template content included); a pair inside a certified subtree is
+  // skipped; failed walks spend a budget and stop the moment it runs out.
+  if (identityPaired.size) {
+    const order = [];
+    const stack = [baseRoot];
+    while (stack.length) {
+      const n = stack.pop();
+      if (identityPaired.has(n)) order.push(n);
+      const kids = childrenOf(n);
+      for (let i = kids.length - 1; i >= 0; i--)
+        if (kids[i].nodeType === 1) stack.push(kids[i]);
+    }
+    const covered = new Set();
+    const budget = { left: CERTIFY_FAIL_FACTOR * identityPaired.size + 64 };
+    for (const b of order) {
+      if (budget.left <= 0) {
+        if (stats) stats.certificationBudgetExhausted++;
+        break;
+      }
+      if (covered.has(b) || identical.has(b)) continue;
+      const seen = [];
+      if (!certify(b, map.get(b), seen, budget)) continue;
+      for (const el of seen) covered.add(el);
+      identical.add(b);
+      visited.add(b);
+      if (stats) stats.certificationPairs++;
+      complete(b);
+    }
+  }
+
+  // Pair everything under a certified pair now, level by level, so the map
+  // is as complete as a drained alignment leaves it: the merge reads twins
+  // under identical subtrees before it descends into them.
+  function complete(b) {
+    const stack = [b];
+    while (stack.length) {
+      const x = stack.pop();
+      pairIdenticalChildren(x);
+      for (const u of unitsOf(x)) if (isEl(u) && map.has(u)) stack.push(u);
+    }
   }
 
   // Pass 2: structure, from the root and from every identity pair.
@@ -371,6 +421,54 @@ export function align(baseRoot, sideRoot, o) {
       if (byHashB.get(h) !== 1) continue;
       const s = sideByHash.get(h);
       if (s && !reverse.has(s) && equalUnits(b, s)) lockstep(b, s);
+    }
+  }
+
+  function certify(b, s, seen, budget) {
+    const stack = [[b, s]];
+    let n = 0;
+    while (stack.length) {
+      const [x, y] = stack.pop();
+      n++;
+      steps.certifyVisited++;
+      if (stats) stats.certificationVisited++;
+      if (n > budget.left) {
+        budget.left = 0;
+        return false;
+      }
+      if (x.nodeType !== y.nodeType) return fail();
+      if (x.nodeType === 3 || x.nodeType === 8) {
+        if (x.nodeValue !== y.nodeValue) return fail();
+        continue;
+      }
+      if (x.nodeType !== 1) {
+        if (!x.isEqualNode(y)) return fail();
+        continue;
+      }
+      if (x.tagName !== y.tagName || x.namespaceURI !== y.namespaceURI)
+        return fail();
+      const xa = x.attributes,
+        ya = y.attributes;
+      if (xa.length !== ya.length) return fail();
+      for (let i = 0; i < xa.length; i++) {
+        const a = xa[i];
+        if (y.getAttributeNS(a.namespaceURI, a.localName) !== a.value)
+          return fail();
+      }
+      const mx = map.get(x);
+      if (mx !== undefined && mx !== y) return fail();
+      const ry = reverse.get(y);
+      if (ry !== undefined && ry !== x) return fail();
+      seen.push(x);
+      const xk = childrenOf(x),
+        yk = childrenOf(y);
+      if (xk.length !== yk.length) return fail();
+      for (let i = xk.length - 1; i >= 0; i--) stack.push([xk[i], yk[i]]);
+    }
+    return true;
+    function fail() {
+      budget.left -= n;
+      return false;
     }
   }
 
