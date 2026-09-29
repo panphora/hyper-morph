@@ -224,8 +224,8 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       return t.split(/\s+/).length >= 3 || t.replace(/\s/g, "").length >= 12;
     };
     const movedBase = (b) => {
-      const lt = L.map.get(b),
-        rt = R.map.get(b);
+      const lt = twinIn(L, b),
+        rt = twinIn(R, b);
       return (
         (lt && L.reverse.get(lt.parentNode) !== b.parentNode) ||
         (rt && R.reverse.get(rt.parentNode) !== b.parentNode)
@@ -324,18 +324,19 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     if (!L.weak || !R.weak || !L.weak.size || !R.weak.size || !L.unpair) return;
     const lBy = new Map();
     for (const b of L.weak) {
-      const x = L.map.get(b);
+      const x = twinIn(L, b);
       if (isEl(b) && isEl(x)) lBy.set(analyzer.unitHash(x), b);
     }
     let any = false;
     for (const b of Array.from(R.weak)) {
-      const y = R.map.get(b);
+      const y = twinIn(R, b);
       if (!isEl(b) || !isEl(y)) continue;
       const lb = lBy.get(analyzer.unitHash(y));
       if (!lb || lb === b || !L.weak.has(lb)) continue;
       if (L.map.has(b) && R.map.has(lb)) continue;
-      if (L.map.get(lb).tagName !== y.tagName) continue;
-      if (!analyzer.equalUnits(L.map.get(lb), y)) continue;
+      const lt = twinIn(L, lb);
+      if (lt.tagName !== y.tagName) continue;
+      if (!analyzer.equalUnits(lt, y)) continue;
       L.unpair(lb);
       R.unpair(b);
       any = true;
@@ -352,7 +353,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     if (!ins.size) return;
     let any = false;
     for (const bk of Array.from(A.weak)) {
-      const su = A.map.get(bk);
+      const su = twinIn(A, bk);
       if (!su) continue;
       const list = ins.get(analyzer.unitHash(su));
       if (
@@ -374,11 +375,12 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   function twinIn(A, bk) {
     if (A.map.has(bk)) return A.map.get(bk);
     const chain = [];
-    for (let p = bk.parentNode; p && !A.map.has(p); p = p.parentNode)
+    const parentOf = (x) => (isEl(x) || x.nodeType ? x.parentNode : x.parent);
+    for (let p = parentOf(bk); p && !A.map.has(p); p = p.parentNode)
       chain.push(p);
     const top = chain.length
       ? chain[chain.length - 1].parentNode
-      : bk.parentNode;
+      : parentOf(bk);
     if (!top || !A.identical.has(top)) return null;
     A.pairIdenticalChildren(top);
     for (let i = chain.length - 1; i >= 0; i--)
@@ -430,7 +432,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     return {
       el: sideEl,
       asBase: false,
-      twin: (bk) => A.map.get(bk),
+      twin: (bk) => twinIn(A, bk),
       baseOf: (su) => A.reverse.get(su),
       units: unitsOf(sideEl),
       here: (su) =>
@@ -886,8 +888,8 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         continue;
       }
       if (bk && !building.has(bk)) {
-        const lk = L.map.get(bk) || null,
-          rk = R.map.get(bk) || null;
+        const lk = twinIn(L, bk) || null,
+          rk = twinIn(R, bk) || null;
         if (lk || rk) {
           const node = mergeElement(bk, lk, rk, false);
           if (side === "local")
@@ -1119,7 +1121,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       // A side read as base still hands its real twin to provenance, so
       // apply keeps the live nodes of a remoteWins region instead of
       // rebuilding them on every frame.
-      const lTwin = Lv.asBase ? L.map.get(bk) || null : lk;
+      const lTwin = Lv.asBase ? twinIn(L, bk) || null : lk;
       let node;
       if (isEl(bk)) node = mergeElement(bk, lTwin, rk, Lv.asBase);
       else if (bk.kind === "comment")
@@ -1213,7 +1215,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     const emitMovedIn = (bk, su, side) => {
       // su is a side unit whose base twin lives under another base parent.
       const otherA = side === "local" ? R : L;
-      const otherTwin = otherA.map.get(bk);
+      const otherTwin = twinIn(otherA, bk);
       const myTwin = su;
       const otherParentIsHere = otherTwin
         ? isSameParent(
@@ -1263,8 +1265,8 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       const node = isEl(bk)
         ? mergeElement(
             bk,
-            side === "local" ? myTwin : L.map.get(bk) || null,
-            side === "remote" ? myTwin : R.map.get(bk) || null,
+            side === "local" ? myTwin : twinIn(L, bk) || null,
+            side === "remote" ? myTwin : twinIn(R, bk) || null,
             false,
           )
         : null;
@@ -1457,8 +1459,8 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           : (!Lv.asBase && Lv.baseOf(u)) || (!Rv.asBase && Rv.baseOf(u));
         if (bk) {
           addAll(bk);
-          addAll(L.map.get(bk));
-          addAll(R.map.get(bk));
+          addAll(twinIn(L, bk));
+          addAll(twinIn(R, bk));
         }
         famCache.set(u, f);
         return f;
@@ -1475,7 +1477,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         const count = (t) => (piece ? t.split(piece).length - 1 : 0);
         if (bk && isEl(part) && !bSet.has(part)) {
           const was = count(flatText(bk));
-          for (const x of [L.map.get(bk), R.map.get(bk)]) {
+          for (const x of [twinIn(L, bk), twinIn(R, bk)]) {
             if (!x || x === part || x.ownerDocument !== part.ownerDocument)
               continue;
             const t = flatText(x);
@@ -1493,7 +1495,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         for (const w of pt) if (wt.has(w)) n++;
         if (pt.size && n * 2 >= pt.size) return true;
         if (!piece || piece.length > SPLIT_SCAN_MAX) return false;
-        const kin = bk ? [whole, bk, L.map.get(bk), R.map.get(bk)] : [whole];
+        const kin = bk ? [whole, bk, twinIn(L, bk), twinIn(R, bk)] : [whole];
         const atEnd = (t, p) => t !== p && (t.startsWith(p) || t.endsWith(p));
         if (kin.some((x) => x && atEnd(flatText(x), piece))) return true;
         // A base block a side joined away may carry the other side's edit:
@@ -1502,7 +1504,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         if (!bSet.has(part) || !bk) return false;
         const w = flatText(whole),
           was = flatText(bk);
-        return [L.map.get(part), R.map.get(part)].some((x) => {
+        return [twinIn(L, part), twinIn(R, part)].some((x) => {
           const p = x && flatText(x);
           return (
             !!p &&
@@ -1525,7 +1527,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           [R, Rv],
         ]) {
           if (V2.asBase) continue;
-          const t = A.map.get(bk);
+          const t = twinIn(A, bk);
           if (t && V2.here(t)) add(t);
         }
       };
@@ -1534,7 +1536,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       const untouched = (V, A) =>
         V.asBase ||
         (bUnits.every(
-          (u) => !isEl(u) || (A.identical.has(u) && V.here(A.map.get(u))),
+          (u) => !isEl(u) || (A.identical.has(u) && V.here(twinIn(A, u))),
         ) &&
           V.units.every((u) => !isEl(u) || V.baseOf(u)));
       if (untouched(Lv, L) && untouched(Rv, R)) return null;
@@ -1710,7 +1712,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       for (const u of Array.from(out)) {
         if (!bSet.has(u)) continue;
         for (const A of [L, R]) {
-          const t = A.map.get(u);
+          const t = twinIn(A, u);
           if (
             t &&
             t.parentNode !== (A === L ? l : r) &&
@@ -2009,11 +2011,11 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
 
   /** Base counterpart of the parent a side moved `x` into, or null when x was not moved by that side. */
   function destOf(x, A) {
-    const tw = A.map.get(x);
+    const tw = twinIn(A, x);
     if (!tw) return null;
     const p = isEl(tw) ? tw.parentNode : tw.parent;
     const bParent = isEl(x) ? x.parentNode : x.parent;
-    if (A.map.get(bParent) === p) return null; // still under its base parent
+    if (twinIn(A, bParent) === p) return null; // still under its base parent
     return A.reverse.get(p) || null; // null: an inserted container
   }
 
@@ -2046,9 +2048,9 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     const bParent = isEl(bk) ? bk.parentNode : bk.parent;
     const sParent = isEl(sideTwin) ? sideTwin.parentNode : sideTwin.parent;
     const A =
-      L.map.get(bParent) === sParent
+      twinIn(L, bParent) === sParent
         ? L
-        : R.map.get(bParent) === sParent
+        : twinIn(R, bParent) === sParent
           ? R
           : null;
     return !!A;
