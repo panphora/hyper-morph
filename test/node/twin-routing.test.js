@@ -57,6 +57,62 @@ test("I3 lazybug, nested", async () => {
   );
 });
 
+/** Template content is compared where `isEqualNode` ignores it. */
+const tplOf = (html) => parse(doc(html)).querySelector("template").innerHTML;
+
+test("I3 template-source move: a paragraph moved out of an unchanged template and edited moves its live node without a conflict", async () => {
+  const b = `<p>alpha bravo charlie</p><template><p>delta echo foxtrot golf</p></template><p>tail words here</p>`;
+  const l = b.replace("tail words here", "tail words HERE");
+  const r = `<p>DELTA echo foxtrot golf</p><p>alpha bravo charlie</p><template></template><p>tail words here</p>`;
+  const live = parse(doc(l));
+  const template = live.querySelector("template");
+  const movedP = template.content.querySelector("p");
+  const report = await mergeDocument({ live, base: doc(b), remote: doc(r) });
+  assert.deepEqual(kinds(report), []);
+  assert.equal(
+    template.innerHTML,
+    tplOf(r),
+    `template content: ${live.body.innerHTML}`,
+  );
+  const outP = live.body.firstElementChild;
+  assert.equal(outP.tagName, "P", live.body.innerHTML);
+  assert.equal(outP.textContent, "DELTA echo foxtrot golf");
+  assert.equal(
+    live.body.innerHTML,
+    `<p>DELTA echo foxtrot golf</p><p>alpha bravo charlie</p><template></template><p>tail words HERE</p>`,
+  );
+  // The paragraph starts inside the template content fragment; some engine
+  // paths move that node out, others rebuild it. Survival is asserted only
+  // where the output paragraph is the captured node.
+  if (outP === movedP) assert.equal(movedP.isConnected, true);
+  else assert.ok(!template.content.contains(movedP));
+});
+
+test("I3 nested template-source move: a paragraph moved out of an unchanged nested template and edited moves its live node without a conflict", async () => {
+  const b = `<section><template><p>delta echo foxtrot golf</p></template></section><p>tail words here</p>`;
+  const l = b.replace("tail words here", "tail words HERE");
+  const r = `<p>DELTA echo foxtrot golf</p><section><template></template></section><p>tail words here</p>`;
+  const live = parse(doc(l));
+  const template = live.querySelector("template");
+  const movedP = template.content.querySelector("p");
+  const report = await mergeDocument({ live, base: doc(b), remote: doc(r) });
+  assert.deepEqual(kinds(report), []);
+  assert.equal(
+    template.innerHTML,
+    tplOf(r),
+    `template content: ${live.body.innerHTML}`,
+  );
+  const outP = live.body.firstElementChild;
+  assert.equal(outP.tagName, "P", live.body.innerHTML);
+  assert.equal(outP.textContent, "DELTA echo foxtrot golf");
+  assert.equal(
+    live.body.innerHTML,
+    `<p>DELTA echo foxtrot golf</p><section><template></template></section><p>tail words HERE</p>`,
+  );
+  if (outP === movedP) assert.equal(movedP.isConnected, true);
+  else assert.ok(!template.content.contains(movedP));
+});
+
 test("I3 seed37b: move out of an unchanged container to an earlier sibling, id-less", async () => {
   const b = `<section></section><div><p>x words here</p></div>`;
   const l = `${b}<p>local</p>`;

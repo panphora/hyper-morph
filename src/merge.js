@@ -137,6 +137,25 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     baseId: authored.base,
     sideId: authored.remote,
   });
+  let templateOwners = null;
+  function ownerOf(frag) {
+    if (!templateOwners) {
+      templateOwners = new WeakMap();
+      const stack = [bRoot];
+      while (stack.length) {
+        const n = stack.pop();
+        if (n.tagName === "TEMPLATE" && n.content)
+          templateOwners.set(n.content, n);
+        for (const k of analyzer.childrenOf(n))
+          if (k.nodeType === 1) stack.push(k);
+      }
+    }
+    return templateOwners.get(frag) || null;
+  }
+  const logicalParent = (x) => {
+    const p = isEl(x) || x.nodeType ? x.parentNode : x.parent;
+    return p && p.nodeType === 11 ? ownerOf(p) : p;
+  };
   splitCrossRewrites();
   demoteEchoes(L, R);
   demoteEchoes(R, L);
@@ -375,12 +394,9 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   function twinIn(A, bk) {
     if (A.map.has(bk)) return A.map.get(bk);
     const chain = [];
-    const parentOf = (x) => (isEl(x) || x.nodeType ? x.parentNode : x.parent);
-    for (let p = parentOf(bk); p && !A.map.has(p); p = p.parentNode)
-      chain.push(p);
-    const top = chain.length
-      ? chain[chain.length - 1].parentNode
-      : parentOf(bk);
+    let p = logicalParent(bk);
+    for (; p && !A.map.has(p); p = logicalParent(p)) chain.push(p);
+    const top = p;
     if (!top || !A.identical.has(top)) return null;
     A.pairIdenticalChildren(top);
     for (let i = chain.length - 1; i >= 0; i--)
@@ -2045,15 +2061,11 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
 
   function isAtBaseParent(bk, sideTwin) {
     // True when the side twin's parent corresponds to bk's base parent.
-    const bParent = isEl(bk) ? bk.parentNode : bk.parent;
-    const sParent = isEl(sideTwin) ? sideTwin.parentNode : sideTwin.parent;
-    const A =
-      twinIn(L, bParent) === sParent
-        ? L
-        : twinIn(R, bParent) === sParent
-          ? R
-          : null;
-    return !!A;
+    const bParent = logicalParent(bk);
+    const lTwin = twinIn(L, bParent);
+    if (lTwin && isSameParent(sideTwin, lTwin, L)) return true;
+    const rTwin = twinIn(R, bParent);
+    return !!(rTwin && isSameParent(sideTwin, rTwin, R));
   }
 }
 
