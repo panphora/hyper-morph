@@ -142,6 +142,7 @@ type MergeReport = {
   identities: Array<[Element, string]>; // live elements paired with an identified remote element
   moved: Element[]; // live elements that changed parent
   replaced: Element[]; // nodes recreated because nothing live matched them
+  stats: MergeStats; // per-apply counters: numbers only, never content
 };
 ```
 
@@ -150,6 +151,9 @@ MutationObserver would see. `decisions` answers "what did the merge decide",
 including local-only decisions that were already in the DOM. A consumer that
 mints its own element identities overwrites its record with each entry of
 `identities`, which is how ids converge across tabs after one round trip.
+`stats` is per-apply instrumentation: counters of what the merge had to do
+(`lazyTwins`, `hashRejected`, `similarTiesStrict`, `similarTiesLoose`,
+`ambiguousMoves`), numbers only, never anything from the page.
 
 Conflicts carry the base, local, remote and resolved values for text and
 attributes, and a `detail` for structure: `both-reordered`, `both-moved`,

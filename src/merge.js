@@ -21,6 +21,7 @@
  */
 
 import { createAnalyzer } from "./similarity.js";
+import { emptyStats } from "./stats.js";
 import { align } from "./align.js";
 import { merge3Text, diff, words } from "./text-merge.js";
 import { mergeInline, isInlineUnit, MARK_TAGS } from "./inline-merge.js";
@@ -54,6 +55,7 @@ const SPLIT_SCAN_MAX = 50000;
  * @property {boolean} localDiverged
  * @property {Set<Node>} mergedScripts - output scripts produced by a JSON merge
  * @property {(el: Element) => string | null} remoteIdOf
+ * @property {object} stats - per-apply counters: numbers only, never content
  */
 
 /**
@@ -70,13 +72,16 @@ const SPLIT_SCAN_MAX = 50000;
  * @param {Array} o.mergeTags
  * @param {string} o.baseURI
  * @param {boolean} [o.localIsBase] - two-way mode: local is the base document
+ * @param {object} [o.stats] - counters to fill; a fresh all-zero object by default
  * @returns {MergeResult}
  */
 export function merge3(baseDoc, localDoc, remoteDoc, o) {
   const ignored = o.ignored;
+  const stats = o.stats || emptyStats();
   const analyzer = createAnalyzer({
     ignored,
     ignoreAttribute: o.ignoreAttribute,
+    stats,
   });
   const { unitsOf, meta } = analyzer;
   const baseURI = o.baseURI;
@@ -124,6 +129,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           ),
           baseId: authored.base,
           sideId: authored.local,
+          stats,
         });
   const R = align(bRoot, rRoot, {
     analyzer,
@@ -136,6 +142,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     ),
     baseId: authored.base,
     sideId: authored.remote,
+    stats,
   });
   let templateOwners = null;
   function ownerOf(frag) {
@@ -210,6 +217,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     customIdentity: o.identity.remote !== defaultIdentity,
     L,
     R,
+    stats,
   };
 
   // A block both sides inserted (an echo) whose copies sit under parents
@@ -402,7 +410,9 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     A.pairIdenticalChildren(top);
     for (let i = chain.length - 1; i >= 0; i--)
       A.pairIdenticalChildren(chain[i]);
-    return A.map.get(bk) || null;
+    const twin = A.map.get(bk) || null;
+    if (twin) stats.lazyTwins++;
+    return twin;
   }
 
   function moveInto(bk, side, sideEl) {

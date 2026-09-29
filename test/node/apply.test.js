@@ -7,6 +7,7 @@ import {
   morphElement,
   morph,
 } from "../../src/index.js";
+import { emptyStats } from "../../src/stats.js";
 
 test("H1 a mark inserted around a live text node does not strand the cursor", async () => {
   const live = parse(doc(`<p>hello world</p>`));
@@ -243,6 +244,7 @@ test("HE2 an ignored root is a no-op with an empty report", async () => {
     identities: [],
     moved: [],
     replaced: [],
+    stats: emptyStats(),
   };
   for (const children of [true, false]) {
     const host = document.createElement("div");

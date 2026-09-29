@@ -47,10 +47,12 @@ function collapse(s) {
  * @param {object} [options]
  * @param {(n: Node) => boolean} [options.ignored]
  * @param {(el: Element, name: string) => boolean} [options.ignoreAttribute]
+ * @param {object} [options.stats] - per-apply counters to fill
  */
 export function createAnalyzer({
   ignored = () => false,
   ignoreAttribute = () => false,
+  stats = null,
 } = {}) {
   const metaCache = new WeakMap();
   const unitsCache = new WeakMap();
@@ -260,6 +262,7 @@ export function createAnalyzer({
     let row = eqCache.get(a);
     if (row && row.has(b)) return row.get(b);
     const eq = equalUncached(a, b);
+    if (!eq && stats) stats.hashRejected++;
     if (!row) eqCache.set(a, (row = new WeakMap()));
     row.set(b, eq);
     return eq;

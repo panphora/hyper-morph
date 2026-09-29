@@ -176,6 +176,14 @@ export type Conflict =
       base?: Element;
     };
 
+export interface MergeStats {
+  lazyTwins: number;
+  hashRejected: number;
+  similarTiesStrict: number;
+  similarTiesLoose: number;
+  ambiguousMoves: number;
+}
+
 export interface MergeReport {
   /** What apply did to the live DOM, in order. */
   applied: Applied[];
@@ -190,6 +198,8 @@ export interface MergeReport {
   moved: Element[];
   /** Nodes created because nothing live matched them. */
   replaced: Node[];
+  /** Per-apply counters: numbers only, never content. */
+  stats: MergeStats;
 }
 
 export interface Provenance {
@@ -224,6 +234,8 @@ export interface MergeResult {
   mergedScripts: Set<Element>;
   remoteIdOf: (el: Element) => string | null;
   customIdentity: boolean;
+  /** Per-apply counters: numbers only, never content. */
+  stats: MergeStats;
 }
 
 export interface Merge3Options extends CommonOptions {

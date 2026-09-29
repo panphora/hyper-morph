@@ -13,6 +13,7 @@
 
 import { toDocument, createParseCache, syncDoctype } from "./parse.js";
 import { makeIgnore } from "./ignore.js";
+import { emptyStats } from "./stats.js";
 import { importMap, tieredIdentity, defaultIdentity } from "./identity.js";
 import { merge3 as mergeCore } from "./merge.js";
 import { apply } from "./apply.js";
@@ -154,6 +155,7 @@ export function merge3(base, local, remote, options = {}) {
   delete clean.remote;
   const o = normalize(clean, [bRoot, lRoot, rRoot].filter(Boolean));
   const id = options.identity || {};
+  const stats = emptyStats();
   return mergeCore(bRoot, lRoot, rRoot, {
     identity: {
       base: resolveIdentity(id.base, bRoot),
@@ -176,6 +178,7 @@ export function merge3(base, local, remote, options = {}) {
       (lRoot.ownerDocument && lRoot.ownerDocument.baseURI) || "about:blank",
     localIsBase: !base || base === local,
     childrenOnly: o.children,
+    stats,
   });
 }
 
@@ -204,6 +207,7 @@ function run({
     ? collectBodyScriptSignatures(liveRoot, o.ignored, doc.baseURI)
     : null;
 
+  const stats = emptyStats();
   const result = mergeCore(baseRoot || localRoot, localRoot, remoteRoot, {
     identity: {
       base: resolveIdentity(identity.base, baseRoot || localRoot),
@@ -223,6 +227,7 @@ function run({
     baseURI: doc.baseURI,
     localIsBase: !baseRoot,
     childrenOnly,
+    stats,
     // With no per-node morph hooks, subtrees identical on both sides need
     // neither output nor a visit; the hook contract fires per matched node.
     skipUnchanged:
@@ -294,6 +299,7 @@ function run({
     identities: ap.identities,
     moved: ap.moved,
     replaced: ap.replaced,
+    stats,
   };
   return { report, loads };
 }
@@ -310,6 +316,7 @@ function emptyReport() {
     identities: [],
     moved: [],
     replaced: [],
+    stats: emptyStats(),
   };
 }
 
@@ -449,6 +456,7 @@ export function morphElement(oldEl, newContent, options = {}) {
         identities: [],
         moved: [],
         replaced: [oldEl],
+        stats: emptyStats(),
       });
     }
     if (remoteRoot.tagName !== oldEl.tagName) {

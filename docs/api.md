@@ -362,6 +362,7 @@ type MergeReport = {
   identities: Array<[Element, string]>;
   moved: Element[];
   replaced: Element[];
+  stats: MergeStats;
 };
 ```
 
@@ -493,6 +494,32 @@ are not moves.
 
 Nodes the merge created because nothing live matched them: inserted clones,
 plus the fresh element of a tag change in `morphElement`.
+
+### `stats`
+
+What the merge had to do, as counters. Numbers only: nothing from the page
+(no text, no ids, no tags) ever appears in them, and no merge decision reads
+them. One fresh object per call, shared by the local and the remote
+alignment, so the numbers total across both sides. The pure `merge3` returns
+the same object on its result.
+
+```ts
+type MergeStats = {
+  lazyTwins: number;
+  hashRejected: number;
+  similarTiesStrict: number;
+  similarTiesLoose: number;
+  ambiguousMoves: number;
+};
+```
+
+| Key                 | Meaning                                                                                     | Where it counts               |
+| ------------------- | ------------------------------------------------------------------------------------------- | ----------------------------- |
+| `lazyTwins`         | `twinIn` calls that resolved a twin the map did not hold                                    | `merge.js`, `twinIn`          |
+| `hashRejected`      | a pair whose `unitHash` matched but whose real equality failed; a memoized pair counts once | `similarity.js`, `equalUnits` |
+| `similarTiesStrict` | base elements with two or more candidates tied on both `coef` and `share` at the best score | `align.js`, `passSigSimilar`  |
+| `similarTiesLoose`  | base elements with two or more candidates tied on the best `coef` but not on `share`        | `align.js`, `passSigSimilar`  |
+| `ambiguousMoves`    | base elements the move pass refused because more than one similar candidate was free        | `align.js`, `movesAndSlots`   |
 
 ## Merge semantics
 

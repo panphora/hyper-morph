@@ -46,6 +46,7 @@ const POSITIONAL_LOOKAHEAD = 3;
  * @param {Map<string, Element>} o.sideIndex - identity index of the side
  * @param {(el: Element) => string | null} [o.baseId] - identity of a base element
  * @param {(el: Element) => string | null} [o.sideId] - identity of a side element
+ * @param {object} [o.stats] - per-apply counters to fill
  * @returns {Alignment}
  */
 /**
@@ -58,6 +59,7 @@ export function align(baseRoot, sideRoot, o) {
   const { meta, unitsOf, unitHash, similar, score, equalUnits } = o.analyzer;
   const baseId = o.baseId || (() => null),
     sideId = o.sideId || (() => null);
+  const stats = o.stats || null;
   const map = new Map(),
     reverse = new Map();
   const weak = new Set(); // base units paired with no content evidence
@@ -447,6 +449,22 @@ export function align(baseRoot, sideRoot, o) {
       (x, y) =>
         y.coef - x.coef || y.share - x.share || x.d - y.d || x.bi - y.bi,
     );
+    if (stats) {
+      const best = new Map();
+      for (const c of cands) {
+        const t = best.get(c.b);
+        if (!t)
+          best.set(c.b, { coef: c.coef, share: c.share, strict: 0, loose: 0 });
+        else if (t.coef === c.coef) {
+          if (t.share === c.share) t.strict++;
+          else t.loose++;
+        }
+      }
+      for (const t of best.values()) {
+        if (t.strict) stats.similarTiesStrict++;
+        if (t.loose) stats.similarTiesLoose++;
+      }
+    }
     for (const c of cands)
       if (!map.has(c.b) && !reverse.has(c.s)) pair(c.b, c.s);
   }
@@ -693,6 +711,7 @@ export function align(baseRoot, sideRoot, o) {
           if (count > 1) break;
         }
       }
+      if (count > 1 && stats) stats.ambiguousMoves++;
       if (count === 1) {
         claim(hit);
         pair(b, hit);
