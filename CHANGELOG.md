@@ -38,6 +38,9 @@
   an identity or a move paired one of the copy's descendants with a node
   elsewhere, the merge kept the container as unchanged, moved that
   descendant out of it, and the copy arrived empty with no conflict.
+  Identity pairs now take priority over content matches, so concurrent edits
+  follow the original node. A conflicting content match descends normally;
+  later content moves cannot take descendants from an unchanged copy.
 - Two subtrees count as equal only after a real equality check, template
   content included, not on a matching hash alone.
 - A text run that typing split into several live nodes keeps every node and

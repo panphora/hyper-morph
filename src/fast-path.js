@@ -4,8 +4,9 @@
  * When base and local are one tree (a clean tab merging against its own fresh
  * capture), everything the remote did not change is byte-equal between base
  * and remote. `findScope` descends from the roots while exactly one child
- * node differs and the pair there is two elements with one tag and one
- * identity; the pair where that stops is the scope, and the elements above
+ * node can still differ and the pair there is two elements with one tag and one
+ * identity. If that last child is equal, the whole page is equal. Otherwise
+ * the pair where that stops is the scope, and the elements above
  * it are its chain. Every other child of a chain element is outside: equal
  * to its remote counterpart.
  *
@@ -23,6 +24,8 @@
 import { structuralKey, KEYED } from "./merge.js";
 import { defaultIdentity } from "./identity.js";
 import { NEVER } from "./ignore.js";
+
+export const steps = { compared: 0 };
 
 const FORM_TAGS = new Set(["INPUT", "SELECT", "OPTION", "TEXTAREA"]);
 
@@ -104,7 +107,6 @@ export function findScope({
     remoteRoot.getElementsByTagName("template").length
   )
     return { bail: "script-or-template" };
-  if (baseRoot.isEqualNode(remoteRoot)) return { bail: "equal" };
   if (!sameAttrs(baseRoot, remoteRoot, o.ignoreAttribute))
     return { bail: "root-attrs" };
   const { ignored, remoteWins } = o;
@@ -121,26 +123,51 @@ export function findScope({
     return k !== null ? k : identity.remote(el) || null;
   };
 
-  // b and r differ at every step: the roots, then the one child pair that
-  // did. So when their own markup is equal and every other child compared
-  // equal, the remaining child differs without being compared. The child
-  // left for last is the suspect: the element with the most element
-  // children (the last of equals), the likeliest to hold the change, so a
-  // chain of containers is walked about once rather than once per level.
-  // Every verdict is kept for the alignment, which would compare the same
-  // pairs.
   const chain = [],
     remoteChain = [],
     same = new Map(),
     differ = new Map();
+  const comparisons = { same, differ };
+  const bailOut = (bail) => ({ bail, comparisons });
+  const equal = (x, y, native = true) => {
+    if (same.get(x) === y) return true;
+    if (differ.get(x) === y) return false;
+    steps.compared++;
+    if (native && x.isEqualNode(y)) {
+      same.set(x, y);
+      return true;
+    }
+    let matches = x.nodeType === y.nodeType;
+    if (matches && x.nodeType === 1) {
+      matches = sameMarkup(x, y);
+      if (matches) {
+        let a = x.firstChild,
+          c = y.firstChild;
+        for (; a && c; a = a.nextSibling, c = c.nextSibling)
+          if (!equal(a, c, false)) {
+            matches = false;
+            break;
+          }
+        if (a || c) matches = false;
+      }
+    } else if (matches) matches = x.isEqualNode(y);
+    (matches ? same : differ).set(x, y);
+    return matches;
+  };
   let b = baseRoot,
-    r = remoteRoot;
+    r = remoteRoot,
+    knownDifferent = false;
+  const equalPage = () => {
+    same.set(b, r);
+    for (let i = 0; i < chain.length; i++) same.set(chain[i], remoteChain[i]);
+    return bailOut("equal");
+  };
   for (;;) {
     const bk = b.childNodes,
       rk = r.childNodes;
     if (bk.length !== rk.length) break;
     const differs = (i) => {
-      if (!bk[i].isEqualNode(rk[i])) return true;
+      if (!equal(bk[i], rk[i])) return true;
       same.set(bk[i], rk[i]);
       return false;
     };
@@ -156,43 +183,56 @@ export function findScope({
       }
     }
     const found = [];
+    let inferred = false;
     for (let i = 0; i < bk.length && found.length < 2; i++)
       if (i !== suspect && differs(i)) found.push(i);
     if (suspect >= 0 && found.length < 2)
-      if (found.length === 0 && sameMarkup(b, r)) found.push(suspect);
-      else if (differs(suspect)) found.push(suspect);
-    if (found.length !== 1) break;
+      if (found.length === 0 && sameMarkup(b, r)) {
+        found.push(suspect);
+        inferred = true;
+      } else if (differs(suspect)) found.push(suspect);
+    if (found.length !== 1) {
+      if (!knownDifferent && found.length === 0 && sameMarkup(b, r))
+        return equalPage();
+      break;
+    }
     const x = bk[found[0]],
       y = rk[found[0]];
-    differ.set(x, y);
+    knownDifferent = knownDifferent || !inferred;
+    if (knownDifferent) differ.set(x, y);
     if (x.nodeType !== 1 || y.nodeType !== 1 || x.tagName !== y.tagName) break;
-    if (keyB(x) !== keyR(y)) break;
+    if (keyB(x) !== keyR(y)) {
+      if (!knownDifferent && equal(x, y)) return equalPage();
+      break;
+    }
     chain.push(b);
     remoteChain.push(r);
     b = x;
     r = y;
   }
+  differ.set(b, r);
+  for (let i = 0; i < chain.length; i++) differ.set(chain[i], remoteChain[i]);
   if (b === baseRoot || b.tagName === "HEAD" || b.tagName === "BODY")
-    return { bail: "root-level" };
+    return bailOut("root-level");
   if (chain.length < 2 || chain[1].tagName !== "BODY")
-    return { bail: "not-in-body" };
-  if (ignored(b) || ignored(r)) return { bail: "ignored-ancestor" };
-  if (remoteWins(b) || remoteWins(r)) return { bail: "remote-wins-ancestor" };
+    return bailOut("not-in-body");
+  if (ignored(b) || ignored(r)) return bailOut("ignored-ancestor");
+  if (remoteWins(b) || remoteWins(r)) return bailOut("remote-wins-ancestor");
   for (const c of chain)
-    if (FORM_TAGS.has(c.tagName)) return { bail: "form-ancestor" };
+    if (FORM_TAGS.has(c.tagName)) return bailOut("form-ancestor");
   if (
     b.tagName === "SCRIPT" ||
     b.getElementsByTagName("script").length ||
     r.getElementsByTagName("script").length
   )
-    return { bail: "script-or-template" };
+    return bailOut("script-or-template");
   const liveScope = toLive(b);
   if (!liveScope || liveScope.nodeType !== 1 || liveScope.tagName !== b.tagName)
-    return { bail: "no-live-twin" };
-  if (!liveRoot.contains(liveScope)) return { bail: "live-detached" };
+    return bailOut("no-live-twin");
+  if (!liveRoot.contains(liveScope)) return bailOut("live-detached");
   for (const c of chain) {
     const lc = toLive(c);
-    if (!lc || lc.nodeType !== 1) return { bail: "ancestor-live" };
+    if (!lc || lc.nodeType !== 1) return bailOut("ancestor-live");
   }
 
   // The outside, in document order. Every element must carry its positional
@@ -264,7 +304,7 @@ export function findScope({
     return null;
   };
   const bail = level(0);
-  if (bail) return { bail };
+  if (bail) return bailOut(bail);
   const onChain = new Set(chain);
   let below = null;
   if (identity.base === defaultIdentity) {

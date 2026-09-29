@@ -264,6 +264,7 @@ function run({
       identity: mergeOptions.identity,
       baseURI: doc.baseURI,
     });
+    mergeOptions.comparisons = found.comparisons || found.scope;
     if (found.bail) fallback = found.bail;
     else {
       result = mergeCore(

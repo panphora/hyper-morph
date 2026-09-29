@@ -441,8 +441,8 @@ test("E5 the guards: an id used outside the branch, a moved chain element, a dup
   const g2 = byName("G2");
   const ref2 = await observeClean(E, handInput(g2), g2.identity, false);
   assert.ok(
-    ref2.moved.length === 1 && ref2.html === handInput(g2).r,
-    "the full path moves the chain element into the copy, and the copy keeps its content",
+    ref2.moved.length === 2 && ref2.html === handInput(g2).r,
+    "the full path preserves the chain and deep identity moves, and the copy keeps its content",
   );
   const g3 = byName("G3");
   const ref3 = await observeClean(E, handInput(g3), null, false);

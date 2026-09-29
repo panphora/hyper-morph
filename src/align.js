@@ -137,10 +137,11 @@ export function align(baseRoot, sideRoot, o) {
     return !!set && set.has(s);
   };
   const codeLike = (el) => CODE_LIKE.has(el.tagName);
+  const comparisons = o.comparisons || o.scope;
   const equalNodes = (b, s) => {
-    if (o.scope) {
-      if (o.scope.same.get(b) === s) return true;
-      if (o.scope.differ.get(b) === s) return false;
+    if (comparisons) {
+      if (comparisons.same.get(b) === s) return true;
+      if (comparisons.differ.get(b) === s) return false;
     }
     if (!b.isEqualNode(s)) return false;
     if (b.tagName === "TEMPLATE") return equalUnits(b, s);
@@ -316,7 +317,7 @@ export function align(baseRoot, sideRoot, o) {
   function drain() {
     while (queue.length) {
       const [b, s] = queue.shift();
-      if (visited.has(b) || identical.has(b)) continue;
+      if (map.get(b) !== s || visited.has(b) || identical.has(b)) continue;
       alignKids(b, s);
     }
   }
@@ -530,55 +531,91 @@ export function align(baseRoot, sideRoot, o) {
    * about them needs to be compared.
    */
   function lockstep(b, s) {
-    if (isEl(b) && (holdsB.has(b) || holdsS.has(s))) own(b, s);
+    if (isEl(b) && (holdsB.has(b) || holdsS.has(s))) {
+      const pairs = ownership(b, s);
+      if (!pairs) {
+        pair(b, s);
+        queue.push([b, s]);
+        return;
+      }
+      for (let i = 0; i < pairs.length; i += 2) {
+        const x = pairs[i],
+          y = pairs[i + 1];
+        const t = map.get(x);
+        if (t !== undefined && t !== y) release(x, t);
+        const z = reverse.get(y);
+        if (z !== undefined && z !== x) release(z, y);
+        if (map.get(x) === y) {
+          moved.delete(x);
+          weak.delete(x);
+          identical.add(x);
+          visited.add(x);
+        }
+      }
+    }
     lockstepUnder(b, s);
+  }
+
+  function release(x, y) {
+    map.delete(x);
+    reverse.delete(y);
+    moved.delete(x);
+    identical.delete(x);
+    weak.delete(x);
+    visited.delete(x);
+  }
+
+  function ownership(b, s) {
+    const stack = [b, s, false],
+      pairs = [];
+    while (stack.length) {
+      const deep = stack.pop(),
+        y = stack.pop(),
+        x = stack.pop();
+      const t = map.get(x),
+        z = reverse.get(y);
+      if (x !== b) {
+        if (t !== undefined && t !== y && identityPaired.has(x)) return null;
+        if (z !== undefined && z !== x && identityPaired.has(z)) return null;
+      }
+      if (t === y && identical.has(x)) continue;
+      if (t !== undefined || z !== undefined) pairs.push(x, y);
+      if (!isEl(x)) continue;
+      if (
+        deep ||
+        (t !== undefined && t !== y) ||
+        (z !== undefined && z !== x)
+      ) {
+        const xu = unitsOf(x),
+          yu = unitsOf(y);
+        for (let i = 0; i < xu.length && i < yu.length; i++)
+          stack.push(xu[i], yu[i], true);
+      } else if (holdsB.has(x) || holdsS.has(y)) {
+        const xu = x.tagName === "TEMPLATE" ? x.content : x,
+          yu = y.tagName === "TEMPLATE" ? y.content : y;
+        for (let a = xu.firstElementChild, c = yu.firstElementChild; a && c; ) {
+          if (ignored(a)) {
+            a = a.nextElementSibling;
+            continue;
+          }
+          if (ignored(c)) {
+            c = c.nextElementSibling;
+            continue;
+          }
+          if (map.has(a) || reverse.has(c) || holdsB.has(a) || holdsS.has(c))
+            stack.push(a, c, false);
+          a = a.nextElementSibling;
+          c = c.nextElementSibling;
+        }
+      }
+    }
+    return pairs;
   }
 
   function lockstepUnder(b, s) {
     pair(b, s);
     identical.add(b);
     if (isEl(b)) visited.add(b);
-  }
-
-  /**
-   * An identical pair owns both subtrees: the merge keeps it as it is, so a
-   * unit inside it paired with anything but its counterpart would also be
-   * moved out of it, and the copy left behind would lose it. Before a pair
-   * is made on content, every pair with a unit inside either subtree that
-   * is not the unit's counterpart (an identity pair, a move, or one an
-   * unpair left under an unpaired unit) is dropped, and a pair that is the
-   * counterpart becomes identical too. No later pass pairs a unit an
-   * identical pair owns.
-   */
-  function own(b, s) {
-    const release = (x, y) => {
-      map.delete(x);
-      reverse.delete(y);
-      moved.delete(x);
-      identical.delete(x);
-      weak.delete(x);
-      if (isEl(x)) visited.add(x);
-    };
-    const stack = [b, s];
-    while (stack.length) {
-      const y = stack.pop(),
-        x = stack.pop();
-      const t = map.get(x);
-      if (t !== undefined && t !== y) release(x, t);
-      const z = reverse.get(y);
-      if (z !== undefined && z !== x) release(z, y);
-      if (!isEl(x)) continue;
-      if (map.get(x) === y) {
-        moved.delete(x);
-        weak.delete(x);
-        identical.add(x);
-        visited.add(x);
-      }
-      const xu = unitsOf(x),
-        yu = unitsOf(y);
-      for (let i = 0; i < xu.length && i < yu.length; i++)
-        stack.push(xu[i], yu[i]);
-    }
   }
 
   /**

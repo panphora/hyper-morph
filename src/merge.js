@@ -163,6 +163,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     sideId: authored.remote,
     stats,
     scope,
+    comparisons: o.comparisons,
   });
   if (scope) {
     if (!scope.held(R)) return null;
@@ -1846,8 +1847,11 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
             t &&
             !isSameParent(t, A === L ? l : r, A) &&
             !(A === L ? Lv : Rv).asBase
-          )
+          ) {
             out.delete(u);
+            out.delete(twinIn(L, u));
+            out.delete(twinIn(R, u));
+          }
         }
       }
       return out.size ? out : null;

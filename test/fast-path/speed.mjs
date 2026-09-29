@@ -58,8 +58,52 @@ const median = (values) => {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 };
 
+const worst = (text, width) =>
+  "<main>" +
+  Array.from({ length: 600 }, (_, i) => `<div id="d${i}">`).join("") +
+  `<p>${text}</p>` +
+  ("</div><aside>" + "<i></i>".repeat(width) + "</aside>").repeat(600) +
+  "</main>";
+const opusWorst = (text) =>
+  `<main>${"<div>".repeat(400)}<p>${text}</p>${"<ul><li>a</li><li>b</li></ul></div><ul><li>a</li><li>b</li></ul>".repeat(400)}</main>`;
+const additional = [
+  [
+    "Opus wider sibling, synthetic",
+    1.1,
+    opusWorst("old"),
+    opusWorst("NEW"),
+    synthetic,
+  ],
+  ["Opus wider sibling, default", 1.1, opusWorst("old"), opusWorst("NEW")],
+  [
+    "late root-level bail, synthetic",
+    1.1,
+    cards,
+    cards
+      .replace("Title 298", "Title REMOTE")
+      .replace("Title 299", "Title REMOTE"),
+    synthetic,
+    "root-level",
+  ],
+  ["equal-width authored siblings", 1.1, worst("old", 2), worst("NEW", 2)],
+  ["wider authored siblings", 1.1, worst("old", 3), worst("NEW", 3)],
+  [
+    "late root-level bail",
+    1.1,
+    cards,
+    cards
+      .replace("Title 298", "Title REMOTE")
+      .replace("Title 299", "Title REMOTE"),
+    undefined,
+    "root-level",
+  ],
+];
+for (const row of additional) {
+  row[6] = 1;
+  SHAPES.push(row);
+}
 const rows = [];
-for (const [name, limit, b, r, identityOf] of SHAPES) {
+for (const [name, limit, b, r, identityOf, bail, margin = 0] of SHAPES) {
   const times = { full: [], fast: [] };
   let taken = 0;
   for (let round = 0; round < ROUNDS + 3; round++)
@@ -88,6 +132,7 @@ for (const [name, limit, b, r, identityOf] of SHAPES) {
         live.documentElement.outerHTML,
         remote.documentElement.outerHTML,
       );
+      if (fastPath && bail) assert.equal(report.stats.fastPathFallback, bail);
       if (round < 3) continue;
       times[fastPath ? "fast" : "full"].push(ms);
       if (fastPath) taken += report.stats.fastPathTaken;
@@ -101,13 +146,21 @@ for (const [name, limit, b, r, identityOf] of SHAPES) {
     fast: +fast.toFixed(2),
     ratio: +(fast / full).toFixed(3),
     taken,
+    expectedTaken: bail ? 0 : ROUNDS,
+    margin,
   });
 }
 console.log(JSON.stringify({ load: loadavg(), rows }, null, 2));
 for (const row of rows) {
-  assert.equal(row.taken, ROUNDS, `${row.name}: the fast path was not taken`);
+  assert.equal(
+    row.taken,
+    row.expectedTaken,
+    `${row.name}: the fast path was not taken`,
+  );
   assert.ok(
-    row.ratio <= row.limit,
+    row.margin
+      ? row.fast <= row.full * row.limit + row.margin
+      : row.ratio <= row.limit,
     `${row.name}: fast ${row.fast} ms against full ${row.full} ms`,
   );
 }
