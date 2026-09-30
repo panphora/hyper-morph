@@ -513,13 +513,10 @@ function streamsFor(c, side, skip) {
   };
   if (side.scope && !skip(side.scope))
     walk(side.scope, side.key(side.scope) || null);
-  // An owner's next text joins its previous text directly only when nothing
-  // came between them: no block separator (the generation is unchanged) and
-  // no other owner's text (the previous text item was this owner's).
+  // An owner's next text joins its previous text directly unless a block separator came between them (the generation changed).
   const counts = new Map();
   const lastGen = new Map();
   let gen = 0;
-  let prev = null;
   for (const it of items) {
     if (it.sep) {
       gen++;
@@ -527,18 +524,23 @@ function streamsFor(c, side, skip) {
     }
     if (!counts.has(it.owner)) counts.set(it.owner, it.text);
     else {
-      const apart = lastGen.get(it.owner) !== gen || prev !== it.owner;
+      // Another owner's inline text between two runs does not split them:
+      // the words read the same once that owner is gone. Only a block does.
+      const apart = lastGen.get(it.owner) !== gen;
       counts.set(it.owner, counts.get(it.owner) + (apart ? " " : "") + it.text);
     }
     lastGen.set(it.owner, gen);
-    prev = it.owner;
   }
   const words = new Map();
+  const seq = new Map();
   for (const [k, text] of counts) {
+    const t = tokens(text);
     const m = new Map();
-    for (const w of tokens(text)) m.set(w, (m.get(w) || 0) + 1);
+    for (const w of t) m.set(w, (m.get(w) || 0) + 1);
     words.set(k, m);
+    seq.set(k, t);
   }
+  words.seq = seq;
   return words;
 }
 
@@ -1009,7 +1011,7 @@ export function ownerChecks(c, obs) {
     if (!conflictTokens.has(where)) conflictTokens.set(where, new Set());
     const set = conflictTokens.get(where);
     for (const s of [cf.base, cf.local, cf.remote])
-      for (const w of tokens(s || "")) set.add(w);
+      for (const w of tokens((s || "").replace(/<[^>]*>/g, " "))) set.add(w);
   };
   for (const cf of report.conflicts || []) {
     if (cf.kind !== "text") continue;
@@ -1038,6 +1040,50 @@ export function ownerChecks(c, obs) {
   // inputs changed that owner's words, and the policy still decides the floor.
   const bothChanged = (key) =>
     !sameBag(Bw.get(key), Lw.get(key)) && !sameBag(Bw.get(key), Rw.get(key));
+  // Base token positions a side changed: tokens it removed or replaced, and
+  // gaps where it inserted. Null when the texts are too long to diff.
+  const changedBase = (b, s) => {
+    const n = b.length,
+      m = s.length;
+    if (n * m > 4e6) return null;
+    const dp = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+    for (let i = n - 1; i >= 0; i--)
+      for (let j = m - 1; j >= 0; j--)
+        dp[i][j] =
+          b[i] === s[j]
+            ? dp[i + 1][j + 1] + 1
+            : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    const tok = new Uint8Array(n),
+      gap = new Uint8Array(n + 1);
+    let i = 0,
+      j = 0;
+    while (i < n || j < m) {
+      if (i < n && j < m && b[i] === s[j]) {
+        i++;
+        j++;
+      } else if (j < m && (i === n || dp[i][j + 1] >= dp[i + 1][j])) {
+        gap[i] = 1;
+        j++;
+      } else {
+        tok[i] = 1;
+        i++;
+      }
+    }
+    return { tok, gap };
+  };
+  // A conflict record is credible only where the two sides' edits overlap
+  // or touch in base; adjacent edits count, since a merge may join them.
+  const editsOverlap = (key) => {
+    const b = Bw.seq?.get(key) || [];
+    const lc = changedBase(b, Lw.seq?.get(key) || []);
+    const rc = changedBase(b, Rw.seq?.get(key) || []);
+    if (!lc || !rc) return true;
+    const near = (x, i) => x.tok[i] || x.gap[i] || x.gap[i + 1];
+    for (let i = 0; i < b.length; i++)
+      if ((lc.tok[i] && near(rc, i)) || (rc.tok[i] && near(lc, i))) return true;
+    for (let i = 0; i <= b.length; i++) if (lc.gap[i] && rc.gap[i]) return true;
+    return false;
+  };
   const policy = c.options.conflicts || "remote";
   const conflictBounds = (b, l, r) => {
     const [win, lose] = policy === "local" ? [l, r] : [r, l];
@@ -1095,16 +1141,22 @@ export function ownerChecks(c, obs) {
     if (!b) {
       // An owner nested inside one copy of an unsettled same-id insertion
       // inherits that uncertainty: the engine may keep the other copy.
-      for (const side of [L, R]) {
+      const under = (side) => {
         const el = side.map.get(key);
-        for (let a = el ? side.parent(el) : null; a; a = side.parent(a)) {
+        if (!el) return null;
+        for (let a = side.parent(el); a; a = side.parent(a)) {
           if (a.nodeType !== 1) continue;
           const k = side.key(a);
           if (!k || k === key || B.map.has(k)) continue;
-          if (unsettledOwn(k))
-            return save({ state: null, reason: "unsettled-collision" });
+          if (unsettledOwn(k)) return true;
         }
-      }
+        return false;
+      };
+      // Relieved only when every side that has it has it inside such a
+      // copy; a side that places it elsewhere settles it.
+      const placed = [L, R].map(under).filter((x) => x !== null);
+      if (placed.length && placed.every(Boolean))
+        return save({ state: null, reason: "unsettled-collision" });
       if (l && r && simpleInsertCollision(L.map.get(key), R.map.get(key)))
         return save({
           state: true,
@@ -1329,7 +1381,8 @@ export function ownerChecks(c, obs) {
       } else if (
         conflictTokens.get(key)?.has(w) &&
         (l !== b || r !== b) &&
-        bothChanged(key)
+        bothChanged(key) &&
+        editsOverlap(key)
       ) {
         bounds = conflictBounds(b, l, r);
         note({ kind: "conflict", owner: key, word: w, b, l, r, bounds });
@@ -1475,20 +1528,13 @@ export function ownerChecks(c, obs) {
     };
     return walk(el, true);
   };
-  // Whether an identified child keeps the words on either side of it apart,
-  // by the same rule as streamsFor: it is a block, or it holds a block or
-  // a text node outside skipped content.
   const textSkip = (el) =>
     skip(el) || (h.vetoAttr === "value" && el?.tagName === "TEXTAREA");
+  // Whether an identified child keeps the words on either side of it apart, by the same rule as streamsFor: only when it is or holds a block.
   const separates = (n) => {
     if (BLOCK_TAGS.has(n.tagName)) return true;
-    for (let k = kidsOf(n).firstChild; k; k = k.nextSibling)
-      if (
-        k.nodeType === 3
-          ? !!k.nodeValue
-          : k.nodeType === 1 && !textSkip(k) && separates(k)
-      )
-        return true;
+    for (let k = kidsOf(n).firstElementChild; k; k = k.nextElementSibling)
+      if (!textSkip(k) && separates(k)) return true;
     return false;
   };
   const slotTokens = (el, side) => {
@@ -1520,6 +1566,11 @@ export function ownerChecks(c, obs) {
     ...(c.shape === "element" ? ["(element)"] : ["(body)", "(head)"]),
   ]);
   for (const key of anonOwners) {
+    if (
+      (key === "(head)" || key === "(body)") &&
+      G.key(ownerEl(G, key) || null)
+    )
+      continue;
     const st = states.get(key);
     if (st && (st.state !== true || st.unsettled)) continue;
     if (st && isElementOwner(key) && vetoedOwner(key)) continue;
@@ -1571,11 +1622,19 @@ export function ownerChecks(c, obs) {
       continue;
     }
     if (shapes[3] !== shapes[0]) {
+      const brief = (el) => (el ? el.cloneNode(false).outerHTML : "(none)");
+      let at = 0;
+      const most = Math.max(slots[0].length, slots[3].length);
+      while (at < most && brief(slots[0][at]) === brief(slots[3][at])) at++;
       violations.push({
         prop: "anonymous-structure",
         owner: key,
-        want: shapes[0],
-        got: shapes[3],
+        slot: at < most ? at : null,
+        want:
+          at < most ? brief(slots[0][at]) : "same elements, nested differently",
+        got:
+          at < most ? brief(slots[3][at]) : "same elements, nested differently",
+        slots: [slots[0].length, slots[3].length],
       });
       continue;
     }

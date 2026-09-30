@@ -187,7 +187,11 @@ export function prepare(c) {
       : null;
   const sidL = new Map();
   for (const [el, id] of sidCap) sidL.set(capToLive.get(el), id);
+  const headBefore = new Set(live.head.children);
   if (c.live?.head) live.head.insertAdjacentHTML("beforeend", c.live.head);
+  const insertedHead = [...live.head.children].filter(
+    (el) => !headBefore.has(el),
+  );
   if (c.live?.body) live.body.insertAdjacentHTML("afterbegin", c.live.body);
   for (const [sel, prop, value] of c.live?.props || []) {
     const el = live.querySelector(sel);
@@ -206,6 +210,17 @@ export function prepare(c) {
       for (let x = el.parentElement; x && !parentCap; x = x.parentElement)
         parentCap = liveToCap.get(x) || null;
       liveHeadLeaves.push({ parentCap, html: el.outerHTML, tag: el.tagName });
+    }
+  // Without a node-for-node map (the heads differ, or a morph hook runs),
+  // the tags the live page added are still expected in the output.
+  if (!liveToCap)
+    for (const el of insertedHead) {
+      if (el.children.length || el.textContent.trim()) continue;
+      liveHeadLeaves.push({
+        parentCap: cap.head,
+        html: el.outerHTML,
+        tag: el.tagName,
+      });
     }
   const h = c.options?.hooks || {};
   const selectors = [

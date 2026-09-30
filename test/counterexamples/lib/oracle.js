@@ -292,6 +292,35 @@ function occurrencePath(side, el) {
   return path;
 }
 
+/** An element's place under its nearest identified ancestor: that ancestor
+ * and, for each unidentified container in between, its index among the
+ * unidentified element siblings. Identified siblings are left out, so their
+ * own moves do not shift the path. */
+function anonPosition(side, el, skip) {
+  const path = [];
+  let x = side.parent(el);
+  while (x && x.nodeType === 1 && x !== side.scope && !side.key(x)) {
+    const parent = side.parent(x);
+    if (!parent || parent.nodeType !== 1) return null;
+    const peers = elementChildren(parent).filter(
+      (k) => !side.key(k) && !skip(k),
+    );
+    path.unshift(peers.indexOf(x));
+    x = parent;
+  }
+  if (!x) return null;
+  return { anchor: x, path: JSON.stringify(path) };
+}
+
+/** The unidentified element skeleton under an element, by tag. */
+function anonSkeleton(side, root, skip) {
+  const walk = (n) =>
+    elementChildren(n)
+      .filter((k) => !side.key(k) && !skip(k))
+      .map((k) => [k.localName, walk(k)]);
+  return JSON.stringify(walk(root));
+}
+
 function destination(c, obs) {
   if (c.shape === "pure") return [];
   const { idB, idCap, idR, idG, evidence } = sides(c, obs);
@@ -356,8 +385,35 @@ function destination(c, obs) {
       });
     if (want === undefined) continue;
     const gotParent = parentId(liveEl, idG, evidence.G.parent);
-    if (gotParent !== want)
+    if (gotParent !== want) {
       out.push({ prop: "destination", id, want, got: gotParent });
+      continue;
+    }
+    // Same identified parent: check the place among unidentified
+    // containers, when they are laid out the same in every version.
+    if (!B.has(id) || !r || pb !== want || pl !== want || pr !== want) continue;
+    const views = [
+      [evidence.B, B.get(id)],
+      [evidence.L, L.get(id)],
+      [evidence.R, r],
+      [evidence.G, liveEl],
+    ];
+    const pos = views.map(([side, el]) => anonPosition(side, el, protectedEl));
+    if (pos.some((q) => !q) || pos.every((q) => q.path === "[]")) continue;
+    const skel = views.map(([side], i) =>
+      anonSkeleton(side, pos[i].anchor, protectedEl),
+    );
+    if (skel.some((s) => s !== skel[0])) continue;
+    const [bp, lp, rp, gp] = pos.map((q) => q.path);
+    const wantPath = lp === bp ? rp : rp === bp ? lp : lp === rp ? lp : null;
+    if (wantPath !== null && wantPath !== gp)
+      out.push({
+        prop: "destination",
+        id,
+        why: "anonymous-position",
+        want: wantPath,
+        got: gp,
+      });
   }
   // An identified element only remote inserted keeps remote's tag and lands
   // under remote's parent, when that parent is in the output.
@@ -520,10 +576,27 @@ function regions(c, obs) {
       out.push({ prop: "ignored-changed", want, got });
   }
   if (c.options.remoteWins) {
-    const want = markupIn(R, c.options.remoteWins);
-    const got = markupIn(G, c.options.remoteWins);
+    const sel = c.options.remoteWins;
+    const want = markupIn(R, sel);
+    const got = markupIn(G, sel);
     if (JSON.stringify(want) !== JSON.stringify(got))
       out.push({ prop: "remote-wins-differs", want, got });
+    // Remote lands unchanged, so a local edit inside the region is dropped;
+    // the drop must be reported so the person can recover it.
+    const { B, L } = ownerSnapshot(c, obs);
+    const local = markupIn(L, sel);
+    const edited =
+      JSON.stringify(local) !== JSON.stringify(markupIn(B, sel)) &&
+      JSON.stringify(local) !== JSON.stringify(want);
+    const inRegion = (n) => {
+      const el = n?.nodeType === 1 ? n : n?.parentElement;
+      return !!el?.closest?.(sel);
+    };
+    const reported = (obs.raw.report?.conflicts || []).some(
+      (cf) => inRegion(cf.node) || inRegion(cf.el),
+    );
+    if (edited && !reported)
+      out.push({ prop: "remote-wins-unreported", want: local });
   }
   return out;
 }
@@ -802,6 +875,8 @@ const HARD = new Set([
   "identity-relabelled",
   "input-mutated",
   "anonymous-structure",
+  "remote-wins-differs",
+  "remote-wins-unreported",
 ]);
 
 export async function verdict(cur, ref, raw) {

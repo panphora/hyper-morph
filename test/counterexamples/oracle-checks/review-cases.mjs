@@ -839,6 +839,200 @@ export const ROUND4_ROWS = [
   ],
 ];
 
+const RW = (local) => ({
+  shape: "dirty",
+  identity: "authored",
+  options: { remoteWins: ".rw" },
+  base: '<div class="rw" id="W"><p>alpha</p></div><p id="z">z</p>',
+  local,
+  remote: '<div class="rw" id="W"><p>alpha REMOTE</p></div><p id="z">z</p>',
+});
+const HEAD_DIFF = {
+  shape: "clean",
+  identity: "authored",
+  base: '<!DOCTYPE html><html><head><title>old</title></head><body><main id="M"><p id="P">old</p></main></body></html>',
+  remote:
+    '<!DOCTYPE html><html><head><title>new</title></head><body><main id="M"><p id="P">NEW</p></main></body></html>',
+  live: { head: '<meta name="runtime" content="keep">' },
+};
+
+export const RULE_ROWS = [
+  [
+    "Rule: remoteWins region keeps a local edit",
+    RW('<div class="rw" id="W"><p>alpha LOCAL</p></div><p id="z">z</p>'),
+    (d) => {
+      const p = d.querySelector(".rw p");
+      if (p) p.textContent = "alpha LOCAL REMOTE";
+    },
+    MUST_FAIL,
+  ],
+  [
+    "Rule: remoteWins region lands as remote but the dropped local edit is not reported",
+    RW('<div class="rw" id="W"><p>alpha LOCAL</p></div><p id="z">z</p>'),
+    (d, r) => {
+      const p = d.querySelector(".rw p");
+      if (p) p.textContent = "alpha REMOTE";
+      return { conflicts: [] };
+    },
+    MUST_FAIL,
+  ],
+  [
+    "Rule: remoteWins region lands as remote and the dropped local edit is reported",
+    RW('<div class="rw" id="W"><p>alpha LOCAL</p></div><p id="z">z</p>'),
+    (d, r) => {
+      const p = d.querySelector(".rw p");
+      if (!p) return;
+      p.textContent = "alpha REMOTE";
+      return {
+        conflicts: [
+          ...(r.conflicts || []),
+          {
+            kind: "text",
+            node: p.firstChild,
+            base: "alpha",
+            local: "alpha LOCAL",
+            remote: "alpha REMOTE",
+            resolved: "alpha REMOTE",
+            recovery: {},
+          },
+        ],
+      };
+    },
+    ["passes", "undecidable"],
+  ],
+  [
+    "Rule: remoteWins region local left alone: real engine",
+    RW('<div class="rw" id="W"><p>alpha</p></div><p id="z">z LOCAL</p>'),
+    null,
+    OK_PASS,
+  ],
+  [
+    "Rule: runtime head tag dropped when the heads differ",
+    HEAD_DIFF,
+    (d) => d.head.querySelector('meta[name="runtime"]')?.remove(),
+    MUST_FAIL,
+  ],
+  [
+    "Rule: runtime head tag kept when the heads differ",
+    HEAD_DIFF,
+    (d) => {
+      if (!d.head.querySelector('meta[name="runtime"]'))
+        d.head.insertAdjacentHTML(
+          "beforeend",
+          '<meta name="runtime" content="keep">',
+        );
+    },
+    OK_PASS,
+  ],
+];
+
+const GLUED = {
+  shape: "dirty",
+  identity: "authored",
+  base: '<div id="M"><p>he said "<em id="q">hi</em>" twice</p><p>other</p></div>',
+  local: '<div id="M"><p>he said "" twice</p><p>other</p></div>',
+  remote:
+    '<div id="M"><p>he said "<em id="q" class="loud">hi</em>" twice</p><p>other</p></div>',
+};
+const SETTLED_OUTSIDE = {
+  shape: "dirty",
+  identity: "authored",
+  base: '<main id="M"></main>',
+  local: '<main id="M"><div id="P">local <b id="Q">bold</b></div></main>',
+  remote: '<main id="M"><div id="P">remote</div><b id="Q">bold</b></main>',
+};
+
+export const FOLLOWUP_ROWS = [
+  [
+    "Follow-up: glued inline element kept where one side deleted it and the other edited it",
+    GLUED,
+    (d) => {
+      if (d.getElementById("q")) return;
+      d.getElementById("M").firstElementChild.innerHTML =
+        'he said "<em id="q" class="loud">hi</em>" twice';
+    },
+    OK_PASS,
+  ],
+  [
+    "Follow-up: id settled outside an unsettled copy is still required",
+    SETTLED_OUTSIDE,
+    (d) => d.getElementById("Q")?.remove(),
+    MUST_FAIL,
+  ],
+];
+
+const SIBLINGS = {
+  shape: "dirty",
+  identity: "plain",
+  base: '<main><section><p sid="s0">same words</p></section><section><p sid="s1">same words</p></section><footer>old</footer></main>',
+  local:
+    '<main><section><p sid="s0">same words FIRST</p></section><section><p sid="s1">same words SECOND</p></section><footer>old</footer></main>',
+  remote:
+    '<main><section><p sid="s1">same words</p></section><section><p sid="s0">same words</p></section><footer>NEW</footer></main>',
+};
+const WORDS6 = (local) => ({
+  shape: "dirty",
+  identity: "authored",
+  base: '<p id="P">one two three four five six</p><p id="z">z</p>',
+  local: `<p id="P">${local}</p><p id="z">z</p>`,
+  remote: '<p id="P">one two three four six</p><p id="z">z REM</p>',
+});
+const DROP_WITH_CONFLICT = (local) => (d, r) => {
+  const p = d.getElementById("P");
+  if (!p) return;
+  p.textContent = "one two three four six";
+  return {
+    conflicts: [
+      ...(r.conflicts || []),
+      {
+        kind: "text",
+        node: p.firstChild,
+        base: "one two three four five six",
+        local,
+        remote: "one two three four six",
+        resolved: "one two three four six",
+        recovery: {},
+      },
+    ],
+  };
+};
+
+export const POSITION_ROWS = [
+  [
+    "Position: swapped siblings in unidentified sections, report stripped: real engine",
+    SIBLINGS,
+    () => ({ identities: undefined }),
+    OK_PASS,
+  ],
+  [
+    "Position: swapped siblings in unidentified sections left in place, report stripped",
+    SIBLINGS,
+    (d) => {
+      const ps = [...d.querySelectorAll("main section > p")];
+      if (ps.length !== 2) return;
+      const [a, b] = ps;
+      const pa = a.parentNode,
+        pb = b.parentNode;
+      pa.append(b);
+      pb.append(a);
+      return { identities: undefined };
+    },
+    MAY_DEFER_,
+  ],
+  [
+    "Overlap: a conflict record cannot excuse a word lost far from the other side's edit",
+    WORDS6("one two LOCALW three four five six"),
+    DROP_WITH_CONFLICT("one two LOCALW three four five six"),
+    MUST_FAIL,
+  ],
+  [
+    "Overlap: a conflict record excuses a word lost where both sides edited",
+    WORDS6("one two three four LOCALW six"),
+    DROP_WITH_CONFLICT("one two three four LOCALW six"),
+    OK_PASS,
+  ],
+];
+
 export const ROWS = [
   ...CORE_ROWS,
   ...ORDER_ROWS,
@@ -847,4 +1041,7 @@ export const ROWS = [
   ...ANON2_ROWS,
   ...ROUND3_ROWS,
   ...ROUND4_ROWS,
+  ...RULE_ROWS,
+  ...FOLLOWUP_ROWS,
+  ...POSITION_ROWS,
 ];
