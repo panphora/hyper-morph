@@ -7,7 +7,7 @@
 - `fastPath` option for `mergeDocument`: a clean tab merging against a fresh
   capture of itself (`base` a document whose root is `local.root`) merges
   only the one branch the remote changed, with the same result, report and
-  hook calls as the full merge. Anything it cannot prove takes the full merge
+  hook calls as the full merge (only the work counters in `stats` differ). Anything it cannot prove takes the full merge
   before the page is touched, and `report.stats.fastPathFallback` says why.
   Off by default; the limits are in `docs/api.md`.
 - `report.stats`: per-apply counters of what the merge had to do

@@ -1,4 +1,9 @@
-import { projectSpan, staticSpan, resolvePoint } from "./recovery-dom.js";
+import {
+  projectSpan,
+  staticSpan,
+  resolvePoint,
+  orderedSpan,
+} from "./recovery-dom.js";
 
 const fragment = (n) => (n.nodeType === 1 ? n.outerHTML : n.nodeValue);
 
@@ -28,7 +33,9 @@ export function captureLocal(conflicts, links, toLive) {
     if (!resolved) return null;
     const a = toLive(resolved.startContainer),
       b = toLive(resolved.endContainer);
-    return a && b ? { ...resolved, startContainer: a, endContainer: b } : null;
+    if (!a || !b) return null;
+    const live = { ...resolved, startContainer: a, endContainer: b };
+    return orderedSpan(live) ? live : null;
   };
   for (const c of conflicts) {
     const rv = c.recovery;

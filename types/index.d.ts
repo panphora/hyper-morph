@@ -253,8 +253,8 @@ export interface ConflictRecovery {
 export type Conflict =
   | {
       kind: "text";
-      /** The block element for a conflict in its inline content. */
-      node: Text | Element | null;
+      /** The block element for a conflict in its inline content; the live text node or comment for a run merged whole. */
+      node: Text | Comment | Element | null;
       base: string;
       local: string;
       remote: string;

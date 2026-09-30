@@ -360,12 +360,15 @@ capture of itself, that is `mergeDocument` with `base` a Document whose root
 is `local.root`, no `beforeNodeMorphed` or `afterNodeMorphed` hook, and a
 whole document. It finds the one branch the remote changed and runs the same
 merge and apply with the identity work narrowed to that branch; the result,
-the report and every hook call are the full merge's. Anything it cannot prove
+the report and every hook call are the full merge's, except the work counters
+in `stats`. Anything it cannot prove
 takes the full merge, before the live DOM is touched, and
 `stats.fastPathFallback` names why. Off by default.
 
 Limits (each takes the full merge):
 
+- a remote identical to the page, nothing to merge (`equal`), or a remote
+  whose root element has a different tag (`root-tag`);
 - one changed branch below `<body>`: a change directly in `<body>`, two
   changed regions, or any change in `<head>` (`root-level`, `not-in-body`);
 - attributes of the root element, except those `ignoreAttribute` leaves out
@@ -495,7 +498,7 @@ the live block element as `node`, the three versions of the region as HTML
 offsets of the resolved region in the segment's merged text, where a `<br>`,
 `<wbr>` or `<img>` counts as one character. A conflict in a text run merged
 whole (a code-like element, a comment) has no `range`, and its `node` is the
-live text node or `null`.
+live text node, the live comment, or `null`.
 
 Every conflict also carries `recovery`, the data a consumer needs to show the
 clash, undo the merge's choice, or redo the local edit later. It is built only
