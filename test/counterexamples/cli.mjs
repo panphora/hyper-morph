@@ -249,7 +249,7 @@ if (cmd === "check") {
           return false;
         return (await verdict(ref, null, x)).status === refStatus;
       };
-      const small = (await shrink(c, holds, { budget })).case;
+      const small = structuredClone((await shrink(c, holds, { budget })).case);
       const v2 = await verdict(E, ref, small);
       const key = `${v2.signature}`;
       const id = `${tag}-${f.replace(/\.json$/, "")}`;
@@ -261,7 +261,7 @@ if (cmd === "check") {
         dedupeKey: key,
         violations: propsOf(v2),
         beyondReference: v2.beyondReference,
-        original: c,
+        original: { ...c, meta: { ...(c.meta || {}), original: undefined } },
       };
       if (pendingDir) {
         mkdirSync(pendingDir, { recursive: true });
