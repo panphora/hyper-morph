@@ -1,0 +1,57 @@
+{
+  "title": "identity oracle 205:leaves:clean (swap,move)",
+  "shape": "clean",
+  "identity": "clay",
+  "base": "<!DOCTYPE html><html><head></head><body><article><article><h2 sid=\"t:20\"> </h2><article><h2> </h2></article></article></article><article><article><h2 sid=\"t:25\"> </h2><article><h2> </h2></article></article></article></body></html>",
+  "local": "<!DOCTYPE html><html><head></head><body><article><article><h2 sid=\"t:20\"> </h2><article><h2> </h2></article></article></article><article><article><h2 sid=\"t:25\"> </h2><article><h2> </h2></article></article></article></body></html>",
+  "remote": "<!DOCTYPE html><html><head></head><body><article><article><h2 sid=\"t:20\"> </h2><article><h2 sid=\"t:25\"> </h2><article><h2> </h2></article></article></article></article></body></html>",
+  "meta": {
+    "generator": "identity-oracle",
+    "seed": 205,
+    "idMode": "leaves",
+    "dirty": false,
+    "ops": [
+      "swap",
+      "move"
+    ],
+    "id": "cx-identity-lost-clean-clay-r00-s205-min",
+    "candidate": "s205-min.json",
+    "dedupeKey": "identity-lost|clean|clay",
+    "violations": [
+      "identity-lost"
+    ],
+    "beyondReference": [
+      "identity-lost:$t:20:(root):"
+    ],
+    "original": {
+      "title": "identity oracle 205:leaves:clean (swap,move)",
+      "shape": "clean",
+      "identity": "clay",
+      "base": "<!DOCTYPE html><html><head></head><body><article><article><h2 sid=\"t:20\"> </h2><article><h2> </h2></article></article></article><article><article><h2 sid=\"t:25\"> </h2><article><h2> </h2></article></article></article></body></html>",
+      "local": "<!DOCTYPE html><html><head></head><body><article><article><h2 sid=\"t:20\"> </h2><article><h2> </h2></article></article></article><article><article><h2 sid=\"t:25\"> </h2><article><h2> </h2></article></article></article></body></html>",
+      "remote": "<!DOCTYPE html><html><head></head><body><article><article><h2 sid=\"t:20\"> </h2><article><h2 sid=\"t:25\"> </h2><article><h2> </h2></article></article></article></article></body></html>",
+      "meta": {
+        "generator": "identity-oracle",
+        "seed": 205,
+        "idMode": "leaves",
+        "dirty": false,
+        "ops": [
+          "swap",
+          "move"
+        ]
+      }
+    },
+    "foundBy": "seed round 0, area queued at init",
+    "round": null,
+    "class": "identity-lost|clean|clay",
+    "failsOn": {
+      "engine": "1c999cd47525",
+      "src": "src-1fb76c395d84",
+      "violations": [
+        "identity-lost"
+      ]
+    },
+    "fixedIn": "src-f0cae04b2a32",
+    "fixedAt": "2026-09-30T03:44:56.298Z"
+  }
+}
