@@ -59,11 +59,20 @@ function sameMarkup(x, y) {
 /**
  * The identity index the whole-document merge would build, restricted to
  * the chain and the scope: an id also used outside, or twice inside, is
- * dropped, as a duplicate is from the whole-document index. Every id seen
- * goes into `seen`. `below` lists the root's descendants that can carry an
- * id, when the identity names only some.
+ * dropped, as a duplicate is from the whole-document index, and goes into
+ * `dropped`. Every id seen goes into `seen`. `below` lists the root's
+ * descendants that can carry an id, when the identity names only some.
  */
-function scopedIndex(chain, root, keyOf, ignored, outside, seen, below) {
+function scopedIndex(
+  chain,
+  root,
+  keyOf,
+  ignored,
+  outside,
+  seen,
+  below,
+  dropped,
+) {
   const map = new Map();
   const dup = new Set();
   const consider = (el) => {
@@ -77,8 +86,36 @@ function scopedIndex(chain, root, keyOf, ignored, outside, seen, below) {
   for (const el of chain) consider(el);
   consider(root);
   for (const el of below || root.querySelectorAll("*")) consider(el);
-  for (const id of dup) map.delete(id);
+  for (const id of dup) {
+    map.delete(id);
+    dropped.add(id);
+  }
   return map;
+}
+
+/**
+ * The ids one side's whole-document index drops as duplicates, in the order
+ * it drops them: each at its second use in document order. Ids used twice
+ * outside only are `duplicates`, already in that order. When the chain or the
+ * scope also drops a JSON merge identity (the only kind that warns), the side
+ * is walked as the whole-document index walks it.
+ */
+function dropOrder(root, keyOf, ignored, duplicates, dropped, identity) {
+  let walk = false;
+  for (const id of dropped) if (id.startsWith("merge:")) walk = true;
+  if (!walk) return [...duplicates];
+  const uses = new Map(),
+    order = [];
+  const selector = identity === defaultIdentity ? KEYED : "*";
+  for (const el of [root, ...root.querySelectorAll(selector)]) {
+    if (ignored(el)) continue;
+    const id = keyOf(el);
+    if (!id || !(duplicates.has(id) || dropped.has(id))) continue;
+    const n = (uses.get(id) || 0) + 1;
+    uses.set(id, n);
+    if (n === 2) order.push(id);
+  }
+  return order;
 }
 
 /**
@@ -316,7 +353,9 @@ export function findScope({
     }
   }
 
-  const inside = new Set();
+  const inside = new Set(),
+    baseDropped = new Set(),
+    remoteDropped = new Set();
   const baseIndex = scopedIndex(
     chain,
     b,
@@ -325,6 +364,7 @@ export function findScope({
     outside,
     inside,
     below,
+    baseDropped,
   );
   const remoteIndex = scopedIndex(
     remoteChain,
@@ -334,6 +374,7 @@ export function findScope({
     outside,
     inside,
     identity.remote === defaultIdentity && r.querySelectorAll(KEYED),
+    remoteDropped,
   );
   if (head && (duplicates.has(keyB(head[0])) || inside.has(keyB(head[0]))))
     head = null;
@@ -349,7 +390,26 @@ export function findScope({
       head,
       same,
       differ,
-      duplicates,
+      // The ids the whole-document indexes drop as duplicates, the base
+      // side's then the remote side's, each in the order it drops them.
+      dropped: [
+        ...dropOrder(
+          baseRoot,
+          keyB,
+          ignored,
+          duplicates,
+          baseDropped,
+          identity.base,
+        ),
+        ...dropOrder(
+          remoteRoot,
+          keyR,
+          ignored,
+          duplicates,
+          remoteDropped,
+          identity.remote,
+        ),
+      ],
       // The alignment kept the chain and the outside where they lie.
       held: (R) => {
         for (let i = 1; i < chain.length; i++)

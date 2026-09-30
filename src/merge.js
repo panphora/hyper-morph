@@ -167,8 +167,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   });
   if (scope) {
     if (!scope.held(R)) return null;
-    for (const id of [...scope.duplicates, ...scope.duplicates])
-      warnDuplicate(id);
+    for (const id of scope.dropped) warnDuplicate(id);
   }
   let templateOwners = null;
   function ownerOf(frag) {

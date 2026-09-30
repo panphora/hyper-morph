@@ -1,0 +1,50 @@
+{
+  "title": "Clean tab: page has a JSON merge script (merge=\"cfg\") and an element whose authored data-id equals that script's merge identity; remote edits a paragraph inside that element",
+  "why": "The identity merge:0:cfg is used twice on every side, so the full merge drops it and warns twice that the cfg merge is disabled. The fast path drops it silently from its scoped index (the second use sits on the chain, not outside), so fastPath:true reports no warnings where fastPath:false reports two.",
+  "shape": "clean",
+  "identity": "default",
+  "base": "<script type=\"application/json\" merge=\"cfg\"></script><main><div data-id=\"merge:0:cfg\"><p></p></div></main>",
+  "remote": "<script type=\"application/json\" merge=\"cfg\"></script><main></main>",
+  "options": {},
+  "requires": [
+    "remoteChanged",
+    "fastTaken"
+  ],
+  "meta": {
+    "id": "cx-fast-full-clean-default-r02-fast-full-merge-key-collision-warning",
+    "candidate": "fast-full-merge-key-collision-warning.json",
+    "dedupeKey": "fast-full|clean|default",
+    "violations": [
+      "fast-full"
+    ],
+    "beyondReference": [
+      "fast-full:::"
+    ],
+    "original": {
+      "title": "Clean tab: page has a JSON merge script (merge=\"cfg\") and an element whose authored data-id equals that script's merge identity; remote edits a paragraph inside that element",
+      "why": "The identity merge:0:cfg is used twice on every side, so the full merge drops it and warns twice that the cfg merge is disabled. The fast path drops it silently from its scoped index (the second use sits on the chain, not outside), so fastPath:true reports no warnings where fastPath:false reports two.",
+      "shape": "clean",
+      "identity": "default",
+      "base": "<script type=\"application/json\" merge=\"cfg\">{\"a\":1}</script><main><div data-id=\"merge:0:cfg\"><p>one</p></div><p>two</p></main>",
+      "remote": "<script type=\"application/json\" merge=\"cfg\">{\"a\":1}</script><main><div data-id=\"merge:0:cfg\"><p>one more</p></div><p>two</p></main>",
+      "options": {},
+      "requires": [
+        "remoteChanged",
+        "fastTaken"
+      ],
+      "meta": {}
+    },
+    "foundBy": "opus round 2, area fast-full-parity",
+    "round": 2,
+    "class": "fast-full|clean|default",
+    "failsOn": {
+      "engine": "a1dbeb4a6c48",
+      "src": "src-33f5d08df43b",
+      "violations": [
+        "fast-full"
+      ]
+    },
+    "fixedIn": "src-e441b864d095",
+    "fixedAt": "2026-09-30T07:43:44.268Z"
+  }
+}
