@@ -38,7 +38,7 @@
     "round": 2,
     "class": "fast-full|clean|default",
     "failsOn": {
-      "engine": "a1dbeb4a6c48",
+      "engine": "6964b3a",
       "src": "src-33f5d08df43b",
       "violations": [
         "fast-full"

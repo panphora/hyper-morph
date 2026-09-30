@@ -503,14 +503,14 @@ async function sweepCase(seed, mode) {
 }
 
 // The merges this sweep still gets wrong. The frozen pre-E5 reference gets
-// each of them wrong too, and 29 more (seeds 107 and 133 among them). Fix
+// each of them wrong too, and 33 more (seeds 107 and 133 among them). Fix
 // round 1 had turned 12 of the reference's exact merges wrong (seeds 62,
 // 73, 84, 122, 123, 159, 170, 352, 437, 463 and 490 partly converged, 400
 // fully converged); all 12 are exact again. A fix may make more of them
 // exact; the sweep fails only on a seed outside this list.
 const STILL_WRONG = {
   full: [31, 93, 100, 104, 257, 317, 318, 340, 484, 513],
-  leaves: [17, 135, 210, 227, 235, 252, 260, 286, 393, 419, 426, 525, 566],
+  leaves: [135, 210, 227, 235, 260, 393, 419, 426, 566],
   synth: [31, 93, 100, 104, 257, 317, 318, 340, 484],
 };
 
