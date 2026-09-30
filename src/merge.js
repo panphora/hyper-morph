@@ -1231,8 +1231,16 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       // rebuilding them on every frame.
       const lTwin = Lv.asBase ? twinIn(L, bk) || null : lk;
       // Remote read as base deleted this element, but it may have moved the
-      // child elsewhere: that copy, with its edits, is remote's side here.
-      const rTwin = Rv.asBase && isEl(bk) ? twinIn(R, bk) || rk : rk;
+      // child elsewhere under the same identity: that copy, with its edits,
+      // is remote's side here. A similarity pair is trusted only for an
+      // element with no identity: one whose identity remote no longer has was
+      // deleted there.
+      const rTwin =
+        Rv.asBase &&
+        isEl(bk) &&
+        (R.identityPaired.has(bk) || !authored.base(bk))
+          ? twinIn(R, bk) || rk
+          : rk;
       let node;
       if (isEl(bk)) node = mergeElement(bk, lTwin, rTwin, Lv.asBase);
       else if (bk.kind === "comment")

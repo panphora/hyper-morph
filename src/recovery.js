@@ -924,7 +924,13 @@ export function createRecovery(ctx) {
             .slice()
             .sort((x, y) => at(x) - at(y))
             .map((u) => refOf(fromBase(u)));
-          localLost = localOrder.some((r, i) => r !== mergedOrder[i]);
+          const blank = (u) =>
+            !isEl(u) &&
+            u.kind !== "comment" &&
+            u.nodes.every((n) => !/[^\t\n\f\r ]/.test(n.data));
+          const seen = parts.filter((u) => !blank(u));
+          const seenMerged = seen.slice().sort((x, y) => at(x) - at(y));
+          localLost = seen.some((u, i) => u !== seenMerged[i]);
           break;
         }
         case "both-moved":

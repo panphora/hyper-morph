@@ -14,6 +14,7 @@ import { MARK_TAGS } from "./inline-merge.js";
 
 const XHTML = "http://www.w3.org/1999/xhtml";
 const FORM_TAGS = new Set(["INPUT", "OPTION", "TEXTAREA"]);
+const HTML_SPACE = /[\t\n\f\r ]+/;
 
 /**
  * @typedef {object} ApplyOptions
@@ -356,7 +357,17 @@ export function apply(liveRoot, mergedRoot, result, o) {
       vetoed.add(mergedEl);
       return;
     }
-    syncAttributes(liveEl, mergedEl);
+    syncAttributes(
+      liveEl,
+      mergedEl,
+      o.keepLiveOnly &&
+        p &&
+        p.local &&
+        p.local.nodeType === 1 &&
+        p.local !== liveEl
+        ? p.local
+        : null,
+    );
     const tag = liveEl.tagName;
     if (isHtmlScript(liveEl)) {
       if (liveEl.textContent !== mergedEl.textContent) {
@@ -768,30 +779,51 @@ export function apply(liveRoot, mergedRoot, result, o) {
     for (const k of Array.from(from.childNodes)) to.appendChild(deepInert(k));
   }
 
-  function syncAttributes(liveEl, mergedEl) {
+  // With a captured local side, an attribute or class token the live element
+  // carries and the capture does not is live-only state (a snapshot hook took
+  // it out). The merge never saw it, so the merge never writes over it.
+  function attrOf(el, attr) {
+    return attr.namespaceURI
+      ? el.getAttributeNS(attr.namespaceURI, attr.localName)
+      : el.getAttribute(attr.name);
+  }
+  function liveOnlyTokens(cur, captured) {
+    const had = new Set((captured || "").split(HTML_SPACE).filter(Boolean));
+    return (cur || "").split(HTML_SPACE).filter((t) => t && !had.has(t));
+  }
+
+  function syncAttributes(liveEl, mergedEl, local) {
     for (const attr of Array.from(mergedEl.attributes)) {
       if (
         isFormStateAttr(liveEl, attr.name) ||
         o.ignoreAttribute(liveEl, attr.name)
       )
         continue;
-      const cur = attr.namespaceURI
-        ? liveEl.getAttributeNS(attr.namespaceURI, attr.localName)
-        : liveEl.getAttribute(attr.name);
+      const cur = attrOf(liveEl, attr);
       if (cur === attr.value) continue;
+      if (local && attrOf(local, attr) === attr.value) continue;
+      let value = attr.value;
+      if (local && attr.name === "class" && !attr.namespaceURI) {
+        const next = attr.value.split(HTML_SPACE).filter(Boolean);
+        const extra = liveOnlyTokens(cur, local.getAttribute("class")).filter(
+          (t) => !next.includes(t),
+        );
+        if (extra.length) value = [...next, ...extra].join(" ");
+      }
+      if (cur === value) continue;
       if (hooks.beforeAttributeUpdated(attr.name, liveEl, "update") === false) {
         if (track) attrVeto(mergedEl, attr.name);
         continue;
       }
       if (attr.namespaceURI)
-        liveEl.setAttributeNS(attr.namespaceURI, attr.name, attr.value);
-      else liveEl.setAttribute(attr.name, attr.value);
+        liveEl.setAttributeNS(attr.namespaceURI, attr.name, value);
+      else liveEl.setAttribute(attr.name, value);
       applied.push({
         kind: "attr",
         el: liveEl,
         name: attr.name,
         before: cur,
-        after: attr.value,
+        after: value,
       });
     }
     for (const attr of Array.from(liveEl.attributes)) {
@@ -804,6 +836,29 @@ export function apply(liveRoot, mergedRoot, result, o) {
         ? mergedEl.hasAttributeNS(attr.namespaceURI, attr.localName)
         : mergedEl.hasAttribute(attr.name);
       if (has) continue;
+      if (local && attr.name === "class" && !attr.namespaceURI) {
+        const keep = liveOnlyTokens(attr.value, local.getAttribute("class"));
+        if (keep.length) {
+          const value = keep.join(" ");
+          if (value === attr.value) continue;
+          if (
+            hooks.beforeAttributeUpdated("class", liveEl, "update") === false
+          ) {
+            if (track) attrVeto(mergedEl, "class");
+            continue;
+          }
+          liveEl.setAttribute("class", value);
+          applied.push({
+            kind: "attr",
+            el: liveEl,
+            name: "class",
+            before: attr.value,
+            after: value,
+          });
+          continue;
+        }
+      }
+      if (local && attrOf(local, attr) === null) continue;
       if (hooks.beforeAttributeUpdated(attr.name, liveEl, "remove") === false) {
         if (track) attrVeto(mergedEl, attr.name);
         continue;

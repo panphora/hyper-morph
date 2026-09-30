@@ -58,6 +58,7 @@ const KNOWN = new Set([
   "hooks",
   "beforeApply",
   "fastPath",
+  "keepLiveOnly",
 ]);
 const noop = () => {};
 
@@ -93,6 +94,8 @@ function normalize(o, roots = []) {
     throw new TypeError(`protectFocusedValue must be a boolean or "subtree"`);
   if (o.fastPath !== undefined && typeof o.fastPath !== "boolean")
     throw new TypeError(`fastPath must be a boolean`);
+  if (o.keepLiveOnly !== undefined && typeof o.keepLiveOnly !== "boolean")
+    throw new TypeError(`keepLiveOnly must be a boolean`);
   return {
     ignored: makeIgnore(o.ignore, roots),
     remoteWins: makeIgnore(o.remoteWins, roots),
@@ -114,6 +117,7 @@ function normalize(o, roots = []) {
     children: !!o.children,
     beforeApply: typeof o.beforeApply === "function" ? o.beforeApply : null,
     fastPath: o.fastPath === true,
+    keepLiveOnly: o.keepLiveOnly === true,
   };
 }
 
@@ -315,6 +319,7 @@ function run({
     preserve: o.head.preserve,
     hooks: o.hooks,
     childrenOnly,
+    keepLiveOnly: o.keepLiveOnly,
   });
 
   if (prof) prof.apply = (prof.apply || 0) + (performance.now() - tA);

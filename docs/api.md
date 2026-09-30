@@ -131,6 +131,7 @@ an object.
 | `hooks`               | see below                                                                  | no-ops                 | applying calls                                   |
 | `beforeApply`         | `(mergedDoc: Document) => void`                                            | none                   | applying calls                                   |
 | `fastPath`            | `boolean`                                                                  | `false`                | `mergeDocument`                                  |
+| `keepLiveOnly`        | `boolean`                                                                  | `false`                | `mergeDocument` with `local`                     |
 
 ### `base`
 

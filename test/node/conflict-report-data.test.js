@@ -1849,3 +1849,84 @@ test("beforeApply rewrites the clash: the span is not faked", async () => {
   assert.equal(r.unavailable, "missing-output");
   assert.equal(r.localLost, true);
 });
+
+test("both-reordered: only a whitespace text node in a different place is not a loss", async () => {
+  const local = `<div id="s"><p id="a">A</p><p id="c">C</p><p id="b">B</p>\n</div>`;
+  const m = await merge(
+    `<div id="s"><p id="a">A</p><p id="b">B</p><p id="c">C</p>\n</div>`,
+    local,
+    `<div id="s"><p id="a">A</p><p id="c">C</p>\n<p id="b">B</p>\n</div>`,
+  );
+  assert.deepEqual(m.kinds, ["structure:both-reordered"]);
+  const r = m.rv[0];
+  const s = r.structure;
+  const elements = (list) => list.filter((x) => x.nodeType === 1);
+  assert.deepEqual(keys(elements(s.localOrder)), [
+    "b:[1,0,0]",
+    "b:[1,0,2]",
+    "b:[1,0,1]",
+  ]);
+  assert.deepEqual(keys(elements(s.mergedOrder)), keys(elements(s.localOrder)));
+  assert.notDeepEqual(keys(s.localOrder), keys(s.mergedOrder));
+  assert.deepEqual(
+    keys(s.localOrder).filter((k) => k.endsWith(":run")),
+    keys(s.mergedOrder).filter((k) => k.endsWith(":run")),
+  );
+  assert.deepEqual(
+    [...m.el("#s").children].map((x) => x.id),
+    [...parse(doc(local)).querySelector("#s").children].map((x) => x.id),
+  );
+  assert.equal(r.localLost, false);
+});
+
+test("both-reordered: a non-breaking-space run that moved is still a loss", async () => {
+  const local = `<div id="s"><p id="a">A</p><p id="c">C</p><p id="b">B</p>\u00a0</div>`;
+  const m = await merge(
+    `<div id="s"><p id="a">A</p><p id="b">B</p><p id="c">C</p>\u00a0</div>`,
+    local,
+    `<div id="s"><p id="a">A</p><p id="c">C</p>\u00a0<p id="b">B</p>\u00a0</div>`,
+  );
+  assert.ok(m.kinds.includes("structure:both-reordered"));
+  const r = m.rv[0];
+  const s = r.structure;
+  const elements = (list) => list.filter((x) => x.nodeType === 1);
+  assert.deepEqual(keys(elements(s.localOrder)), [
+    "b:[1,0,0]",
+    "b:[1,0,2]",
+    "b:[1,0,1]",
+  ]);
+  assert.deepEqual(keys(elements(s.mergedOrder)), keys(elements(s.localOrder)));
+  assert.notDeepEqual(keys(s.localOrder), keys(s.mergedOrder));
+  assert.deepEqual(
+    keys(s.localOrder).filter((k) => k.endsWith(":run")),
+    keys(s.mergedOrder).filter((k) => k.endsWith(":run")),
+  );
+  assert.deepEqual(
+    [...m.el("#s").children].map((x) => x.id),
+    [...parse(doc(local)).querySelector("#s").children].map((x) => x.id),
+  );
+  assert.equal(r.localLost, true);
+});
+
+test("both-reordered: a real element order loss still reports localLost", async () => {
+  const m = await merge(
+    `<div id="s"><p id="a">A</p><p id="b">B</p><p id="c">C</p>\n</div>`,
+    `<div id="s"><p id="b">B</p><p id="a">A</p><p id="c">C</p>\n</div>`,
+    `<div id="s"><p id="a">A</p><p id="c">C</p><p id="b">B</p>\n</div>`,
+  );
+  assert.deepEqual(m.kinds, ["structure:both-reordered"]);
+  const r = m.rv[0];
+  const s = r.structure;
+  const elements = (list) => list.filter((x) => x.nodeType === 1);
+  assert.deepEqual(keys(elements(s.localOrder)), [
+    "b:[1,0,1]",
+    "b:[1,0,0]",
+    "b:[1,0,2]",
+  ]);
+  assert.deepEqual(keys(elements(s.mergedOrder)), [
+    "b:[1,0,0]",
+    "b:[1,0,2]",
+    "b:[1,0,1]",
+  ]);
+  assert.equal(r.localLost, true);
+});

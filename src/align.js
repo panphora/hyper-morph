@@ -250,6 +250,7 @@ export function align(baseRoot, sideRoot, o) {
     rematch: movesAndSlots,
     insertedByHash,
     refused,
+    identityPaired,
   };
 
   // Pass 3: moves, then the children of moved pairs. Pass 4: slots, then the

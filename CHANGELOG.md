@@ -10,6 +10,12 @@
   hook calls as the full merge (only the work counters in `stats` differ). Anything it cannot prove takes the full merge
   before the page is touched, and `report.stats.fastPathFallback` says why.
   Off by default; the limits are in `docs/api.md`.
+- `keepLiveOnly` option for `mergeDocument`: with a captured local side, an
+  attribute or class token the live element carries and the capture lacks
+  (runtime state a snapshot hook stripped, such as an editor's
+  `contenteditable`) is never removed by the apply; live-only class tokens
+  are kept beside a merged class. An attribute the merge itself sets is
+  written. Off by default.
 - `report.stats`: per-apply counters of what the merge had to do
   (`lazyTwins`, `hashRejected`, `similarTiesStrict`, `similarTiesLoose`,
   `ambiguousMoves`, `certificationPairs`, `certificationVisited`) and the

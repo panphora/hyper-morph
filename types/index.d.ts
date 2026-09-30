@@ -91,6 +91,8 @@ export interface MergeDocumentOptions extends CommonOptions {
   local?: { root: Element; toLive: (n: Node) => Node | null };
   /** Narrow a clean tab's merge (base's root is local.root) to the one changed branch; anything unproven takes the full merge. Default false. */
   fastPath?: boolean;
+  /** With a captured local side, never remove an attribute or class token the live element has and the capture lacks (live-only state a snapshot hook stripped). If the merge itself sets that attribute, the merged value is written, and live-only class tokens are kept beside it. Tokens inside other attributes (style, aria-describedby) are not kept. Default false. */
+  keepLiveOnly?: boolean;
 }
 
 export type MorphDocumentOptions = CommonOptions;
