@@ -1,0 +1,19 @@
+{
+  "title": "Two byte-identical siblings with distinct ids swap on the remote; local edits the first",
+  "shape": "dirty",
+  "identity": "clay",
+  "base": "<ul><li sid=\"A\">Same card</li><li sid=\"B\">Same card</li></ul><p sid=\"P\">x</p>",
+  "local": "<ul><li sid=\"A\">Same card LOCAL</li><li sid=\"B\">Same card</li></ul><p sid=\"P\">x</p>",
+  "remote": "<ul><li sid=\"B\">Same card</li><li sid=\"A\">Same card</li></ul><p sid=\"P\">x changed</p>",
+  "meta": {
+    "from": "seeds/e5-fix2-opus/witness/opus/p1-swap.mjs case 1",
+    "id": "seed-p1-swap-list",
+    "foundBy": "seed",
+    "failsOn": {
+      "engine": "30c016d",
+      "violations": [
+        "placement"
+      ]
+    }
+  }
+}

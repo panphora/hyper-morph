@@ -7,3 +7,4 @@ demo
 docs/evidence
 perf/page.html
 package-lock.json
+test/counterexamples/cases/

@@ -1,0 +1,32 @@
+{
+  "title": "live head differs from the capture (attribute); fast and full agree (F2)",
+  "shape": "clean",
+  "identity": "clay",
+  "base": "<!DOCTYPE html><html sid=\"R\"><head sid=\"HD\"><title sid=\"TT\">base</title></head><body sid=\"BD\"><main sid=\"M\"><p sid=\"P\">old</p></main></body></html>",
+  "remote": "<!DOCTYPE html><html sid=\"R\"><head sid=\"HD\"><title sid=\"TT\">base</title></head><body sid=\"BD\"><main sid=\"M\"><p sid=\"P\">NEW</p></main></body></html>",
+  "live": {
+    "attrs": [
+      [
+        "head",
+        "data-runtime",
+        "keep"
+      ]
+    ]
+  },
+  "requires": [
+    "liveDiffers",
+    "fastTaken"
+  ],
+  "meta": {
+    "seed": "seeds/e5-fix2-astra/witnesses/head-live.mjs",
+    "fixedBy": "F2 (30c016d)",
+    "id": "seed-head-live-attribute-clay",
+    "foundBy": "seeds/e5-fix2-astra/witnesses/head-live.mjs",
+    "failsOn": {
+      "engine": "e5-pre",
+      "violations": [
+        "fast-full"
+      ]
+    }
+  }
+}

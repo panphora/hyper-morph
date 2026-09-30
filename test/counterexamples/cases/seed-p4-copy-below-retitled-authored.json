@@ -1,0 +1,25 @@
+{
+  "title": "p4 copy-below-retitled-authored: the sender duplicates a column; the receiver edits card one in the original (G1)",
+  "shape": "dirty",
+  "identity": "clay",
+  "base": "<main sid=\"M\"><section class=\"col\" data-id=\"col-1\" sid=\"S\"><h2 sid=\"H\">Todo</h2><ul sid=\"U\"><li sid=\"L1\"><b sid=\"B1\">Card one words here</b></li><li sid=\"L2\"><b sid=\"B2\">Card two words here</b></li></ul></section><p sid=\"P\">tail</p></main>",
+  "local": "<main sid=\"M\"><section class=\"col\" data-id=\"col-1\" sid=\"S\"><h2 sid=\"H\">Todo</h2><ul sid=\"U\"><li sid=\"L1\"><b sid=\"B1\">Card one words here LOCAL</b></li><li sid=\"L2\"><b sid=\"B2\">Card two words here</b></li></ul></section><p sid=\"P\">tail</p></main>",
+  "remote": "<main sid=\"M\"><section class=\"col\" data-id=\"col-1\" sid=\"S\"><h2 sid=\"H\">Todo (old)</h2><ul sid=\"U\"><li sid=\"L1\"><b sid=\"B1\">Card one words here</b></li><li sid=\"L2\"><b sid=\"B2\">Card two words here</b></li></ul></section><section class=\"col\" data-id=\"col-1\"><h2>Todo</h2><ul><li><b>Card one words here</b></li><li><b>Card two words here</b></li></ul></section><p sid=\"P\">tail</p></main>",
+  "requires": [
+    "localChanged",
+    "remoteChanged"
+  ],
+  "meta": {
+    "seed": "seeds/e5-fix2-opus/witness/opus/p4-dup-dirty.mjs",
+    "fixedBy": "G1 (1f630e0)",
+    "id": "seed-p4-copy-below-retitled-authored",
+    "foundBy": "seeds/e5-fix2-opus/witness/opus/p4-dup-dirty.mjs",
+    "failsOn": {
+      "engine": "30c016d",
+      "violations": [
+        "destination",
+        "placement"
+      ]
+    }
+  }
+}

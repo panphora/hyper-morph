@@ -1,0 +1,1334 @@
+<!doctype html>
+<html lang="en" editmode="false" autosave>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kanban App</title>
+    <link
+      rel="shortcut icon"
+      type="image/png"
+      href="https://hyperclay.com/public/apps/kanban/favicon.ico"
+    />
+    <link
+      href="https://fonts.googleapis.com/css?family=Work+Sans:400,500&amp;display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://hyperclay.com/public/css/micromodal.css"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      type="text/css"
+      href="https://hyperclay.com/public/apps/kanban/kanban.css"
+    />
+    <script src="https://code.jquery.com/jquery-3.7.1.slim.min.js"></script>
+    <!-- save engine, edit mode, autosave, admin attributes, drag to reorder, live sync -->
+    <script src="https://clayjs.com/v1/clay.js?plugins=sortable,sync&exclude=richclay"></script>
+    <!-- option: show and hide by page state -->
+    <script src="https://clayjs.com/v1/clay-options.js"></script>
+    <!-- toast, confirm, modal, and save feedback -->
+    <script src="https://clayjs.com/v1/clay-ui.js"></script>
+
+    <script type="module">
+      await clay.ready;
+      await clay.loaded.ui;
+
+      $(document).on("click", ".button--add-stack", () => {
+        const newStack = $(".stack").eq(0).clone().removeAttr("hidden")[0];
+        $(".board").append(newStack);
+        clay.toast("Stack added");
+      });
+
+      $(document).on("click", ".stack__add-card", (e) => {
+        const $stack = $(e.target).closest(".stack");
+        const newCard = $stack
+          .find(".card")
+          .eq(0)
+          .clone()
+          .removeAttr("hidden")[0];
+        $stack.find(".stack__list").append(newCard);
+        clay.toast("Card added");
+      });
+
+      $(document).on("click", ".button--plus-square", (e) => {
+        const $stack = $(e.target).closest(".stack");
+        const newCard = $stack
+          .find(".card")
+          .eq(0)
+          .clone()
+          .removeAttr("hidden")[0];
+        $stack.find(".stack__list").prepend(newCard);
+        clay.toast("Card added");
+      });
+
+      $(document).on("keydown", ".stack__text", (e) => {
+        if (e.key === "Backspace") {
+          // Only show delete confirmation if text is empty AND cursor is at position 0
+          const selection = window.getSelection();
+          const range = selection.getRangeAt(0);
+          if (
+            e.target.textContent.length === 0 ||
+            (range.startOffset === 0 &&
+              range.endOffset === 0 &&
+              !e.target.textContent.substring(0, 1).trim())
+          ) {
+            e.preventDefault();
+            clay.confirm("Are you sure you want to delete this stack?", () => {
+              $(e.target).closest(".stack").remove();
+              clay.toast("Stack deleted");
+            });
+          }
+        }
+      });
+
+      $(document).on("keydown", ".card__text", (e) => {
+        if (e.key === "Backspace") {
+          // Only show delete confirmation if text is empty AND cursor is at position 0
+          const selection = window.getSelection();
+          const range = selection.getRangeAt(0);
+          if (
+            e.target.textContent.length === 0 ||
+            (range.startOffset === 0 &&
+              range.endOffset === 0 &&
+              !e.target.textContent.substring(0, 1).trim())
+          ) {
+            e.preventDefault();
+            clay.confirm("Are you sure you want to delete this card?", () => {
+              $(e.target).closest(".card").remove();
+              clay.toast("Card deleted");
+            });
+          }
+        }
+      });
+    </script>
+
+    <style class="option-visibility-styles">
+      [option\:editmode="true"] {
+        visibility: hidden;
+        pointer-events: none;
+        width: 0;
+        height: 0;
+        overflow: hidden;
+      }
+      [editmode="true"] [option\:editmode="true"] {
+        visibility: visible;
+        pointer-events: auto;
+        width: auto;
+        height: auto;
+        overflow: visible;
+      }
+    </style>
+  </head>
+
+  <body style="">
+    <div class="container">
+      <div class="nav">
+        <div class="logo">
+          <svg
+            class="logo__image"
+            viewBox="0 0 268 268"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <circle
+              cx="134"
+              cy="134"
+              r="110"
+              stroke="#536F88"
+              stroke-width="48"
+            ></circle>
+          </svg>
+          <span
+            class="logo__text"
+            editmode:contenteditable=""
+            inert-contenteditable=""
+            >Kanban</span
+          >
+        </div>
+        <button option:editmode="true" class="button button--add-stack">
+          Add stack
+        </button>
+      </div>
+      <div class="board-container">
+        <div class="board" sortable="stacks">
+          <!-- Blank Stack -->
+          <div hidden="" class="stack">
+            <div class="stack__top">
+              <p
+                class="stack__text"
+                editmode:contenteditable=""
+                inert-contenteditable=""
+              >
+                Stack title
+              </p>
+              <div option:editmode="true">
+                <button class="button button--plus-square">
+                  <img
+                    class="stack__new-icon"
+                    src="https://hyperclay.com/public/apps/kanban/new.svg"
+                  />
+                </button>
+              </div>
+            </div>
+            <div class="stack__list" sortable="cards">
+              <!-- Blank Card -->
+              <div hidden="" class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Card content
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+            </div>
+            <div option:editmode="true" class="stack__add-card-container">
+              <button class="stack__add-card">
+                <img
+                  class="stack__add-card-icon"
+                  src="https://hyperclay.com/public/apps/kanban/plus.svg"
+                />
+                <p>Add card</p>
+              </button>
+            </div>
+          </div>
+          <!-- Planning Stack -->
+          <div class="stack">
+            <div class="stack__top">
+              <p
+                class="stack__text"
+                editmode:contenteditable=""
+                inert-contenteditable=""
+              >
+                Planning
+              </p>
+              <div option:editmode="true">
+                <button class="button button--plus-square">
+                  <img
+                    class="stack__new-icon"
+                    src="https://hyperclay.com/public/apps/kanban/new.svg"
+                  />
+                </button>
+              </div>
+            </div>
+            <div class="stack__list" sortable="cards">
+              <!-- Blank Card -->
+              <div hidden="" class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Card content
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+
+              <div class="card" draggable="false" style="">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Define product: converts HTML into APIs
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                    draggable="false"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Research competitors and market demand
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Choose backend: Express.js and SQLite
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Outline project steps and timeline
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Assign roles to team members
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Set budget for development and marketing
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+            </div>
+            <div option:editmode="true" class="stack__add-card-container">
+              <button class="stack__add-card">
+                <img
+                  class="stack__add-card-icon"
+                  src="https://hyperclay.com/public/apps/kanban/plus.svg"
+                />
+                <p>Add card</p>
+              </button>
+            </div>
+          </div>
+          <!-- Design Stack -->
+          <div class="stack">
+            <div class="stack__top">
+              <p
+                class="stack__text"
+                editmode:contenteditable=""
+                inert-contenteditable=""
+              >
+                Design
+              </p>
+              <div option:editmode="true">
+                <button class="button button--plus-square">
+                  <img
+                    class="stack__new-icon"
+                    src="https://hyperclay.com/public/apps/kanban/new.svg"
+                  />
+                </button>
+              </div>
+            </div>
+            <div class="stack__list" sortable="cards">
+              <!-- Blank Card -->
+              <div hidden="" class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Card content
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+
+              <div class="card" style="" draggable="false">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Identify users: developers needing APIs
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                    draggable="false"
+                  />
+                </div>
+              </div>
+
+              <div class="card" style="" draggable="false">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Create wireframes for user interfaces
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                    draggable="false"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Design logo and branding materials
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Develop UI/UX prototypes
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Choose color schemes and typography
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Design user flow diagrams
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Create responsive layouts for different devices
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Prepare design assets for development team
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Review and iterate on design based on feedback
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+            </div>
+            <div option:editmode="true" class="stack__add-card-container">
+              <button class="stack__add-card">
+                <img
+                  class="stack__add-card-icon"
+                  src="https://hyperclay.com/public/apps/kanban/plus.svg"
+                />
+                <p>Add card</p>
+              </button>
+            </div>
+          </div>
+          <!-- Development Stack -->
+          <div class="stack">
+            <div class="stack__top">
+              <p
+                class="stack__text"
+                editmode:contenteditable=""
+                inert-contenteditable=""
+              >
+                Development
+              </p>
+              <div option:editmode="true">
+                <button class="button button--plus-square">
+                  <img
+                    class="stack__new-icon"
+                    src="https://hyperclay.com/public/apps/kanban/new.svg"
+                  />
+                </button>
+              </div>
+            </div>
+            <div class="stack__list" sortable="cards">
+              <!-- Blank Card -->
+              <div hidden="" class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Card content
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Set up Express.js server environment
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Implement HTML parsing and API generation
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Build user authentication and login system
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Integrate SQLite database for data storage
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Add payment processing with Stripe
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Design frontend UI using React.js
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Develop user dashboard for API management
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Ensure responsive design on all devices
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Write unit tests for code validation
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Develop free HTML-to-JSON tool
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+            </div>
+            <div option:editmode="true" class="stack__add-card-container">
+              <button class="stack__add-card">
+                <img
+                  class="stack__add-card-icon"
+                  src="https://hyperclay.com/public/apps/kanban/plus.svg"
+                />
+                <p>Add card</p>
+              </button>
+            </div>
+          </div>
+          <!-- Testing and Deployment Stack -->
+          <div class="stack">
+            <div class="stack__top">
+              <p
+                class="stack__text"
+                editmode:contenteditable=""
+                inert-contenteditable=""
+              >
+                Testing and Deployment
+              </p>
+              <div option:editmode="true">
+                <button class="button button--plus-square">
+                  <img
+                    class="stack__new-icon"
+                    src="https://hyperclay.com/public/apps/kanban/new.svg"
+                  />
+                </button>
+              </div>
+            </div>
+            <div class="stack__list" sortable="cards">
+              <!-- Blank Card -->
+              <div hidden="" class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Card content
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Test all features thoroughly
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Perform security assessments and fixes
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Conduct load testing under heavy use
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Fix bugs found during testing
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Collect feedback from beta testers
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Set up scalable production servers
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Deploy backend and frontend applications
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Configure SSL/TLS for secure connections
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Implement continuous deployment pipelines
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Set up monitoring and logging systems
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+            </div>
+            <div option:editmode="true" class="stack__add-card-container">
+              <button class="stack__add-card">
+                <img
+                  class="stack__add-card-icon"
+                  src="https://hyperclay.com/public/apps/kanban/plus.svg"
+                />
+                <p>Add card</p>
+              </button>
+            </div>
+          </div>
+          <!-- Marketing Stack -->
+          <div class="stack">
+            <div class="stack__top">
+              <p
+                class="stack__text"
+                editmode:contenteditable=""
+                inert-contenteditable=""
+              >
+                Marketing
+              </p>
+              <div option:editmode="true">
+                <button class="button button--plus-square">
+                  <img
+                    class="stack__new-icon"
+                    src="https://hyperclay.com/public/apps/kanban/new.svg"
+                  />
+                </button>
+              </div>
+            </div>
+            <div class="stack__list" sortable="cards">
+              <!-- Blank Card -->
+              <div hidden="" class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Card content
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Create landing page with lead capture form
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Write blogs, tutorials, and case studies
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Schedule regular social media posts
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Set up email campaigns for leads
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Launch on Product Hunt, Reddit, Hacker News
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Also launch on BetaList, GrowthHackers, Indie Hackers
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Offer free HTML-to-JSON tool to users
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Host webinars demonstrating the product
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Implement referral program for sign-ups
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Optimize website SEO with targeted keywords
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+            </div>
+            <div option:editmode="true" class="stack__add-card-container">
+              <button class="stack__add-card">
+                <img
+                  class="stack__add-card-icon"
+                  src="https://hyperclay.com/public/apps/kanban/plus.svg"
+                />
+                <p>Add card</p>
+              </button>
+            </div>
+          </div>
+          <!-- Post-Launch Stack -->
+          <div class="stack">
+            <div class="stack__top">
+              <p
+                class="stack__text"
+                editmode:contenteditable=""
+                inert-contenteditable=""
+              >
+                Post-Launch
+              </p>
+              <div option:editmode="true">
+                <button class="button button--plus-square">
+                  <img
+                    class="stack__new-icon"
+                    src="https://hyperclay.com/public/apps/kanban/new.svg"
+                  />
+                </button>
+              </div>
+            </div>
+            <div class="stack__list" sortable="cards">
+              <!-- Blank Card -->
+              <div hidden="" class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Card content
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Provide customer support via email and chat
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Gather user feedback for improvements
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Release regular updates and new features
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Monitor usage and performance analytics
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Expand marketing with paid ads
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Explore partnerships for cross-promotion
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+              <div class="card">
+                <p
+                  class="card__text"
+                  editmode:contenteditable=""
+                  inert-contenteditable=""
+                >
+                  Attend industry conferences and events
+                </p>
+                <div option:editmode="true">
+                  <img
+                    sortable-handle=""
+                    class="card__drag"
+                    src="https://hyperclay.com/public/apps/kanban/drag.svg"
+                  />
+                </div>
+              </div>
+            </div>
+            <div option:editmode="true" class="stack__add-card-container">
+              <button class="stack__add-card">
+                <img
+                  class="stack__add-card-icon"
+                  src="https://hyperclay.com/public/apps/kanban/plus.svg"
+                />
+                <p>Add card</p>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,26 @@
+{
+  "title": "identity-moves siblings/element/hook/ignored",
+  "shape": "element",
+  "identity": "plain",
+  "base": "<main><section><p sid=\"s0\">same words</p></section><section><p sid=\"s1\">same words</p></section><footer>old</footer><nav data-ignore>runtime</nav></main>",
+  "local": "<main><section><p sid=\"s0\">same words FIRST</p></section><section><p sid=\"s1\">same words SECOND</p></section><footer>old</footer><nav data-ignore>runtime</nav></main>",
+  "remote": "<main><section><p sid=\"s1\">same words</p></section><section><p sid=\"s0\">same words</p></section><footer>NEW</footer><nav data-ignore>runtime</nav></main>",
+  "options": {
+    "hooks": {
+      "morph": true
+    },
+    "ignore": "[data-ignore]"
+  },
+  "meta": {
+    "seed": "seeds/e5-fix2-astra/witnesses/identity-moves.mjs",
+    "fixedBy": "G1 (1f630e0)",
+    "id": "seed-im-siblings-element-hook-ignored",
+    "foundBy": "seeds/e5-fix2-astra/witnesses/identity-moves.mjs",
+    "failsOn": {
+      "engine": "30c016d",
+      "violations": [
+        "placement"
+      ]
+    }
+  }
+}

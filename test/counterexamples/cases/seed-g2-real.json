@@ -1,0 +1,22 @@
+{
+  "title": "clone a wrapper, move an original descendant into the clone (F1 route B)",
+  "shape": "clean",
+  "identity": "clay",
+  "base": "<div sid=\"D\"><p sid=\"P\"><em sid=\"EM\"><b sid=\"BB\">x words</b></em></p><span sid=\"S\">old</span></div><p sid=\"T\">tail</p>",
+  "remote": "<div><p><em><b sid=\"BB\">x words</b></em></p><span><div><p><em><b>x words</b></em></p><span>old</span></div></span></div><p sid=\"T\">tail</p>",
+  "requires": [
+    "remoteChanged"
+  ],
+  "meta": {
+    "seed": "seeds/e5-fix2-astra/witnesses/g2-real.mjs",
+    "fixedBy": "F1 (30c016d)",
+    "id": "seed-g2-real",
+    "foundBy": "seeds/e5-fix2-astra/witnesses/g2-real.mjs",
+    "failsOn": {
+      "engine": "30c016d",
+      "violations": [
+        "destination"
+      ]
+    }
+  }
+}

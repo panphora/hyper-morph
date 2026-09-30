@@ -1,0 +1,19 @@
+{
+  "title": "duplicate a section with an authored data-id, copy first, original retitled (F1 route A)",
+  "shape": "clean",
+  "identity": "clay",
+  "base": "<main sid=\"M\"><section class=\"col\" data-id=\"col-1\" sid=\"S\"><h2 sid=\"H\">Todo</h2><ul sid=\"U\"><li sid=\"L1\"><b sid=\"B1\">Card one words here</b></li><li sid=\"L2\"><b sid=\"B2\">Card two words here</b></li></ul></section><p sid=\"P\">tail</p></main>",
+  "remote": "<main sid=\"M\"><section class=\"col\" data-id=\"col-1\"><h2>Todo</h2><ul><li><b>Card one words here</b></li><li><b>Card two words here</b></li></ul></section><section class=\"col\" data-id=\"col-1\" sid=\"S\"><h2 sid=\"H\">Todo (old)</h2><ul sid=\"U\"><li sid=\"L1\"><b sid=\"B1\">Card one words here</b></li><li sid=\"L2\"><b sid=\"B2\">Card two words here</b></li></ul></section><p sid=\"P\">tail</p></main>",
+  "meta": {
+    "seed": "seeds/e5-review-opus/probes/p6-copy-first.mjs",
+    "fixedBy": "F1 (30c016d)",
+    "id": "seed-p6-copy-first",
+    "foundBy": "seeds/e5-review-opus/probes/p6-copy-first.mjs",
+    "failsOn": {
+      "engine": "30c016d",
+      "violations": [
+        "destination"
+      ]
+    }
+  }
+}

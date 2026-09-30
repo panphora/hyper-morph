@@ -63,7 +63,7 @@
     "copy-to-clayjs": "npm run build && node scripts/propagate.js --only clayjs",
     "dev": "http-server . -p 5692 -o demo/index.html",
     "test": "npm run test:node && npm run test:chrome",
-    "test:node": "node --test \"test/node/**/*.test.js\"",
+    "test:node": "node --test \"test/node/**/*.test.js\" test/counterexamples/corpus.test.js",
     "test:node:coverage": "node --test --experimental-test-coverage --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/node.lcov.info \"test/node/**/*.test.js\"",
     "test:fuzz": "node --test test/fuzz/structure-fuzz-5000.test.js",
     "test:diff": "node --test test/fuzz/differential.test.js",
