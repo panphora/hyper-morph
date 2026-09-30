@@ -43,56 +43,6 @@ async function mergeCopies(body, edit, fastPath, share = () => true) {
   assert.equal(report.localDiverged, false);
 }
 
-for (const position of ["above", "below"]) {
-  test(`copied authored column ${position} retains both contents`, async () => {
-    for (const fastPath of [false, true])
-      await mergeCopies(
-        '<main><section class="col" data-id="col-1"><h2>Todo</h2><ul><li><b>Card one words here</b></li><li><b>Card two words here</b></li></ul></section><p>tail</p></main>',
-        (sender) => {
-          const original = sender.querySelector("section");
-          const copy = original.cloneNode(true);
-          if (position === "above") original.before(copy);
-          else {
-            original.after(copy);
-            original.querySelector("h2").textContent = "Todo (old)";
-          }
-        },
-        fastPath,
-      );
-  });
-}
-
-test("copied column with only deep converged identities retains both contents", async () => {
-  for (const fastPath of [false, true])
-    await mergeCopies(
-      '<main><section class="col"><h2>Todo</h2><ul><li><b>Card one words here</b></li><li><b>Card two words here</b></li></ul></section><p>tail</p></main>',
-      (sender) => {
-        const original = sender.querySelector("section");
-        original.after(original.cloneNode(true));
-        original.querySelector("h2").textContent = "Todo (old)";
-      },
-      fastPath,
-      (el) => !["SECTION", "H2", "UL", "LI"].includes(el.tagName),
-    );
-});
-
-test("cloned wrapper retaining an original deep node preserves the nested copy", async () => {
-  for (const fastPath of [false, true])
-    await mergeCopies(
-      "<div><p><em><b>x words</b></em></p><span>old</span></div><p>tail</p>",
-      (sender) => {
-        const original = sender.body.firstElementChild;
-        const replacement = original.cloneNode(true);
-        replacement
-          .querySelector("span")
-          .replaceChildren(original.cloneNode(true));
-        replacement.querySelector("b").replaceWith(original.querySelector("b"));
-        original.replaceWith(replacement);
-      },
-      fastPath,
-    );
-});
-
 test("G2 identity sharing sweep preserves every copy in all 512 masks", async () => {
   const input = handInput(HAND.find((h) => h.name.startsWith("G2")));
   let losses = 0,

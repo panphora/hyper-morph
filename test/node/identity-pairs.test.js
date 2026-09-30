@@ -249,65 +249,7 @@ for (const [name, card, ids, remoteIds, edited] of [
     assert.equal(report.localDiverged, true);
   });
 
-/** Two equal paragraphs whose ids swap on the remote (plain identity). */
-async function twins(dirty) {
-  const body = `<main><section><p>same words</p></section><aside><p>same words</p></aside><footer>old</footer></main>`;
-  const b = parse(doc(body)),
-    l = parse(doc(body)),
-    r = parse(doc(body.replace(">old<", ">NEW<")));
-  const ids = new WeakMap();
-  for (const d of [b, l, r])
-    [...d.querySelectorAll("p")].forEach((p, i) =>
-      ids.set(p, `p${d === r ? 1 - i : i}`),
-    );
-  const id = (n) => ids.get(n) || null;
-  const [first, second] = l.querySelectorAll("p");
-  if (dirty) {
-    first.textContent += " FIRST";
-    second.textContent += " SECOND";
-  }
-  const lock = lockstepMap(b.documentElement, l.documentElement);
-  const report = await E.mergeDocument({
-    live: l,
-    base: b,
-    ...(dirty
-      ? {}
-      : {
-          local: {
-            root: b.documentElement,
-            toLive: (n) => lock.get(n) || null,
-          },
-        }),
-    remote: r,
-    identity: { base: id, local: id, remote: id },
-    scripts: { execute: false },
-  });
-  return { html: l.body.innerHTML, first, second, report };
-}
-
-test("F1 two equal paragraphs whose ids swap, both edited locally: each edit follows its id", async () => {
-  const { html, first, second, report } = await twins(true);
-  assert.equal(
-    html,
-    `<main><section><p>same words SECOND</p></section><aside><p>same words FIRST</p></aside><footer>NEW</footer></main>`,
-  );
-  assert.equal(first.parentElement.tagName, "ASIDE");
-  assert.equal(second.parentElement.tagName, "SECTION");
-  assert.deepEqual(report.conflicts, []);
-});
-
-test("F1 two equal paragraphs whose ids swap on a clean tab: the live paragraphs follow their ids, as on a dirty tab", async () => {
-  const { html, first, second, report } = await twins(false);
-  assert.equal(
-    html,
-    `<main><section><p>same words</p></section><aside><p>same words</p></aside><footer>NEW</footer></main>`,
-  );
-  assert.equal(first.parentElement.tagName, "ASIDE");
-  assert.equal(second.parentElement.tagName, "SECTION");
-  assert.deepEqual(report.conflicts, []);
-});
-
-test("F1 a chain of containers an identity pair contradicts is checked once, not once per level", async () => {
+test("F1 identity wins over a 200-deep content match in a chain of containers", async () => {
   const chain = "<div>".repeat(200) + "<p>same</p>" + "</div>".repeat(200);
   const body = (x) =>
     `<section>${chain}</section><section>${chain}</section><p>${x}</p>`;

@@ -47,6 +47,9 @@ test("G1 clean and dirty identity oracle, 600 seeds, full and partial convergenc
           result.intent,
           `${seed}:${mode}:${dirty ? "dirty" : "clean"}`,
         );
+        const label = `${seed}:${mode}:${dirty ? "dirty" : "clean"}`;
+        assert.equal(result.conflicts, "", label);
+        assert.equal(result.ld, dirty, label);
         checked++;
       }
   assert.equal(checked, 2279);

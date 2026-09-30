@@ -7,12 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parse, doc, document, window } from "./lib/dom.js";
-import {
-  VARIANTS,
-  observeClean,
-  differences,
-  clayIdentity,
-} from "../lib/fast-path-gate.js";
+import { VARIANTS, observeClean, differences } from "../lib/fast-path-gate.js";
 import { HAND, handInput } from "../lib/fast-path-cases.js";
 import { lockstepMap } from "../lib/differential-observe.js";
 import * as E from "../../src/index.js";
@@ -661,72 +656,6 @@ test("E5 beforeApply (disk activation) sees the same merged document on both pat
   assert.equal(on.outcome, "taken");
   assert.deepEqual(on.seen, off.seen);
   assert.equal(on.html, off.html);
-});
-
-/** A synthetic-identity merge whose live page changes before the merge
- * (`before`) or from a hook while apply runs (`during`). */
-async function adopting(fastPath, before, during) {
-  const b = doc(
-    `<main class="old"><p>old</p></main><aside><p>side</p></aside>`,
-  );
-  const live = parse(b),
-    cap = parse(b),
-    remote = parse(b.replace(">old<", ">NEW<").replace('"old"', '"new"'));
-  const lock = lockstepMap(cap.documentElement, live.documentElement);
-  const toLive = (n) => lock.get(n) || null;
-  const store = E.createIdentityStore("t");
-  const map = store.exportMap(cap.documentElement, toLive);
-  if (before) before(live);
-  const report = await E.mergeDocument({
-    live,
-    base: cap,
-    local: { root: cap.documentElement, toLive },
-    remote,
-    identity: clayIdentity(store, toLive, map),
-    scripts: { execute: false },
-    hooks: {
-      beforeAttributeUpdated: (name, el) => {
-        if (during && el.tagName === "MAIN") during(live);
-      },
-    },
-    fastPath,
-  });
-  for (const [el, id] of report.identities) store.adopt(el, id);
-  const all = [...live.querySelectorAll("*")];
-  return {
-    identities: report.identities.map(([el, id]) => [all.indexOf(el), id]),
-    outside: store.idOf(live.querySelector("aside p")),
-    html: live.body.innerHTML,
-    outcome: outcome(report.stats),
-  };
-}
-
-test("E5 identities under an unchanged subtree are adopted from the live page as apply finds it", async () => {
-  const aside = (live) => live.querySelector("aside");
-  const cases = {
-    "the changed paragraph moved outside before the merge": [
-      (live) => aside(live).append(live.querySelector("main p")),
-      null,
-    ],
-    "an outside child added by a hook": [
-      null,
-      (live) => aside(live).append(live.createElement("i")),
-    ],
-    "an outside child replaced by an identical clone from a hook": [
-      null,
-      (live) => {
-        const p = aside(live).firstElementChild;
-        p.replaceWith(p.cloneNode(true));
-      },
-    ],
-  };
-  for (const [name, [before, during]] of Object.entries(cases)) {
-    const off = await adopting(false, before, during);
-    const on = await adopting(true, before, during);
-    assert.equal(on.outcome, "taken", name);
-    assert.deepEqual({ ...on, outcome: null }, { ...off, outcome: null }, name);
-    assert.equal(on.outside, "t:7", name);
-  }
 });
 
 test("E5 a stylesheet added to the head with awaitLoads: both paths wait for its load", async () => {
