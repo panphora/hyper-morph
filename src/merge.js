@@ -1230,8 +1230,11 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       // apply keeps the live nodes of a remoteWins region instead of
       // rebuilding them on every frame.
       const lTwin = Lv.asBase ? twinIn(L, bk) || null : lk;
+      // Remote read as base deleted this element, but it may have moved the
+      // child elsewhere: that copy, with its edits, is remote's side here.
+      const rTwin = Rv.asBase && isEl(bk) ? twinIn(R, bk) || rk : rk;
       let node;
-      if (isEl(bk)) node = mergeElement(bk, lTwin, rk, Lv.asBase);
+      if (isEl(bk)) node = mergeElement(bk, lTwin, rTwin, Lv.asBase);
       else if (bk.kind === "comment")
         node = mergeComment(bk, lTwin, rk, Lv.asBase);
       else node = mergeRun(bk, lTwin, rk, Lv.asBase);

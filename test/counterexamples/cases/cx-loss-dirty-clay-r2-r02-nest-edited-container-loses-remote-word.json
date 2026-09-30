@@ -1,0 +1,50 @@
+{
+  "title": "Local adds a word to A's second paragraph while remote edits A's first paragraph and nests A's container inside B's container",
+  "why": "Remote's word RMARK is in paragraph A, which survives on every side, so it must land in A inside the container remote moved into B's box, next to local's LMARK. The current merge leaves A's container in place without RMARK, drops the word entirely, and leaves an empty div where the move went.",
+  "shape": "dirty",
+  "identity": "clay",
+  "base": "<div><div><p>c b</p></div></div><div><div> b</div></div>",
+  "local": "<div><div><p> b</p></div></div><div><div> b</div></div>",
+  "remote": "<div></div><div><div><div><p> b RMARK</p></div></div></div>",
+  "options": {},
+  "requires": [
+    "localChanged",
+    "remoteChanged"
+  ],
+  "meta": {
+    "id": "cx-loss-dirty-clay-r2-r02-nest-edited-container-loses-remote-word",
+    "candidate": "nest-edited-container-loses-remote-word.json",
+    "dedupeKey": "loss|dirty|clay",
+    "violations": [
+      "loss"
+    ],
+    "beyondReference": [],
+    "original": {
+      "title": "Local adds a word to A's second paragraph while remote edits A's first paragraph and nests A's container inside B's container",
+      "why": "Remote's word RMARK is in paragraph A, which survives on every side, so it must land in A inside the container remote moved into B's box, next to local's LMARK. The current merge leaves A's container in place without RMARK, drops the word entirely, and leaves an empty div where the move went.",
+      "shape": "dirty",
+      "identity": "clay",
+      "base": "<div><div><p sid=\"A\">a b</p><p>c b</p></div></div><div><div><p sid=\"B\">a b</p><p>c b</p></div></div>",
+      "local": "<div><div><p sid=\"A\">a b</p><p>c b LMARK</p></div></div><div><div><p sid=\"B\">a b</p><p>c b</p></div></div>",
+      "remote": "<div></div><div><div><p sid=\"B\">a b</p><p>c b</p><div><p sid=\"A\">a b RMARK</p><p>c b</p></div></div></div>",
+      "options": {},
+      "requires": [
+        "localChanged",
+        "remoteChanged"
+      ],
+      "meta": {}
+    },
+    "foundBy": "opus round 2, area fast-full-parity",
+    "round": 2,
+    "class": "loss|dirty|clay#r2",
+    "failsOn": {
+      "engine": "42792d2dc198",
+      "src": "src-e441b864d095",
+      "violations": [
+        "loss"
+      ]
+    },
+    "fixedIn": "src-600d916ff473",
+    "fixedAt": "2026-09-30T08:14:34.416Z"
+  }
+}
