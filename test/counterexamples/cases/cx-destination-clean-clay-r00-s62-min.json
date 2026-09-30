@@ -1,0 +1,57 @@
+{
+  "title": "identity oracle 62:leaves:clean (dup-into,swap)",
+  "shape": "clean",
+  "identity": "clay",
+  "base": "<!DOCTYPE html><html><head></head><body><article class=\"c2\"><article class=\"c0\"><article class=\"c0\"><p> w8</p><p>w9 </p><p sid=\"t:7\"><em sid=\"t:8\"> </em> w15</p><ul class=\"c1\"><li><p>w22 </p></li></ul></article></article></article><article class=\"c0\"></article></body></html>",
+  "local": "<!DOCTYPE html><html><head></head><body><article class=\"c2\"><article class=\"c0\"><article class=\"c0\"><p> w8</p><p>w9 </p><p sid=\"t:7\"><em sid=\"t:8\"> </em> w15</p><ul class=\"c1\"><li><p>w22 </p></li></ul></article></article></article><article class=\"c0\"></article></body></html>",
+  "remote": "<!DOCTYPE html><html><head></head><body><article class=\"c2\"><article class=\"c0\"><article class=\"c0\"><p sid=\"t:7\"><em sid=\"t:8\"> </em> w15</p></article></article></article><article class=\"c0\"><p>w9 </p><article class=\"c0\"><article class=\"c0\"><p> w8</p><p>w9 </p><p><em> </em> w15</p><ul class=\"c1\"><li><p>w22 </p></li></ul></article></article></article></body></html>",
+  "meta": {
+    "generator": "identity-oracle",
+    "seed": 62,
+    "idMode": "leaves",
+    "dirty": false,
+    "ops": [
+      "dup-into",
+      "swap"
+    ],
+    "id": "cx-destination-clean-clay-r00-s62-min",
+    "candidate": "s62-min.json",
+    "dedupeKey": "destination|clean|clay",
+    "violations": [
+      "destination"
+    ],
+    "beyondReference": [
+      "destination:$t:8:$t:7:$~fresh:s:13"
+    ],
+    "original": {
+      "title": "identity oracle 62:leaves:clean (dup-into,swap)",
+      "shape": "clean",
+      "identity": "clay",
+      "base": "<!DOCTYPE html><html><head></head><body><article class=\"c2\"><article class=\"c0\"><article class=\"c0\"><p> w8</p><p>w9 </p><p sid=\"t:7\"><em sid=\"t:8\"> </em> w15</p><ul class=\"c1\"><li><p>w22 </p></li></ul></article></article></article><article class=\"c0\"></article></body></html>",
+      "local": "<!DOCTYPE html><html><head></head><body><article class=\"c2\"><article class=\"c0\"><article class=\"c0\"><p> w8</p><p>w9 </p><p sid=\"t:7\"><em sid=\"t:8\"> </em> w15</p><ul class=\"c1\"><li><p>w22 </p></li></ul></article></article></article><article class=\"c0\"></article></body></html>",
+      "remote": "<!DOCTYPE html><html><head></head><body><article class=\"c2\"><article class=\"c0\"><article class=\"c0\"><p sid=\"t:7\"><em sid=\"t:8\"> </em> w15</p></article></article></article><article class=\"c0\"><p>w9 </p><article class=\"c0\"><article class=\"c0\"><p> w8</p><p>w9 </p><p><em> </em> w15</p><ul class=\"c1\"><li><p>w22 </p></li></ul></article></article></article></body></html>",
+      "meta": {
+        "generator": "identity-oracle",
+        "seed": 62,
+        "idMode": "leaves",
+        "dirty": false,
+        "ops": [
+          "dup-into",
+          "swap"
+        ]
+      }
+    },
+    "foundBy": "seed round 0, area queued at init",
+    "round": null,
+    "class": "destination|clean|clay",
+    "failsOn": {
+      "engine": "8ad9dd32fec0",
+      "src": "src-1fb76c395d84",
+      "violations": [
+        "destination"
+      ]
+    },
+    "fixedIn": "src-f0cae04b2a32",
+    "fixedAt": "2026-09-30T03:44:53.688Z"
+  }
+}

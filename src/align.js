@@ -289,7 +289,7 @@ export function align(baseRoot, sideRoot, o) {
     const walk = (bEl, sEl) => {
       for (const u of unitsOf(bEl)) {
         const t = map.get(u);
-        if (!t) continue;
+        if (!t || identityPaired.has(u)) continue;
         const within = isEl(t) ? sEl.contains(t) : sEl.contains(t.nodes[0]);
         if (!within) continue;
         drop(u, t);
