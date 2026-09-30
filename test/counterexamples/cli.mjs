@@ -26,7 +26,7 @@ import {
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { engine } from "./lib/engines.js";
-import { verdict, judge } from "./lib/oracle.js";
+import { verdict } from "./lib/oracle.js";
 import { shrink } from "./lib/shrink.js";
 import { MUTANTS } from "./lib/mutants.js";
 import { identityCase } from "./lib/gen-identity.js";
@@ -148,7 +148,7 @@ if (cmd === "check") {
   const E = await engine(flag("--engine", "cur"));
   for (const file of listCases(args[0])) {
     const v = await verdict(E, null, read(file));
-    if (v.status !== "passes") failed++;
+    if (v.status !== "passes" && v.status !== "undecidable") failed++;
     out({
       file: path.basename(file),
       status: v.status,
@@ -292,17 +292,23 @@ if (cmd === "check") {
   const casesDir = flag("--corpus", defaultDir);
   const E = await engine("cur");
   const P = pre ? await engine(pre) : null;
-  const R = await engine("ref");
   const rows = [];
   for (const file of args) {
     const c = read(file);
     const now = await verdict(E, null, c);
     const before = P ? await verdict(P, null, c) : null;
-    const orig = c.meta?.original ? await verdict(E, R, c.meta.original) : null;
+    const orig = c.meta?.original
+      ? await verdict(E, null, c.meta.original)
+      : null;
+    const origSlipped =
+      orig?.status === "undecidable" &&
+      !!P &&
+      (await verdict(P, null, c.meta.original)).status === "passes";
     const ok =
       now.status === "passes" &&
       (!P || before.status === "counterexample") &&
-      (!orig || orig.status !== "counterexample");
+      (!orig || orig.status !== "counterexample") &&
+      !origSlipped;
     rows.push({
       file: path.basename(file),
       ok,
@@ -310,24 +316,36 @@ if (cmd === "check") {
       nowProps: propsOf(now),
       before: before?.status,
       original: orig?.status,
+      originalSlipped: origSlipped,
     });
   }
   const corpus = [];
   for (const file of listCases(casesDir)) {
     const v = await verdict(E, null, read(file));
-    if (v.status !== "passes")
+    // A case that passed before the fix must not slip to undecidable.
+    const slipped =
+      v.status === "undecidable" &&
+      !!P &&
+      (await verdict(P, null, read(file))).status === "passes";
+    if ((v.status !== "passes" && v.status !== "undecidable") || slipped)
       corpus.push({
         file: path.basename(file),
-        status: v.status,
+        status: slipped ? "passes-became-undecidable" : v.status,
         props: propsOf(v),
       });
     const o = read(file).meta?.original;
     if (o) {
       const ov = await verdict(E, null, o);
-      if (ov.status === "counterexample")
+      const oSlipped =
+        ov.status === "undecidable" &&
+        !!P &&
+        (await verdict(P, null, o)).status === "passes";
+      if (ov.status === "counterexample" || oSlipped)
         corpus.push({
           file: path.basename(file),
-          status: "original-counterexample",
+          status: oSlipped
+            ? "original-passes-became-undecidable"
+            : "original-counterexample",
           props: propsOf(ov),
         });
     }
@@ -348,9 +366,9 @@ if (cmd === "check") {
     let green = 0;
     let red = 0;
     for (const c of pool) {
-      if ((await judge(E, c)).violations.length) continue;
+      if ((await verdict(E, null, c)).status !== "passes") continue;
       green++;
-      if ((await judge(bad, c)).violations.length) red++;
+      if ((await verdict(bad, null, c)).status === "counterexample") red++;
     }
     if (!red) failed++;
     out({ mutant: kind, cases: pool.length, green, redUnderMutant: red });

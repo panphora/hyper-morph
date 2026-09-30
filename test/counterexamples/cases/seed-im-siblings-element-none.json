@@ -14,7 +14,7 @@
     "failsOn": {
       "engine": "30c016d",
       "violations": [
-        "placement"
+        "identity-relabelled"
       ]
     }
   }

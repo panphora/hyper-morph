@@ -41,10 +41,11 @@ for (const [file, c] of cases)
       m.failsOn?.violations?.length,
       "meta.failsOn.violations records how",
     );
+    // A fixed case must stay fixed: never a counterexample. It may be
+    // undecidable when its inputs leave the right answer ambiguous.
     const v = await verdict(E, null, c);
-    assert.equal(
-      v.status,
-      "passes",
+    assert.ok(
+      v.status === "passes" || v.status === "undecidable",
       `${v.status}: ${v.reason || JSON.stringify(v.violations?.slice(0, 3))}`,
     );
     if (m.original) {
@@ -69,7 +70,7 @@ for (const [kind, mutate] of Object.entries(MUTANTS))
     const bad = mutate(E);
     let seen = 0;
     for (const c of pool) {
-      if ((await judge(E, c)).violations.length) continue;
+      if ((await verdict(E, null, c)).status !== "passes") continue;
       if ((await judge(bad, c)).violations.length) seen++;
     }
     assert.ok(seen > 0, `no green case turned red under the planted ${kind}`);

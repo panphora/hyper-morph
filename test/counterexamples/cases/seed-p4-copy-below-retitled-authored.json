@@ -18,7 +18,8 @@
       "engine": "30c016d",
       "violations": [
         "destination",
-        "placement"
+        "duplication",
+        "loss"
       ]
     }
   }

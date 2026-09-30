@@ -1,5 +1,12 @@
 import { parse } from "../../node/lib/dom.js";
-import { normalize, prepare, runCase, differingFields } from "./runner.js";
+import {
+  normalize,
+  prepare,
+  runCase,
+  differingFields,
+  serialize,
+} from "./runner.js";
+import { ownerChecks, ownerSnapshot, allElements } from "./owner.js";
 
 // What "wrong" means (Phase 0): content lost or duplicated, a local edit in
 // the wrong element, a live element moved against its identity, or the fast
@@ -155,15 +162,19 @@ function idReader(c, sids, root) {
   };
 }
 
-function nearest(el, idOf) {
-  for (let x = el; x && x.nodeType === 1; x = x.parentNode) {
+const rawParent = (node) => (node ? node.parentNode : null);
+
+function nearest(el, idOf, parent = rawParent) {
+  for (let x = el; x; x = parent(x)) {
+    if (x.nodeType !== 1) continue;
     const id = idOf(x);
     if (id) return id;
   }
   return null;
 }
 
-const parentId = (el, idOf) => nearest(el.parentNode, idOf) || "(root)";
+const parentId = (el, idOf, parent = rawParent) =>
+  nearest(parent(el), idOf, parent) || "(root)";
 
 function index(root, idOf) {
   const m = new Map();
@@ -182,25 +193,14 @@ function index(root, idOf) {
 }
 
 function sides(c, obs) {
-  const { p, report } = obs.raw;
-  const idB = idReader(c, p.sidB, p.base);
-  const idCap = idReader(c, p.sidCap, p.cap);
-  const idR = idReader(c, p.sidR, p.remote);
-  const merged = new Map(p.sidL);
-  const known = new Set([
-    ...p.sidB.values(),
-    ...p.sidCap.values(),
-    ...p.sidR.values(),
-  ]);
-  if (c.identity === "clay" || c.identity === "plain")
-    for (const [el, id] of report.identities || []) {
-      if (known.has(id)) merged.set(el, id);
-      else if (id === (el.getAttribute("data-id") || el.getAttribute("id")))
-        continue;
-      else if (merged.has(el)) merged.set(el, "~fresh:" + id);
-    }
-  const idG = idReader(c, merged, obs.raw.liveRoot);
-  return { idB, idCap, idR, idG };
+  const evidence = ownerSnapshot(c, obs);
+  return {
+    idB: evidence.B.key,
+    idCap: evidence.L.key,
+    idR: evidence.R.key,
+    idG: evidence.G.key,
+    evidence,
+  };
 }
 
 function homes(root, idOf, skip) {
@@ -252,31 +252,84 @@ function placement(c, obs) {
 /** A live element keeps its identity: with a unique id on every side it
  * stays connected when the three-way answer keeps it, under the parent the
  * three-way answer names. */
-function destination(c, obs) {
-  if (c.shape === "pure" || c.identity === "default") return [];
-  const { p } = obs.raw;
-  const { idB, idCap, idR, idG } = sides(c, obs);
-  const B = index(p.base, idB),
-    L = index(p.cap, idCap),
-    R = index(p.remote, idR);
+const elementChildren = (el) => {
   const out = [];
+  const parent = el?.localName === "template" && el.content ? el.content : el;
+  for (let k = parent?.firstElementChild; k; k = k.nextElementSibling)
+    out.push(k);
+  return out;
+};
+
+function sameStructureMap(remote, output) {
+  const paired = new Map();
+  const walk = (r, g) => {
+    if (
+      !r ||
+      !g ||
+      r.nodeType !== 1 ||
+      g.nodeType !== 1 ||
+      r.namespaceURI !== g.namespaceURI ||
+      r.localName !== g.localName
+    )
+      return false;
+    const a = elementChildren(r),
+      b = elementChildren(g);
+    if (a.length !== b.length) return false;
+    paired.set(r, g);
+    return a.every((child, i) => walk(child, b[i]));
+  };
+  return walk(remote, output) ? paired : null;
+}
+
+function occurrencePath(side, el) {
+  const path = [];
+  for (let x = el; x && x !== side.scope; ) {
+    const parent = side.parent(x);
+    if (!parent || parent.nodeType !== 1) return null;
+    path.unshift(elementChildren(parent).indexOf(x));
+    x = parent;
+  }
+  return path;
+}
+
+function destination(c, obs) {
+  if (c.shape === "pure") return [];
+  const { idB, idCap, idR, idG, evidence } = sides(c, obs);
+  const { p } = evidence;
+  const B = evidence.B.map,
+    L = evidence.L.map,
+    R = evidence.R.map;
+  const out = [];
+  const unsettled = (id) => {
+    const st = evidence.states?.get(id);
+    return !!st && (st.unsettled || st.reason === "unsettled-collision");
+  };
+  const cleanPairs =
+    c.shape === "clean"
+      ? sameStructureMap(evidence.R.scope, evidence.G.scope)
+      : null;
+  const protectedEl = (el) => !!evidence.skip(el);
   const liveOf = new Map();
   for (const [el, id] of p.sidL) liveOf.set("$" + id, el);
   for (const [id, capEl] of L) {
-    if (id.startsWith("@")) {
+    if (id.startsWith("@") || id.startsWith("#head:")) {
       const liveEl = p.capToLive.get(capEl);
       if (liveEl) liveOf.set(id, liveEl);
     }
   }
   for (const [id, liveEl] of liveOf) {
+    if (unsettled(id)) continue;
+    if (protectedEl(liveEl)) continue;
     if (!L.has(id)) continue;
     const exists = three(B.has(id), true, R.has(id));
     if (exists !== true) continue;
     const r = R.get(id);
     if (r && r.tagName !== liveEl.tagName) continue;
-    const pb = B.has(id) ? parentId(B.get(id), idB) : undefined;
-    const pl = parentId(L.get(id), idCap);
-    const pr = r ? parentId(r, idR) : undefined;
+    const pb = B.has(id)
+      ? parentId(B.get(id), idB, evidence.B.parent)
+      : undefined;
+    const pl = parentId(L.get(id), idCap, evidence.L.parent);
+    const pr = r ? parentId(r, idR, evidence.R.parent) : undefined;
     const want = pb === undefined ? (pr ?? pl) : three(pb, pl, pr ?? pb);
     if (
       !obs.raw.liveRoot.contains(liveEl) &&
@@ -285,57 +338,154 @@ function destination(c, obs) {
       out.push({ prop: "identity-lost", id, want });
       continue;
     }
+    if (
+      cleanPairs &&
+      r &&
+      L.get(id) &&
+      !elementChildren(r).length &&
+      !elementChildren(L.get(id)).length &&
+      r.namespaceURI === liveEl.namespaceURI &&
+      evidence.G.parent(cleanPairs.get(r)) !== evidence.G.parent(liveEl)
+    )
+      out.push({
+        prop: "destination",
+        id,
+        why: "leaf-parent-occurrence",
+        want: occurrencePath(evidence.R, evidence.R.parent(r)),
+        got: occurrencePath(evidence.G, evidence.G.parent(liveEl)),
+      });
     if (want === undefined) continue;
-    const gotParent = parentId(liveEl, idG);
+    const gotParent = parentId(liveEl, idG, evidence.G.parent);
     if (gotParent !== want)
       out.push({ prop: "destination", id, want, got: gotParent });
+  }
+  // An identified element only remote inserted keeps remote's tag and lands
+  // under remote's parent, when that parent is in the output.
+  for (const [id, gEl] of evidence.G.map) {
+    if (liveOf.has(id) || B.has(id) || L.has(id) || !R.has(id) || unsettled(id))
+      continue;
+    if (protectedEl(gEl)) continue;
+    const r = R.get(id);
+    if (r.namespaceURI !== gEl.namespaceURI || r.localName !== gEl.localName)
+      out.push({
+        prop: "destination",
+        id,
+        why: "tag",
+        want: r.localName,
+        got: gEl.localName,
+      });
+    const want = parentId(r, idR, evidence.R.parent);
+    if (want !== "(root)" && !evidence.G.map.has(want)) continue;
+    const got = parentId(gEl, idG, evidence.G.parent);
+    if (got !== want)
+      out.push({ prop: "destination", id, why: "remote-insert", want, got });
   }
   return out;
 }
 
-/** Siblings keep the order the three-way answer gives each pair of them:
- * a reorder only one side made lands; one both made differently is a
- * reported conflict. */
 function order(c, obs) {
-  if (c.shape === "pure" || c.identity === "default") return [];
-  if (
-    (obs.raw.report.conflicts || []).some((x) => x.detail === "both-reordered")
-  )
-    return [];
-  const { p } = obs.raw;
-  const { idB, idCap, idR, idG } = sides(c, obs);
-  const orderOf = (root, idOf) => {
-    const pos = new Map();
-    const all = [
-      root.documentElement || root,
-      ...(root.documentElement || root).querySelectorAll("*"),
-    ];
-    for (const el of all) {
-      const pid = idOf(el) || (el.tagName === "BODY" ? "(body)" : null);
-      if (!pid) continue;
-      [...el.children]
-        .map(idOf)
-        .filter(Boolean)
-        .forEach((id, i) => pos.set(id, [pid, i]));
+  const { evidence } = sides(c, obs);
+  const views = [evidence.B, evidence.L, evidence.R, evidence.G];
+  const orders = views.map((side) => {
+    const parents = new WeakMap(),
+      paths = new WeakMap(),
+      counts = new Map(),
+      groups = new Map();
+    const walk = (el, path) => {
+      if (!el) return;
+      paths.set(el, path);
+      counts.set(path, (counts.get(path) || 0) + 1);
+      for (const child of elementChildren(el)) {
+        parents.set(child, el);
+        walk(child, path + "/" + child.localName);
+      }
+    };
+    walk(side.scope, side.scope?.localName || "root");
+    for (const el of allElements(side.scope)) {
+      const id = side.key(el),
+        parent = parents.get(el);
+      if (!id || !parent) continue;
+      let protectedScope = false;
+      for (let x = el; x && !protectedScope; x = parents.get(x))
+        protectedScope = evidence.skip(x);
+      if (protectedScope) continue;
+      const path = paths.get(parent),
+        owner =
+          side.key(parent) || (counts.get(path) === 1 ? "^" + path : null);
+      if (!owner) continue;
+      if (!groups.has(owner)) groups.set(owner, []);
+      groups.get(owner).push(id);
     }
-    return pos;
-  };
-  const B = orderOf(p.base, idB),
-    L = orderOf(p.cap, idCap),
-    R = orderOf(p.remote, idR),
-    G = orderOf(obs.raw.liveRoot, idG);
+    return groups;
+  });
   const out = [];
-  const ids = [...G.keys()].filter((id) => B.has(id) && L.has(id) && R.has(id));
-  for (let i = 0; i < ids.length; i++)
-    for (let j = i + 1; j < ids.length; j++) {
-      const [x, y] = [ids[i], ids[j]];
-      const same = [B, L, R, G].every((m) => m.get(x)[0] === m.get(y)[0]);
-      if (!same) continue;
-      const before = (m) => m.get(x)[1] < m.get(y)[1];
-      const want = three(before(B), before(L), before(R));
-      if (want !== undefined && want !== before(G))
-        out.push({ prop: "order", pair: [x, y], want: want ? "x<y" : "y<x" });
+  const parents = new Set([
+    ...orders[0].keys(),
+    ...orders[1].keys(),
+    ...orders[2].keys(),
+  ]);
+  for (const parent of parents) {
+    const seqs = orders.map((m) => m.get(parent) || []);
+    const base = seqs[0];
+    const sets = seqs.map((s) => new Set(s));
+    const common = new Set(
+      base.filter((id) => sets.slice(1).every((s) => s.has(id))),
+    );
+    const [b, l, r, g] = seqs.map((s) => s.filter((id) => common.has(id)));
+    const same = (a, b) =>
+      a.length === b.length && a.every((id, i) => id === b[i]);
+    const at = new Map(seqs[3].map((id, i) => [id, i]));
+    for (const [full, otherKept, otherSet] of [
+      [seqs[1], r, sets[2]],
+      [seqs[2], l, sets[1]],
+    ]) {
+      // A side's insertions between the same two kept neighbours keep their
+      // relative order, whatever the other side did to the anchors.
+      const runs = new Map();
+      full.forEach((id, i) => {
+        if (sets[0].has(id) || otherSet.has(id) || !at.has(id)) return;
+        const prev = full.slice(0, i).findLast((x) => common.has(x)) ?? null;
+        const next = full.slice(i + 1).find((x) => common.has(x)) ?? null;
+        const k = JSON.stringify([prev, next]);
+        if (!runs.has(k)) runs.set(k, []);
+        runs.get(k).push(id);
+      });
+      for (const mine of runs.values())
+        for (let i = 1; i < mine.length; i++)
+          if (at.get(mine[i - 1]) > at.get(mine[i])) {
+            out.push({
+              prop: "order",
+              owner: parent,
+              why: "insertion-sequence",
+              want: mine,
+              got: seqs[3],
+            });
+            break;
+          }
+      if (!same(otherKept, b)) continue;
+      full.forEach((id, i) => {
+        if (sets[0].has(id) || otherSet.has(id) || !at.has(id)) return;
+        const prev = full.slice(0, i).findLast((x) => common.has(x));
+        const next = full.slice(i + 1).find((x) => common.has(x));
+        if (
+          (prev !== undefined && at.get(prev) > at.get(id)) ||
+          (next !== undefined && at.get(next) < at.get(id))
+        )
+          out.push({
+            prop: "order",
+            owner: parent,
+            why: "insertion-anchor",
+            id,
+            want: { after: prev ?? null, before: next ?? null },
+            got: seqs[3],
+          });
+      });
     }
+    if (common.size < 2) continue;
+    const want = !same(l, b) && same(r, b) ? l : r;
+    if (!same(want, g))
+      out.push({ prop: "order", owner: parent, want, got: g });
+  }
   return out;
 }
 
@@ -347,30 +497,33 @@ function contentContains(root, node) {
 }
 
 /** Ignored regions keep their live content; remote-wins regions end as the
- * remote has them. */
+ * remote has them. Both compare the full multiset of the region roots within
+ * the selected merge scope, the element scope root included, so multiplicity
+ * and the removal of the selector itself are caught. The ignored set is the
+ * pre-merge membership, so a removed ignored node cannot drop out of the
+ * expectation; the pure shape's frozen captured roots are the live scope. */
 function regions(c, obs) {
   const out = [];
   const { p } = obs.raw;
+  const { R, G } = ownerSnapshot(c, obs);
+  const markupIn = (side, sel) =>
+    allElements(side.scope)
+      .filter((el) => el.matches(sel))
+      .map((el) => el.outerHTML);
   if (c.options.ignore) {
-    const before = parse(p.liveBefore);
-    const was = [...before.querySelectorAll(c.options.ignore)].map(
-      (e) => e.outerHTML,
-    );
-    const now = [...obs.raw.liveRoot.querySelectorAll(c.options.ignore)].map(
-      (e) => e.outerHTML,
-    );
-    for (const html of was)
-      if (!now.includes(html)) out.push({ prop: "ignored-changed", html });
+    const sel = c.options.ignore;
+    const want = [];
+    for (const [el, rec] of p.preMerge)
+      if (rec.selectors.has(sel) && p.scopeBefore.has(el)) want.push(rec.html);
+    const got = markupIn(G, sel);
+    if (JSON.stringify([...want].sort()) !== JSON.stringify([...got].sort()))
+      out.push({ prop: "ignored-changed", want, got });
   }
   if (c.options.remoteWins) {
-    const want = [...p.remote.querySelectorAll(c.options.remoteWins)].map(
-      (e) => e.outerHTML,
-    );
-    const now = [
-      ...obs.raw.liveRoot.querySelectorAll(c.options.remoteWins),
-    ].map((e) => e.outerHTML);
-    if (JSON.stringify(want) !== JSON.stringify(now))
-      out.push({ prop: "remote-wins-differs", want, got: now });
+    const want = markupIn(R, c.options.remoteWins);
+    const got = markupIn(G, c.options.remoteWins);
+    if (JSON.stringify(want) !== JSON.stringify(got))
+      out.push({ prop: "remote-wins-differs", want, got });
   }
   return out;
 }
@@ -389,16 +542,36 @@ function intent(c, obs) {
 export function facts(c) {
   const p = prepare(c);
   const ser = (d) => d.documentElement.outerHTML;
+  const selectedRoot = (d) =>
+    c.shape === "element"
+      ? (d.body && d.body.firstElementChild) || null
+      : d.documentElement;
+  const sidOn = c.identity === "plain" || c.identity === "clay";
+  const fingerprint = (d, sids) => {
+    const root = selectedRoot(d);
+    if (!root) return "";
+    const ids = sidOn ? allElements(root).map((el) => sids.get(el) || "") : [];
+    return root.outerHTML + "\u0000" + ids.join(",");
+  };
   const dupSids = (m) => {
     const seen = new Set(),
       dup = new Set();
     for (const id of m.values()) (seen.has(id) ? dup : seen).add(id);
     return [...dup];
   };
+  const livePropertiesDiffer = allElements(p.cap.documentElement).some((el) => {
+    const frozen = p.preMerge.get(p.capToLive.get(el));
+    return (
+      frozen &&
+      [...frozen.props].some(([name, value]) => !Object.is(el[name], value))
+    );
+  });
   return {
-    remoteChanged: ser(p.base) !== ser(p.remote),
-    localChanged: ser(p.base) !== ser(p.cap),
-    liveDiffers: p.liveBefore !== "<!DOCTYPE html>" + ser(p.cap),
+    remoteChanged:
+      fingerprint(p.base, p.sidB) !== fingerprint(p.remote, p.sidR),
+    localChanged: fingerprint(p.base, p.sidB) !== fingerprint(p.cap, p.sidCap),
+    liveDiffers:
+      p.liveBefore !== "<!DOCTYPE html>" + ser(p.cap) || livePropertiesDiffer,
     idsDiffer:
       JSON.stringify([...p.sidB.values()]) !==
       JSON.stringify([...p.sidR.values()]),
@@ -410,8 +583,43 @@ export function facts(c) {
   };
 }
 
+const REQUIRES = new Set([
+  "remoteChanged",
+  "localChanged",
+  "liveDiffers",
+  "idsDiffer",
+  "fastTaken",
+]);
+
+const isObject = (x) => !!x && typeof x === "object" && !Array.isArray(x);
+
+/** Malformed input fields that would otherwise throw inside an engine. */
+function malformed(c) {
+  if (c.requires !== undefined) {
+    if (!Array.isArray(c.requires))
+      return "requires must be an array of requirement names";
+    for (const req of c.requires)
+      if (typeof req !== "string") return "requires must be an array of names";
+  }
+  if (c.options !== undefined && !isObject(c.options))
+    return "options must be an object";
+  if (c.options?.hooks != null && !isObject(c.options.hooks))
+    return "options.hooks must be an object";
+  if (c.live !== undefined && c.live !== null && !isObject(c.live))
+    return "live must be an object";
+  if (c.expect !== undefined && c.expect !== null && !isObject(c.expect))
+    return "expect must be an object";
+  return null;
+}
+
 /** Why a case cannot count as evidence, or null. */
-export function invalid(c, f = facts(c)) {
+export function invalid(c, f) {
+  const bad = malformed(c);
+  if (bad) return bad;
+  if (c.shape === "pure" && c.options.hooks)
+    for (const k of ["vetoAdd", "vetoRemove", "vetoMorph", "vetoAttr"])
+      if (c.options.hooks[k]) return `pure merge ignores hooks.${k}`;
+  if (!f) f = facts(c);
   if (!f.remoteChanged && !f.localChanged && !f.liveDiffers)
     return "nothing to merge: base, local and remote are equal";
   if (c.shape === "clean" && f.localChanged)
@@ -423,9 +631,11 @@ export function invalid(c, f = facts(c)) {
     if (d.length && !c.meta?.dupSidsIntended)
       return `duplicate sid on ${d.map(([k, v]) => k + ":" + v).join(",")}`;
   }
-  for (const req of c.requires || [])
-    if (req in f && !f[req])
+  for (const req of c.requires || []) {
+    if (!REQUIRES.has(req)) return `unknown requires ${req}`;
+    if (req !== "fastTaken" && f[req] !== true)
       return `requires ${req}, which the inputs do not create`;
+  }
   if (c.shape === "element")
     for (const k of ["base", "local", "remote"])
       if (parse(c[k]).body.children.length !== 1)
@@ -450,27 +660,38 @@ export async function judge(E, raw, { parity = true } = {}) {
             .join(" | "),
         },
       ],
+      ambiguous: [],
       obs: null,
     };
   }
-  const h = c.options.hooks || {};
-  const vetoed = h.vetoAdd || h.vetoRemove || h.vetoMorph || h.vetoAttr;
+  const p = obs.raw.p;
+  const inputsNow = {
+    base: serialize(p.base),
+    cap: serialize(p.cap),
+    remote: serialize(p.remote),
+  };
+  const mutated = Object.keys(p.inputsBefore).filter(
+    (k) => p.inputsBefore[k] !== inputsNow[k],
+  );
+  // Scoped conservation replaced the legacy word-count and placement checks:
+  // ownerCheck reports every content change it can prove, scoped to the owner
+  // that owns it. `destination` below keeps its legacy identity-lost check
+  // (the new owner element-presence check subsumes the rest).
+  const owners = ownerChecks(c, obs);
   const v = [
-    ...(vetoed
-      ? []
-      : [
-          ...conservation(c, obs),
-          ...placement(c, obs),
-          ...destination(c, obs),
-          ...order(c, obs),
-        ]),
+    ...(mutated.length ? [{ prop: "input-mutated", fields: mutated }] : []),
+    ...owners.violations,
+    ...destination(c, obs),
+    ...order(c, obs),
     ...regions(c, obs),
     ...intent(c, obs),
   ];
+  const h = c.options.hooks || {};
+  const muting = h.vetoAdd || h.vetoRemove || h.vetoMorph || h.vetoAttr;
   if (
     c.shape === "clean" &&
     !c.live &&
-    !vetoed &&
+    !muting &&
     !c.options.ignore &&
     !c.options.remoteWins
   ) {
@@ -504,7 +725,7 @@ export async function judge(E, raw, { parity = true } = {}) {
       why: "fastTaken required, fast path not taken",
       fallback: fast.fallback,
     });
-  return { violations: v, obs, fast };
+  return { violations: v, ambiguous: owners.ambiguous, obs, fast };
 }
 
 const fastSupport = new WeakMap();
@@ -522,6 +743,24 @@ function supportsFastPath(E) {
   return ok;
 }
 
+const canonical = (x) => {
+  if (x === undefined) return "undefined";
+  if (x === null) return "null";
+  if (typeof x === "number" && Object.is(x, -0)) return "-0";
+  if (typeof x !== "object") return JSON.stringify(x);
+  if (Array.isArray(x)) return "[" + x.map(canonical).join(",") + "]";
+  const keys = Object.keys(x).sort();
+  return (
+    "{" +
+    keys.map((k) => JSON.stringify(k) + ":" + canonical(x[k])).join(",") +
+    "}"
+  );
+};
+
+const witnessesOf = (violations) => violations.map(canonical).sort();
+
+/** The fix-class signature: the loop groups every case with the same
+ * violated properties, shape and identity mode into one fix. */
 export const signatureOf = (c, violations) => {
   const n = normalize(c);
   const props = [...new Set(violations.map((v) => v.prop))].sort().join("+");
@@ -530,22 +769,63 @@ export const signatureOf = (c, violations) => {
 
 /**
  * The oracle's verdict on a candidate: `invalid` (the inputs do not create
- * what they claim), `passes` (the current engine is right), `reference`
- * (wrong in a way the frozen reference produces byte for byte and node for
- * node, and no content is lost: a resolution, not a bug), or
- * `counterexample`.
+ * what they claim), `counterexample` (a proved violation), `reference` (the
+ * frozen reference engine does the same thing and nothing is lost: an old
+ * resolution, not a new bug), `undecidable` (nothing proved, but the right
+ * answer is ambiguous and no `expect.html` settles it), or `passes`.
+ * An exact `expect.html` settles every ambiguity visible in the HTML, which
+ * includes where words went, but not which live node survived.
  */
+const UNCLEARED_KINDS = new Set([
+  "duplicate",
+  "existence",
+  "veto",
+  "veto-scope",
+  "veto-children",
+]);
+const clearedByExpect = (a) =>
+  (a.scope === "body" || a.scope === "element") &&
+  (!UNCLEARED_KINDS.has(a.kind) ||
+    (a.kind === "existence" && a.reason === "unsettled-collision"));
+
+/** Violations that are never a resolution, even when the reference shares
+ * them: lost or duplicated content and identity, crashes, a broken contract. */
+const HARD = new Set([
+  "loss",
+  "duplication",
+  "crash",
+  "fast-full",
+  "clean-not-remote",
+  "intent",
+  "identity-lost",
+  "identity-duplicated",
+  "identity-relabelled",
+  "input-mutated",
+  "anonymous-structure",
+]);
+
 export async function verdict(cur, ref, raw) {
-  const c = normalize(raw);
+  let c;
   let why;
   try {
+    c = normalize(raw);
     why = invalid(c);
   } catch (e) {
     return { status: "invalid", reason: "inputs do not parse: " + e.message };
   }
   if (why) return { status: "invalid", reason: why };
   const now = await judge(cur, raw);
-  if (!now.violations.length) return { status: "passes", fast: now.fast };
+  const ambiguous = now.ambiguous || [];
+  if (!now.violations.length) {
+    if (c.expect?.html === undefined) {
+      if (ambiguous.length)
+        return { status: "undecidable", ambiguous, fast: now.fast };
+      return { status: "passes", fast: now.fast };
+    }
+    if (ambiguous.some((a) => !clearedByExpect(a)))
+      return { status: "undecidable", ambiguous, fast: now.fast };
+    return { status: "passes", fast: now.fast };
+  }
   if (
     now.violations.some(
       (v) => v.prop === "crash" && /unknown option/.test(v.error || ""),
@@ -561,32 +841,19 @@ export async function verdict(cur, ref, raw) {
     return { status: "invalid", reason: "vacuous", violations: now.violations };
   const was = ref ? await judge(ref, raw, { parity: false }) : null;
   const same =
-    was &&
-    was.obs &&
-    now.obs &&
-    was.obs.html === now.obs.html &&
-    JSON.stringify(was.obs.destinations) ===
-      JSON.stringify(now.obs.destinations);
-  const key = (v) =>
-    `${v.prop}:${v.id ?? v.word ?? v.pair ?? ""}:${v.want ?? ""}:${v.got ?? ""}`;
-  const refKeys = new Set((was?.violations || []).map(key));
-  const fresh = now.violations.filter((v) => !refKeys.has(key(v)));
-  const hard = [
-    "loss",
-    "duplication",
-    "crash",
-    "fast-full",
-    "clean-not-remote",
-  ];
+    was && was.obs && now.obs && differingFields(was.obs, now.obs).length === 0;
+  const refWitnesses = new Set(witnessesOf(was?.violations || []));
+  const fresh = now.violations.filter((v) => !refWitnesses.has(canonical(v)));
   const status =
-    was && (same || !fresh.length) && ![...props].some((p) => hard.includes(p))
+    was && (same || !fresh.length) && ![...props].some((p) => HARD.has(p))
       ? "reference"
       : "counterexample";
   return {
     status,
     signature: signatureOf(raw, now.violations),
     violations: now.violations,
-    beyondReference: fresh.map(key),
+    ambiguous,
+    beyondReference: fresh,
     reference: was ? { violations: was.violations, same } : null,
     fast: now.fast,
   };

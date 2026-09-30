@@ -20,6 +20,15 @@ import {
 export const SID = "sid";
 export const SHAPES = ["clean", "dirty", "pure", "element"];
 export const IDENTITIES = ["default", "authored", "clay", "plain"];
+/** Properties whose live value a merge must not silently overwrite: the
+ * form state a case can type, per tag. */
+const FORM_PROPS = {
+  INPUT: ["value", "checked", "disabled", "indeterminate"],
+  TEXTAREA: ["value", "disabled", "textContent"],
+  OPTION: ["selected", "disabled"],
+  SELECT: ["value", "disabled"],
+};
+
 const WORK = new Set([
   "lazyTwins",
   "hashRejected",
@@ -58,11 +67,8 @@ const elementsOf = (d) => {
   const out = [];
   const go = (el) => {
     out.push(el);
-    const kids =
-      el.localName === "template" && el.content
-        ? el.content.children
-        : el.children;
-    for (const k of kids) go(k);
+    const parent = el.localName === "template" && el.content ? el.content : el;
+    for (let k = parent.firstElementChild; k; k = k.nextElementSibling) go(k);
   };
   go(d.documentElement || d);
   return out;
@@ -79,7 +85,7 @@ function takeSids(d) {
   return ids;
 }
 
-const serialize = (d) => "<!DOCTYPE html>" + d.documentElement.outerHTML;
+export const serialize = (d) => "<!DOCTYPE html>" + d.documentElement.outerHTML;
 
 function selectorPred(sel) {
   if (!sel) return undefined;
@@ -107,8 +113,37 @@ function buildHooks(h) {
   return hooks;
 }
 
+function transportMap(root, ids, reserved) {
+  const map = {},
+    counts = [],
+    tags = [],
+    used = new Set([...ids.values(), ...reserved]);
+  let counter = 0;
+  const fresh = () => {
+    let id;
+    do {
+      id = "oracle-fresh:" + ++counter;
+    } while (used.has(id));
+    used.add(id);
+    return id;
+  };
+  const visit = (el, path) => {
+    map[path] = ids.get(el) || fresh();
+    const kids = [];
+    for (let k = el.firstElementChild; k; k = k.nextElementSibling)
+      kids.push(k);
+    counts.push(kids.length);
+    tags.push(el.tagName.toLowerCase());
+    kids.forEach((child, i) => visit(child, path ? path + "." + i : String(i)));
+  };
+  visit(root, "");
+  map["~"] = counts.join(",");
+  map["^"] = tags.join(",");
+  return map;
+}
+
 function buildIdentity(E, mode, sides) {
-  const { sidL, sidR, toLive, remote, clean } = sides;
+  const { sidL, sidR, toLive, remoteRoot, clean, reserved } = sides;
   const sidB = clean ? new Map() : sides.sidB;
   if (mode === "default") return undefined;
   const authored = uniqueAuthored();
@@ -121,9 +156,7 @@ function buildIdentity(E, mode, sides) {
       local: sidLocal,
       remote: (el) => sidR.get(el) || null,
     };
-  const sender = E.createIdentityStore("s");
-  for (const [el, id] of sidR) sender.adopt(el, id);
-  const map = sender.exportMap(remote.documentElement, (x) => x);
+  const map = transportMap(remoteRoot, sidR, reserved);
   const local = (el) => authored(el) || sidLocal(el);
   return {
     base: clean ? local : (el) => authored(el) || sidB.get(el) || null,
@@ -145,6 +178,13 @@ export function prepare(c) {
   const sidR = takeSids(remote);
   const live = parse(serialize(cap));
   const capToLive = lockstepMap(cap.documentElement, live.documentElement);
+  const sameHead =
+    base.head.outerHTML === cap.head.outerHTML &&
+    cap.head.outerHTML === remote.head.outerHTML;
+  const liveToCap =
+    sameHead && !(c.options?.hooks || {}).morph
+      ? lockstepMap(live.documentElement, cap.documentElement)
+      : null;
   const sidL = new Map();
   for (const [el, id] of sidCap) sidL.set(capToLive.get(el), id);
   if (c.live?.head) live.head.insertAdjacentHTML("beforeend", c.live.head);
@@ -157,18 +197,123 @@ export function prepare(c) {
     const el = live.querySelector(sel);
     if (el) el.setAttribute(name, value);
   }
+  const liveHeadLeaves = [];
+  if (liveToCap)
+    for (const el of elementsOf(live.head)) {
+      if (el === live.head || liveToCap.has(el)) continue;
+      if (el.children.length || el.textContent.trim()) continue;
+      let parentCap = null;
+      for (let x = el.parentElement; x && !parentCap; x = x.parentElement)
+        parentCap = liveToCap.get(x) || null;
+      liveHeadLeaves.push({ parentCap, html: el.outerHTML, tag: el.tagName });
+    }
+  const h = c.options?.hooks || {};
+  const selectors = [
+    ...new Set(
+      [
+        c.options?.ignore,
+        c.options?.remoteWins,
+        h.vetoMorph,
+        h.vetoRemove,
+        h.vetoAdd,
+      ].filter((s) => typeof s === "string" && s.trim()),
+    ),
+  ];
+  const selectedSet = new Set();
+  for (const sel of selectors)
+    for (const el of live.querySelectorAll(sel)) selectedSet.add(el);
+  for (const el of elementsOf(live))
+    if (el.localName === "template" && el.content)
+      for (const sel of selectors)
+        for (const x of el.content.querySelectorAll(sel)) selectedSet.add(x);
+  const extraProps = new Map();
+  for (const [sel, prop] of c.live?.props || []) {
+    const el = live.querySelector(sel);
+    if (!el) continue;
+    if (!extraProps.has(el)) extraProps.set(el, new Set());
+    extraProps.get(el).add(prop);
+  }
+  const preMerge = new Map();
+  for (const el of elementsOf(live)) {
+    const names = new Set(extraProps.get(el) || []);
+    for (const name of FORM_PROPS[el.tagName] || []) names.add(name);
+    const props = new Map();
+    for (const name of names) props.set(name, el[name]);
+    const matched = selectedSet.has(el)
+      ? selectors.filter((s) => el.matches(s))
+      : [];
+    preMerge.set(el, {
+      attrs: new Map([...el.attributes].map((a) => [a.name, a.value])),
+      parent: el.parentNode,
+      nextSibling: el.nextSibling,
+      selectors: new Set(matched),
+      html: matched.length ? el.outerHTML : null,
+      members: matched.length ? elementsOf(el) : [],
+      props,
+    });
+  }
+  const scopeBefore =
+    c.shape === "element"
+      ? new Set(
+          live.body.firstElementChild
+            ? elementsOf(live.body.firstElementChild)
+            : [],
+        )
+      : new Set(elementsOf(live.documentElement));
+  let elementLocal = null;
+  if (c.shape === "element" && c.live) {
+    const elementCap = parse(serialize(live));
+    const liveToElementCap = lockstepMap(
+      live.documentElement,
+      elementCap.documentElement,
+    );
+    const elementSids = new Map();
+    for (const [el, id] of sidL) {
+      const copy = liveToElementCap.get(el);
+      if (copy) elementSids.set(copy, id);
+    }
+    elementLocal = {
+      cap: elementCap,
+      sidCap: elementSids,
+      capToLive: lockstepMap(elementCap.documentElement, live.documentElement),
+    };
+  }
   return {
     base,
     cap,
     remote,
     live,
+    // The document URL the engine resolves against, frozen before it runs.
+    baseURI: live.baseURI,
     sidB,
     sidR,
     sidL,
     sidCap,
     capToLive,
+    preMerge,
+    elementLocal,
+    scopeBefore,
+    liveHeadLeaves,
     liveBefore: serialize(live),
+    inputsBefore: {
+      base: serialize(base),
+      cap: serialize(cap),
+      remote: serialize(remote),
+    },
   };
+}
+
+function childrenInput(root, sids) {
+  const doc = root.ownerDocument.implementation.createHTMLDocument("");
+  const clone = root.cloneNode(true);
+  const mapped = lockstepMap(root, clone);
+  const clonedSids = new Map();
+  for (const [el, id] of sids) {
+    const copy = mapped.get(el);
+    if (copy) clonedSids.set(copy, id);
+  }
+  doc.replaceChild(clone, doc.documentElement);
+  return { doc, sids: clonedSids };
 }
 
 function reportFields(report, label, final) {
@@ -194,13 +339,35 @@ function reportFields(report, label, final) {
  */
 export async function runCase(E, c, { fastPath } = {}) {
   const p = prepare(c);
+  const children = c.shape === "element" && !!c.options.children;
+  const childBase = children
+    ? childrenInput(p.base.body.firstElementChild, p.sidB)
+    : null;
+  const childRemote = children
+    ? childrenInput(p.remote.body.firstElementChild, p.sidR)
+    : null;
   const toLive = (n) => p.capToLive.get(n) || null;
+  const reservedIds = new Set();
+  for (const sids of [p.sidB, p.sidCap, p.sidR])
+    for (const id of sids.values()) reservedIds.add(id);
+
+  for (const tree of [p.base, p.cap, p.remote])
+    for (const el of elementsOf(tree))
+      for (const name of ["id", "data-id"]) {
+        const value = el.getAttribute(name);
+        if (value) reservedIds.add(value);
+      }
   const identity = buildIdentity(E, c.identity, {
-    sidB: p.sidB,
+    sidB: childBase ? childBase.sids : p.sidB,
     sidL: p.sidL,
-    sidR: p.sidR,
+    sidR: childRemote ? childRemote.sids : p.sidR,
+    reserved: reservedIds,
     toLive,
-    remote: p.remote,
+    remoteRoot: childRemote
+      ? childRemote.doc.documentElement
+      : c.shape === "element"
+        ? p.remote.body.firstElementChild
+        : p.remote.documentElement,
     clean: c.shape === "clean",
   });
   const o = c.options;
@@ -242,11 +409,15 @@ export async function runCase(E, c, { fastPath } = {}) {
       const liveEl = p.live.body.firstElementChild;
       const remoteEl = p.remote.body.firstElementChild;
       const baseEl = p.base.body.firstElementChild;
-      report = await E.morphElement(liveEl, remoteEl, {
-        ...common,
-        ...(o.children ? { children: true } : {}),
-        ...(o.twoWay ? {} : { base: baseEl }),
-      });
+      report = await E.morphElement(
+        liveEl,
+        childRemote ? childRemote.doc : remoteEl,
+        {
+          ...common,
+          ...(o.children ? { children: true } : {}),
+          ...(o.twoWay ? {} : { base: childBase ? childBase.doc : baseEl }),
+        },
+      );
     } else {
       const clean = c.shape === "clean";
       report = await E.mergeDocument({
