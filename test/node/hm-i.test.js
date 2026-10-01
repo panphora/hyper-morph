@@ -345,7 +345,11 @@ test("HM-I5 a paragraph with an inline remote-wins region still splits and joins
   for (const [local, remote, expected] of cases) {
     const m = mergeBodies(base, local, remote, { remoteWins });
     assert.equal(m.html, expected, local + " | " + remote);
-    assert.equal(m.res.conflicts.length, 0, local + " | " + remote);
+    assert.equal(
+      m.res.conflicts.filter((c) => c.detail !== "remote-wins").length,
+      0,
+      local + " | " + remote,
+    );
     const live = parse(doc(local));
     const span = live.querySelector("[no-watch]");
     await mergeDocument({

@@ -487,7 +487,8 @@ type StructureDetail =
   | "both-moved" // both sides moved the element to different parents; the order side's destination won
   | "edit-beats-delete" // one side deleted, the other edited; the edit survived
   | "move-beats-delete" // one side deleted, the other moved; the move survived
-  | "insert-collision"; // both sides inserted different text at the same anchor; local first
+  | "insert-collision" // both sides inserted different text at the same anchor; local first
+  | "remote-wins"; // local changed something inside a remoteWins region; remote's version landed and the local change was dropped
 ```
 
 For `class` an attribute conflict reports the whole attribute values with

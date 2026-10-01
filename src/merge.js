@@ -532,13 +532,25 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   // Elements
   // ---------------------------------------------------------------------
   function mergeElement(b, l, r, localAsBase, childrenOnly = false) {
-    const asBase = localAsBase || o.remoteWins(b);
+    // The region is remote's: membership follows remote's tree, so an
+    // element remote moved in reads local as base and one remote moved out
+    // does not. Base decides only for an element remote deleted.
+    const asBase = localAsBase || (r ? o.remoteWins(r) : o.remoteWins(b));
     const el =
       b.namespaceURI && b.namespaceURI !== "http://www.w3.org/1999/xhtml"
         ? out.createElementNS(b.namespaceURI, b.tagName)
         : out.createElement(b.tagName);
     const prov = { base: b, local: l || null, remote: r || null };
     provenance.set(el, prov);
+    if (asBase && !localAsBase && l && changed(b, l, L))
+      conflict({
+        kind: "structure",
+        el,
+        detail: "remote-wins",
+        base: b,
+        local: l,
+        remote: r || null,
+      });
     emitted.add(b);
     placed.add(b);
     if (l) emitted.add(l);

@@ -952,6 +952,11 @@ export function createRecovery(ctx) {
           remoteAction = deleted === "remote" ? "deleted" : "moved";
           localLost = deleted === "local";
           break;
+        case "remote-wins":
+          localAction = "edited";
+          remoteAction = "edited";
+          localLost = true;
+          break;
         default:
           localAction = remoteAction = "inserted";
           localLost = meta.localLost;

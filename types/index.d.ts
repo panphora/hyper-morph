@@ -150,7 +150,8 @@ export type StructureDetail =
   | "both-moved"
   | "edit-beats-delete"
   | "move-beats-delete"
-  | "insert-collision";
+  | "insert-collision"
+  | "remote-wins";
 
 /** A path into one input tree: childNodes indexes from the root; "content" enters a template. `[]` is the root. */
 export type ConflictPath = Array<number | "content">;
