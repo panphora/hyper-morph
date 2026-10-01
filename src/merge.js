@@ -137,28 +137,37 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   const bIndex = scope
     ? scope.baseIndex
     : indexByIdentity(bRoot, idBase, ignored, fast(o.identity.base));
-  const L =
+  const lIndex =
     o.localIsBase || bRoot === lRoot
-      ? identityAlignment()
-      : align(bRoot, lRoot, {
-          analyzer,
-          baseIndex: bIndex,
-          sideIndex: indexByIdentity(
-            lRoot,
-            idLocal,
-            ignored,
-            fast(o.identity.local),
-          ),
-          baseId: authored.base,
-          sideId: authored.local,
-          stats,
-        });
+      ? null
+      : indexByIdentity(lRoot, idLocal, ignored, fast(o.identity.local));
+  const rIndex = scope
+    ? scope.remoteIndex
+    : indexByIdentity(rRoot, idRemote, ignored, fast(o.identity.remote));
+  // An identity names one element only when base lacks it and its side
+  // holds it once.
+  const freshLocal = (el) => {
+    const id = isEl(el) && idLocal(el);
+    return id && lIndex?.get(id) === el && !bIndex.has(id) ? id : null;
+  };
+  const freshRemote = (el) => {
+    const id = isEl(el) && idRemote(el);
+    return id && rIndex.get(id) === el && !bIndex.has(id) ? id : null;
+  };
+  const L = !lIndex
+    ? identityAlignment()
+    : align(bRoot, lRoot, {
+        analyzer,
+        baseIndex: bIndex,
+        sideIndex: lIndex,
+        baseId: authored.base,
+        sideId: authored.local,
+        stats,
+      });
   const R = align(bRoot, rRoot, {
     analyzer,
     baseIndex: bIndex,
-    sideIndex: scope
-      ? scope.remoteIndex
-      : indexByIdentity(rRoot, idRemote, ignored, fast(o.identity.remote)),
+    sideIndex: rIndex,
     baseId: authored.base,
     sideId: authored.remote,
     stats,
@@ -310,12 +319,40 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           if (!twinIn(O, b) && !ignored(b)) return true;
       return false;
     };
+    // Two insertions that carry one identity are one element wherever
+    // their parents sit, whatever their markup; the copies merge. Not when
+    // either holds an element base had: merging the copies would keep one
+    // and drop the other's base descendant, so both stay.
+    const holdsBase = (A, el) =>
+      [...el.querySelectorAll("*")].some((d) => A.reverse.has(d));
+    const rById = new Map();
+    for (const rs of rIns.values())
+      for (const ru of rs) {
+        const id = freshRemote(ru);
+        if (id) rById.set(id, ru);
+      }
+    for (const ls of lIns.values())
+      for (const lu of ls) {
+        const id = freshLocal(lu);
+        const ru = id ? rById.get(id) : null;
+        if (
+          ru &&
+          ru.tagName === lu.tagName &&
+          !isInlineUnit(lu, inlineOpts) &&
+          !isInlineUnit(ru, inlineOpts) &&
+          !o.remoteWins(lu) &&
+          !o.remoteWins(ru) &&
+          !holdsBase(L, lu) &&
+          !holdsBase(R, ru)
+        )
+          cands.push([lu, [ru], depth(lu), true, true]);
+      }
     for (const [h, ls] of lIns) {
       const rs = rIns.get(h);
       if (!rs) continue;
       const unique = ls.length === 1 && rs.length === 1;
       for (const lu of ls)
-        if (!isInlineUnit(lu, inlineOpts))
+        if (!isInlineUnit(lu, inlineOpts) && !freshLocal(lu))
           cands.push([
             lu,
             rs,
@@ -332,22 +369,30 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       for (const d of el.querySelectorAll("*")) covered.add(d);
     };
     const baseParentOf = (A, el) => A.reverse.get(el.parentNode) || null;
-    for (const [lu, rs, , crossable] of cands) {
-      if (covered.has(lu)) continue;
+    for (const [lu, rs, , crossable, byId] of cands) {
+      if (covered.has(lu) || taken.has(lu)) continue;
       const bp = baseParentOf(L, lu);
       const free = (x) =>
         !taken.has(x) &&
         !covered.has(x) &&
-        x.tagName === lu.tagName &&
-        analyzer.equalUnits(lu, x);
+        (byId ||
+          (x.tagName === lu.tagName &&
+            !freshRemote(x) &&
+            analyzer.equalUnits(lu, x)));
       const ru =
         rs.find((x) => bp && baseParentOf(R, x) === bp && free(x)) ||
         (crossable ? rs.find(free) : null);
       if (!ru) continue;
+      taken.add(lu);
       taken.add(ru);
-      cover(lu);
-      cover(ru);
-      if (bp && baseParentOf(R, ru) === bp) continue;
+      const sameParent = bp && baseParentOf(R, ru) === bp;
+      // Copies paired by identity under one parent merge child by child, so
+      // their descendants stay free to pair with copies elsewhere.
+      if (!byId || !sameParent || analyzer.equalUnits(lu, ru)) {
+        cover(lu);
+        cover(ru);
+      }
+      if (sameParent) continue;
       partner.set(lu, ru);
       partner.set(ru, lu);
       drop.add(policy === "local" ? ru : lu);
@@ -1175,7 +1220,12 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           const c = rRunsByAnchor.get(anchorOf(Lv, lu));
           if (c && !echo.has(c)) ru = c;
         }
-        if (!ru) {
+        // Markup pairs two insertions only when neither names itself: an
+        // element with an identity base lacks is one element, and the
+        // other side's copy of it carries the same identity (paired above)
+        // or is another element however alike.
+        const named = !!freshLocal(lu);
+        if (!ru && !named) {
           const cands = rByHash.get(analyzer.unitHash(lu));
           if (cands)
             ru =
@@ -1183,11 +1233,13 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
                 (x) =>
                   !echo.has(x) &&
                   isEl(x) === isEl(lu) &&
-                  (isEl(x) ? x.tagName === lu.tagName : x.kind === lu.kind) &&
+                  (isEl(x)
+                    ? x.tagName === lu.tagName && !freshRemote(x)
+                    : x.kind === lu.kind) &&
                   analyzer.equalUnits(lu, x),
               ) || null;
         }
-        if (!ru && isEl(lu)) {
+        if (!ru && isEl(lu) && !named) {
           // Same tag at the same anchor with alike content: one element both
           // sides inserted, edited on one of them since. Two authored ids
           // that differ name two elements, however alike.
@@ -1198,6 +1250,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
               return (
                 !echo.has(x) &&
                 x.tagName === lu.tagName &&
+                !freshRemote(x) &&
                 !(la && ra && la !== ra) &&
                 analyzer.similar(lu, x)
               );
