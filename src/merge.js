@@ -1708,11 +1708,15 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         if (bk && isEl(part) && !bSet.has(part)) {
           const was = count(flatText(bk));
           for (const x of [twinIn(L, bk), twinIn(R, bk)]) {
-            if (!x || x === part || x.ownerDocument !== part.ownerDocument)
+            if (
+              !x ||
+              x === part ||
+              (isEl(x) ? x : x.parent).ownerDocument !== part.ownerDocument
+            )
               continue;
             const t = flatText(x);
             if (
-              t.length > piece.length &&
+              t.length >= piece.length &&
               count(t) >= was &&
               (t.startsWith(piece) || t.endsWith(piece))
             )
