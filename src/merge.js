@@ -524,8 +524,33 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   function changed(bk, su, A) {
     if (!su) return false;
     if (A && A.identical.has(bk)) return false;
-    if (isEl(bk)) return !analyzer.equalUnits(bk, su);
+    if (isEl(bk))
+      return !analyzer.equalUnits(bk, su) || !twinsInStep(bk, su, A);
     return bk.value !== su.value;
+  }
+
+  // Equal markup is unchanged only when the identities beneath sit in the
+  // same places: equal twins swapped, or a twin moved in from elsewhere,
+  // is a change the markup cannot show.
+  function twinsInStep(bk, su, A) {
+    if (!A || bk === su) return true;
+    const stack = [[bk, su]];
+    while (stack.length) {
+      const [x, y] = stack.pop();
+      const xu = unitsOf(x),
+        yu = unitsOf(y);
+      for (let i = 0; i < xu.length && i < yu.length; i++) {
+        const b = xu[i],
+          s = yu[i];
+        if (!isEl(b) || !isEl(s)) continue;
+        const t = A.map.get(b);
+        if (t !== undefined && t !== s) return false;
+        const z = A.reverse.get(s);
+        if (z !== undefined && z !== b) return false;
+        stack.push([b, s]);
+      }
+    }
+    return true;
   }
 
   // ---------------------------------------------------------------------
