@@ -1,0 +1,19 @@
+{
+  "title": "An independent insertion is deleted with its unchanged neighbor",
+  "base": "<p>alpha beta</p><p>beta gamma</p>",
+  "local": "<p>alpha beta</p><blockquote>beta gamma</blockquote><p>beta gamma</p>",
+  "remote": "<p>beta gamma</p>",
+  "identity": "clay",
+  "shape": "pure",
+  "meta": {
+    "id": "cx-hunt2-guard-first-insertion-loss-clay-pure",
+    "class": "regression-guard",
+    "foundBy": "Codex review of hunt-2 fix 8639864 (2026-10-01)",
+    "failsOn": {
+      "engine": "8639864",
+      "violations": [
+        "loss"
+      ]
+    }
+  }
+}

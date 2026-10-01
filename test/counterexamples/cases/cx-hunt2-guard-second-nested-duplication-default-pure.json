@@ -1,0 +1,22 @@
+{
+  "title": "A same-parent echo hides cross-parent echoes below it",
+  "base": "",
+  "local": "<div id=\"X\"><p id=\"P\">one two three</p></div>",
+  "remote": "<div id=\"X\"></div><p id=\"P\">one two three</p>",
+  "options": {
+    "conflicts": "local"
+  },
+  "identity": "default",
+  "shape": "pure",
+  "meta": {
+    "id": "cx-hunt2-guard-second-nested-duplication-default-pure",
+    "class": "regression-guard",
+    "foundBy": "Codex review of hunt-2 fix 2281a46 (2026-10-01)",
+    "failsOn": {
+      "engine": "2281a46",
+      "violations": [
+        "identity-duplicated"
+      ]
+    }
+  }
+}
