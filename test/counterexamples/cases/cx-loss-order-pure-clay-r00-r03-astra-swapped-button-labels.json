@@ -1,0 +1,62 @@
+{
+  "title": "Both sides edit surrounding text while remote exchanges two identical buttons by synthetic identity",
+  "why": "Both button labels are unchanged on every side, so the pure merge must retain two occurrences of label. Instead merge3 returns two empty buttons while correctly merging the surrounding text.",
+  "shape": "pure",
+  "identity": "clay",
+  "base": "<div><button sid=\"A\">label</button><button sid=\"B\">label</button></div>",
+  "local": "<div><button sid=\"A\">label</button><button sid=\"B\">label</button>LOCAL </div>",
+  "remote": "<div><button sid=\"B\">label</button><button sid=\"A\">label</button> </div>",
+  "options": {},
+  "requires": [
+    "localChanged",
+    "remoteChanged",
+    "idsDiffer"
+  ],
+  "meta": {
+    "id": "cx-loss-order-pure-clay-r00-r03-astra-swapped-button-labels",
+    "candidate": "r03-astra-swapped-button-labels.json",
+    "dedupeKey": "loss+order|pure|clay",
+    "violations": [
+      "loss",
+      "order"
+    ],
+    "beyondReference": [],
+    "original": {
+      "title": "Both sides edit surrounding text while remote exchanges two identical buttons by synthetic identity",
+      "why": "Both button labels are unchanged on every side, so the pure merge must retain two occurrences of label. Instead merge3 returns two empty buttons while correctly merging the surrounding text.",
+      "shape": "pure",
+      "identity": "clay",
+      "base": "<div><button sid=\"A\">label</button><button sid=\"B\">label</button></div>",
+      "local": "<div><button sid=\"A\">label</button><button sid=\"B\">label</button>LOCAL </div>",
+      "remote": "<div><button sid=\"B\">label</button><button sid=\"A\">label</button> </div>",
+      "options": {},
+      "requires": [
+        "localChanged",
+        "remoteChanged",
+        "idsDiffer"
+      ],
+      "meta": {
+        "id": "r03-astra-swapped-button-labels",
+        "candidate": "astra-swapped-button-labels.json",
+        "dedupeKey": "loss|pure|clay",
+        "violations": [
+          "loss"
+        ],
+        "beyondReference": []
+      }
+    },
+    "foundBy": "seed round 0, area queued at init",
+    "round": null,
+    "class": "loss+order|pure|clay",
+    "failsOn": {
+      "engine": "2dd92d6c0a7d",
+      "src": "src-731abc8a412a",
+      "violations": [
+        "loss",
+        "order"
+      ]
+    },
+    "fixedIn": "src-44c4b5a2e6ef",
+    "fixedAt": "2026-10-02T00:10:24.542Z"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "title": "Holdout keeps the shared paragraph and independent insertion",
+  "shape": "dirty",
+  "identity": "plain",
+  "base": "<section sid=\"S\"><p>Word here</p><p>Word there</p></section>",
+  "local": "<section sid=\"S\"><p>Word there</p><blockquote>Word again</blockquote></section>",
+  "remote": "<section sid=\"S\"><p>Word there</p></section>",
+  "meta": {
+    "id": "cx-hunt3-step6-holdout-original",
+    "original": {
+      "title": "both sides keep 'Word there' but the merge drops it (found while writing oracle v2 holdouts, 2026-09-30)",
+      "shape": "dirty",
+      "identity": "plain",
+      "base": "<section sid=\"S\"><p>Word here</p><p>Word there</p></section>",
+      "local": "<section sid=\"S\"><p>Word there</p><blockquote>Word again</blockquote></section>",
+      "remote": "<section sid=\"S\"><p>Word there</p></section>",
+      "meta": {
+        "foundBy": "parent, oracle v2 holdout",
+        "note": "Fails on 282339c, 66dcba5 and 30c016d (plain and default). Output <section><blockquote>Word again</blockquote></section> with a text conflict; every reading of the inputs keeps 'Word there'.",
+        "hint": "An earlier attempt (hunt-2 commit 8639864, rejected in review) read 'no twin block on either side' as 'both sides deleted it'. That deleted independent insertions next to a split or joined paragraph (the cx-hunt2-guard-first-insertion-loss-* corpus cases now catch this), and its evidence tables grew quadratically: 410 MB at 320 paragraphs. Where the choice is between keeping a duplicate and losing text, keep the duplicate (David, 2026-10-01)."
+      }
+    },
+    "failsOn": {
+      "engine": "src-4953ffd40c26",
+      "violations": [
+        "loss"
+      ]
+    },
+    "sourceCase": "cx-loss-dirty-plain-r00-oracle-v2-holdout-shared-paragraph-lost.json",
+    "expectationSource": "test/node/certificate-render.test.js \"independent owners keep the holdout shared paragraph edit\""
+  },
+  "expect": {
+    "html": "<section><p>Word there</p><blockquote>Word again</blockquote></section>"
+  }
+}

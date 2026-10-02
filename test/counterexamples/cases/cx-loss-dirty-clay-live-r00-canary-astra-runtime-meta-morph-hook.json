@@ -1,0 +1,67 @@
+{
+  "shape": "dirty",
+  "identity": "clay",
+  "options": {
+    "hooks": {
+      "morph": true
+    }
+  },
+  "requires": [
+    "localChanged",
+    "remoteChanged",
+    "liveDiffers"
+  ],
+  "title": "Both sides edit body text with a no-op morph hook while a runtime meta exists only in the live head",
+  "why": "The runtime-only meta must survive when all saved heads are equal, including when a morph hook is installed. Merely enabling the no-op hook causes the merge to delete that live meta.",
+  "base": "<p>alpha beta</p>",
+  "local": "<p>alpha LOCAL beta</p>",
+  "remote": "<p>alpha beta REMOTE</p>",
+  "live": {
+    "head": "<meta name=\"runtime\" content=\"keep\">"
+  },
+  "meta": {
+    "id": "cx-loss-dirty-clay-live-r00-canary-astra-runtime-meta-morph-hook",
+    "candidate": "canary-astra-runtime-meta-morph-hook.json",
+    "dedupeKey": "loss|dirty|clay|live",
+    "violations": [
+      "loss"
+    ],
+    "beyondReference": [],
+    "original": {
+      "shape": "dirty",
+      "identity": "clay",
+      "options": {
+        "hooks": {
+          "morph": true
+        }
+      },
+      "requires": [
+        "localChanged",
+        "remoteChanged",
+        "liveDiffers"
+      ],
+      "title": "Both sides edit body text with a no-op morph hook while a runtime meta exists only in the live head",
+      "why": "The runtime-only meta must survive when all saved heads are equal, including when a morph hook is installed. Merely enabling the no-op hook causes the merge to delete that live meta.",
+      "base": "<p>alpha beta</p>",
+      "local": "<p>alpha LOCAL beta</p>",
+      "remote": "<p>alpha beta REMOTE</p>",
+      "live": {
+        "head": "<meta name=\"runtime\" content=\"keep\">"
+      },
+      "meta": {}
+    },
+    "foundBy": "seed round 0, area queued at init",
+    "round": null,
+    "class": "loss|dirty|clay|live",
+    "failsOn": {
+      "engine": "src-65f14237219f",
+      "src": "src-65f14237219f",
+      "violations": [
+        "loss"
+      ]
+    },
+    "fixedIn": "src-4953ffd40c26",
+    "fixedAt": "2026-10-01T18:20:42.394Z",
+    "admission": "The original runtime-head case is admitted. Its historical reduction also exercises independent anonymous insertion identity duplication, retained as a hunt-4 seed."
+  }
+}

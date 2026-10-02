@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.3.0] - 2026-10-02
+
+### Added
+
+- Report local edits overwritten by a `remoteWins` region, including recovery information.
+
+### Changed
+
+- Bound the matching work for repeated paragraphs and preserve concurrent edits in more paragraph split, join and move cases.
+
+### Fixed
+
+- Keep shared paragraphs and independent insertions when both sides restructure nearby text.
+- Keep a local word insertion in its original paragraph when the other side replaces nearby text and moves a word.
+- Preserve tags added to the live `<head>` after capture, including when saved head content changes or morph hooks run.
+- Keep both labels and node identities when equal inline atoms swap positions.
+- Preserve text edited inside a formatting element that the other side deletes. Whitespace respacing also yields to an inserted word when the respacing would otherwise win.
+
 ## [1.1.0]
 
 ### Added

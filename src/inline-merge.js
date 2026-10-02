@@ -639,6 +639,101 @@ function setEq(a, b) {
   return true;
 }
 
+const FORMAT_SPACE = /\s/;
+
+function formatBlank(text, from, to) {
+  for (let i = from; i < to; i++) if (!FORMAT_SPACE.test(text[i])) return false;
+  return true;
+}
+
+function deletedEditedMark(state, u, side) {
+  const cache = state.cache[side] || (state.cache[side] = new Map());
+  if (cache.has(u)) return cache.get(u);
+  const deleted = side === 0 ? "local" : "remote";
+  const other = side === 0 ? "remote" : "local";
+  const bm = u.baseMark,
+    em = u[other + "Mark"];
+  let valid = !u.block && !u[deleted] && !!em && bm.to > bm.from;
+  if (valid) {
+    const D = side === 0 ? state.ML : state.MR;
+    const E = side === 0 ? state.MR : state.ML;
+    const fs = side === 0 ? state.fr : state.fl;
+    let edited = false;
+    for (let i = bm.from; i < bm.to; i++) {
+      if (D.bTo[i] >= 0) {
+        valid = false;
+        break;
+      }
+      if (E.bTo[i] < 0 && !FORMAT_SPACE.test(state.fb.text[i])) edited = true;
+    }
+    if (valid && !edited)
+      for (let i = em.from; i < em.to; i++)
+        if (E.toB[i] < 0 && !FORMAT_SPACE.test(fs.text[i])) {
+          edited = true;
+          break;
+        }
+    valid &&= edited;
+  }
+  cache.set(u, valid);
+  return valid;
+}
+
+function formattingYield(
+  state,
+  hs,
+  from,
+  to,
+  others,
+  start,
+  end,
+  side,
+  policy,
+) {
+  const fs = side === 0 ? state.fl : state.fr;
+  let marks = null;
+  for (let at = from; at < to; at++) {
+    const h = hs[at];
+    if (!formatBlank(fs.text, h.ss, h.se)) return null;
+    if (formatBlank(state.fb.text, h.bs, h.be)) {
+      if (
+        (h.bs < h.be && h.ss < h.se) ||
+        FORMAT_SPACE.test(state.fb.text[h.bs - 1] || "") ||
+        FORMAT_SPACE.test(state.fb.text[h.be] || "")
+      )
+        continue;
+      return null;
+    }
+    let marked = false;
+    for (let i = h.bs; i < h.be; i++) {
+      if (FORMAT_SPACE.test(state.fb.text[i])) continue;
+      let found = null;
+      for (const mk of state.fb.stackAt[i]) {
+        const u = state.byEl.get(mk.el);
+        if (u && deletedEditedMark(state, u, side)) {
+          found = u;
+          break;
+        }
+      }
+      if (!found) return null;
+      (marks || (marks = new Set())).add(found);
+      marked = true;
+    }
+    if (!marked) return null;
+  }
+  if (!marks) {
+    if ((side === 0 ? "local" : "remote") !== policy) return null;
+    const otherFlat = side === 0 ? state.fr : state.fl;
+    let edited = false;
+    for (let i = start; i < end; i++) {
+      const h = others[i];
+      if (!formatBlank(state.fb.text, h.bs, h.be)) return null;
+      if (!formatBlank(otherFlat.text, h.ss, h.se)) edited = true;
+    }
+    if (!edited) return null;
+  }
+  return marks || 0;
+}
+
 // ---------------------------------------------------------------------
 // The merge
 // ---------------------------------------------------------------------
@@ -652,7 +747,7 @@ function setEq(a, b) {
  * @param {"remote" | "local" | "both"} [o.policy]
  * @param {object} [o.L] - base-to-local alignment ({ reverse, identical, pairIdenticalChildren })
  * @param {object} [o.R] - base-to-remote alignment
- * @param {{ local: Function, remote: Function }} [o.idOf] - identity of a side element, for echo pairing
+ * @param {{ base?: Function, local: Function, remote: Function }} [o.idOf] - identity of an element, for echo pairing and for telling equal atoms apart
  * @param {(n: Node) => boolean} [o.ignored]
  * @param {(el: Element, name: string) => boolean} [o.ignoreAttribute] - left out of localDiverged
  * @param {(el: Element) => boolean} [o.remoteWins]
@@ -1191,6 +1286,8 @@ export function mergeInline(o) {
 
   // Pieces, in base order.
   const pieces = [];
+  let formattingState = null,
+    keptByEdit = null;
   const lh = Ld.hunks,
     rh = Rd.hunks;
   let li = 0,
@@ -1319,6 +1416,64 @@ export function mergeInline(o) {
     const lse = lss + lLen,
       rse = rss + rLen;
     pushBase(bs);
+    if (
+      li < lEnd &&
+      ri < rEnd &&
+      !origins &&
+      !o.prepared &&
+      !o.nativeTransfers &&
+      !o.sourceRetentions &&
+      !fb.atoms.length &&
+      !fl.atoms.length &&
+      !fr.atoms.length &&
+      !fb.pins.length &&
+      !fl.pins.length &&
+      !fr.pins.length
+    ) {
+      formattingState ||= { fb, fl, fr, ML, MR, byEl, cache: [null, null] };
+      const lY = formattingYield(
+        formattingState,
+        lh,
+        li,
+        lEnd,
+        rh,
+        ri,
+        rEnd,
+        0,
+        policy,
+      );
+      const rY = formattingYield(
+        formattingState,
+        rh,
+        ri,
+        rEnd,
+        lh,
+        li,
+        lEnd,
+        1,
+        policy,
+      );
+      if ((lY === null) !== (rY === null)) {
+        const localDeleted = lY !== null,
+          marks = localDeleted ? lY : rY;
+        if (marks) {
+          keptByEdit ||= new Map();
+          for (const u of marks)
+            keptByEdit.set(u, localDeleted ? "local" : "remote");
+        }
+        pieces.push(
+          localDeleted
+            ? { src: "remote", from: rss, to: rse }
+            : { src: "local", from: lss, to: lse },
+        );
+        pos = be;
+        dL += lLen - (be - bs);
+        dR += rLen - (be - bs);
+        li = lEnd;
+        ri = rEnd;
+        continue;
+      }
+    }
     const rec = {
       kind: "text",
       node: o.node || null,
@@ -1901,13 +2056,21 @@ export function mergeInline(o) {
   // whose side atom is paired with a different, unequal base atom (a swap),
   // or an inserted atom paired with a base atom whose place this side
   // deleted (a move). Identical atoms pair arbitrarily in the alignment, so
-  // an equal twin never overrides. An atom paired with a base element
+  // an equal twin overrides only when its identity names it (a swap of two
+  // equal atoms the identity tells apart). An atom paired with a base element
   // outside this segment moved in from another block and merges here.
-  const twinOf = (a, A, M, ab) => {
+  const sameId = (t, a, side) => {
+    const ids = o.idOf;
+    if (!ids || !ids.base) return false;
+    const id = ids.base(t.el);
+    return id != null && id === ids[side](a.el);
+  };
+  const twinOf = (a, A, M, ab, side) => {
     if (!a || !byTwin) return null;
     const t = baseAtomOf.get(A.reverse.get(a.el)) || null;
     if (!t || t === ab) return null;
-    if (ab ? t.el.isEqualNode(ab.el) : M.bTo[t.i] >= 0) return null;
+    if (ab ? t.el.isEqualNode(ab.el) && !sameId(t, a, side) : M.bTo[t.i] >= 0)
+      return null;
     return t;
   };
   const fromOutside = (a, A) => {
@@ -1934,12 +2097,13 @@ export function mergeInline(o) {
   const claimed = new Set(),
     claimedOut = new Set(),
     copied = new Set();
+  let displaced = null;
   for (let i = 0; i < m; i++) {
     const at = atomsAt(i);
     if (!at) continue;
     const { ab, al, ar } = at;
-    const tr = twinOf(ar, R, MR, ab),
-      tl = twinOf(al, L, ML, ab);
+    const tr = twinOf(ar, R, MR, ab, "remote"),
+      tl = twinOf(al, L, ML, ab, "local");
     let bk = ab,
       from = null;
     if (tr) {
@@ -1950,6 +2114,7 @@ export function mergeInline(o) {
       from = "local";
     }
     if (bk) {
+      if (ab && bk !== ab) (displaced ||= new Map()).set(ab, from);
       if (claimed.has(bk)) choices.set(i, { dup: bk.el });
       else {
         claimed.add(bk);
@@ -1981,7 +2146,16 @@ export function mergeInline(o) {
     const t = paired(ar, R) || paired(al, L);
     if (t) {
       copied.add(t);
-      if (pieceAt[i].conflict && unique(t)) {
+      if (
+        pieceAt[i].conflict &&
+        (unique(t) ||
+          (ar &&
+            (ar.el === t.el || R.identityPaired?.has(t.el)) &&
+            sameId(t, ar, "remote")) ||
+          (al &&
+            (al.el === t.el || L.identityPaired?.has(t.el)) &&
+            sameId(t, al, "local")))
+      ) {
         if (claimed.has(t)) {
           choices.set(i, { dup: t.el });
           continue;
@@ -1998,6 +2172,7 @@ export function mergeInline(o) {
   // delete). An atom a side moved out of this segment is placed at its
   // destination instead.
   const rescueAt = new Map();
+  let localAtomOrder, remoteAtomOrder;
   const posOf = (toM, k) => {
     if (toM[k] >= 0) return toM[k];
     for (let j = k - 1; j >= 0; j--) if (toM[j] >= 0) return toM[j] + 1;
@@ -2012,9 +2187,37 @@ export function mergeInline(o) {
         ra = rt && rAtomOf.get(rt);
       if ((lt && !la) || (rt && !ra)) continue;
       const edited = !(la && ra) && soft.has(a);
-      if (!edited && !(la && ra && unique(a))) continue;
+      if (
+        !edited &&
+        !(
+          la &&
+          ra &&
+          (unique(a) ||
+            displaced?.has(a) ||
+            ((la.el === a.el || L.identityPaired?.has(a.el)) &&
+              (ra.el === a.el || R.identityPaired?.has(a.el)) &&
+              sameId(a, la, "local") &&
+              sameId(a, ra, "remote")))
+        )
+      )
+        continue;
+      const movedBy = displaced?.get(a);
+      let preferred = policy;
+      if (movedBy) {
+        const opposite = movedBy === "local" ? fr : fl;
+        const A = movedBy === "local" ? R : L;
+        let unchanged = movedBy === "local" ? remoteAtomOrder : localAtomOrder;
+        if (unchanged === undefined) {
+          unchanged = opposite.atoms.length === fb.atoms.length;
+          for (let j = 0; unchanged && j < fb.atoms.length; j++)
+            unchanged = A.reverse.get(opposite.atoms[j].el) === fb.atoms[j].el;
+          if (movedBy === "local") remoteAtomOrder = unchanged;
+          else localAtomOrder = unchanged;
+        }
+        if (unchanged) preferred = movedBy;
+      }
       const order =
-        policy === "local"
+        preferred === "local"
           ? [
               [la, lToM],
               [ra, rToM],
@@ -2270,6 +2473,18 @@ export function mergeInline(o) {
       base: u.base,
     });
   }
+  if (keptByEdit)
+    for (const [u, deleted] of keptByEdit)
+      if (opened.has(u))
+        record(
+          {
+            kind: "structure",
+            el: opened.get(u),
+            detail: "edit-beats-delete",
+            base: u.base,
+          },
+          { subject: u.base, deleted },
+        );
   const allGone = (from, to, map) => {
     if (to <= from) return false;
     for (let i = from; i < to; i++) if (map[i] >= 0) return false;

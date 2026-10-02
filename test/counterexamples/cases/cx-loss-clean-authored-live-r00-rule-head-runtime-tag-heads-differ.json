@@ -1,0 +1,45 @@
+{
+  "title": "A live-only head meta is dropped when the saved heads differ; David's rule: always keep it",
+  "shape": "clean",
+  "identity": "authored",
+  "base": "<!DOCTYPE html><html><head><title>old</title></head><body></body></html>",
+  "remote": "<!DOCTYPE html><html><head><title>new</title></head><body></body></html>",
+  "live": {
+    "head": "<meta name=\"runtime\" content=\"keep\">"
+  },
+  "meta": {
+    "from": "David rules 2026-09-30 (00-plan.md 17:50), encoded by O14",
+    "id": "cx-loss-clean-authored-live-r00-rule-head-runtime-tag-heads-differ",
+    "candidate": "rule-head-runtime-tag-heads-differ.json",
+    "dedupeKey": "loss|clean|authored|live",
+    "violations": [
+      "loss"
+    ],
+    "beyondReference": [],
+    "original": {
+      "title": "A live-only head meta is dropped when the saved heads differ; David's rule: always keep it",
+      "shape": "clean",
+      "identity": "authored",
+      "base": "<!DOCTYPE html><html><head><title>old</title></head><body><main id=\"M\"><p id=\"P\">old</p></main></body></html>",
+      "remote": "<!DOCTYPE html><html><head><title>new</title></head><body><main id=\"M\"><p id=\"P\">NEW</p></main></body></html>",
+      "live": {
+        "head": "<meta name=\"runtime\" content=\"keep\">"
+      },
+      "meta": {
+        "from": "David rules 2026-09-30 (00-plan.md 17:50), encoded by O14"
+      }
+    },
+    "foundBy": "seed round 0, area queued at init",
+    "round": null,
+    "class": "loss|clean|authored|live",
+    "failsOn": {
+      "engine": "25e6fc919b58",
+      "src": "src-f4ecac795871",
+      "violations": [
+        "loss"
+      ]
+    },
+    "fixedIn": "src-4953ffd40c26",
+    "fixedAt": "2026-10-01T18:21:14.285Z"
+  }
+}

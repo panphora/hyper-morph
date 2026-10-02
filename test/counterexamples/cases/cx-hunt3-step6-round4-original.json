@@ -1,0 +1,39 @@
+{
+  "title": "Round4 keeps the local insertion in its original paragraph",
+  "shape": "dirty",
+  "identity": "authored",
+  "options": {
+    "conflicts": "both"
+  },
+  "base": "<main id=\"M\"><p>c w</p><p>w a c</p></main>",
+  "local": "<main id=\"M\"><p>c w L2</p><p>w a a c</p></main>",
+  "remote": "<main id=\"M\"><p>c R R2</p><p>w w a c</p></main>",
+  "meta": {
+    "id": "cx-hunt3-step6-round4-original",
+    "original": {
+      "title": "Under conflicts:both the engine moves local's L2 into the second paragraph and records no conflict",
+      "shape": "dirty",
+      "identity": "authored",
+      "options": {
+        "conflicts": "both"
+      },
+      "base": "<main id=\"M\"><p>c w</p><p>w a c</p></main>",
+      "local": "<main id=\"M\"><p>c w L2</p><p>w a a c</p></main>",
+      "remote": "<main id=\"M\"><p>c R R2</p><p>w w a c</p></main>",
+      "meta": {
+        "from": "oracle v2 round 4 review (code-reviewer), 2026-09-30"
+      }
+    },
+    "failsOn": {
+      "engine": "e52b8197c102",
+      "violations": [
+        "duplication"
+      ]
+    },
+    "sourceCase": "cx-duplication-loss-dirty-a-r00-oracle-v2-round4-moved-word.json",
+    "expectationSource": "test/node/replacement-touching-conflict.test.js \"original round4 stays native\""
+  },
+  "expect": {
+    "html": "<main id=\"M\"><p>c R R2 L2</p><p>w w a a c</p></main>"
+  }
+}

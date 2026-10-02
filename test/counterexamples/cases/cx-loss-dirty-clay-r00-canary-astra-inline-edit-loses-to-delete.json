@@ -1,0 +1,50 @@
+{
+  "shape": "dirty",
+  "identity": "clay",
+  "options": {},
+  "requires": [
+    "localChanged",
+    "remoteChanged"
+  ],
+  "title": "Local edits the text inside a bold element while remote deletes that element and its text",
+  "why": "Edit beats delete requires the bold element and its complete edited text to survive. The merge removes the element and all of its words, including the local insertion.",
+  "base": "<main>before  after</main>",
+  "local": "<main>before beta after</main>",
+  "remote": "<main>before after</main>",
+  "meta": {
+    "id": "cx-loss-dirty-clay-r00-canary-astra-inline-edit-loses-to-delete",
+    "candidate": "canary-astra-inline-edit-loses-to-delete.json",
+    "dedupeKey": "loss|dirty|clay",
+    "violations": [
+      "loss"
+    ],
+    "beyondReference": [],
+    "original": {
+      "shape": "dirty",
+      "identity": "clay",
+      "options": {},
+      "requires": [
+        "localChanged",
+        "remoteChanged"
+      ],
+      "title": "Local edits the text inside a bold element while remote deletes that element and its text",
+      "why": "Edit beats delete requires the bold element and its complete edited text to survive. The merge removes the element and all of its words, including the local insertion.",
+      "base": "<main>before <b sid=\"S\">alpha beta</b> after</main>",
+      "local": "<main>before <b sid=\"S\">alpha LOCAL beta</b> after</main>",
+      "remote": "<main>before after</main>",
+      "meta": {}
+    },
+    "foundBy": "seed round 0, area queued at init",
+    "round": null,
+    "class": "loss|dirty|clay",
+    "failsOn": {
+      "engine": "25e6fc919b58",
+      "src": "src-f4ecac795871",
+      "violations": [
+        "loss"
+      ]
+    },
+    "fixedIn": "src-65f14237219f",
+    "fixedAt": "2026-10-01T18:11:38.419Z"
+  }
+}

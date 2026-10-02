@@ -19,6 +19,7 @@ const HTML_SPACE = /[\t\n\f\r ]+/;
 /**
  * @typedef {object} ApplyOptions
  * @property {(n: Node) => Node | null} toLive
+ * @property {Element} [localRoot]
  * @property {(n: Node) => boolean} ignored
  * @property {"attribute" | "property"} formState
  * @property {boolean | "subtree"} protectFocusedValue
@@ -134,6 +135,17 @@ export function apply(liveRoot, mergedRoot, result, o) {
   const liveTwins = new Set();
   for (const lv of liveOf.values()) liveTwins.add(lv);
   for (const nodes of runOf.values()) for (const n of nodes) liveTwins.add(n);
+
+  const localHeadTwins =
+    o.localRoot && o.localRoot !== liveRoot ? new Set() : null;
+  if (localHeadTwins)
+    for (let h = o.localRoot.firstElementChild; h; h = h.nextElementSibling) {
+      if (h.tagName !== "HEAD") continue;
+      for (let c = h.firstElementChild; c; c = c.nextElementSibling) {
+        const lv = o.toLive(c);
+        if (lv) localHeadTwins.add(lv);
+      }
+    }
 
   // Typing that landed after the local snapshot, per inline segment: the
   // segment's live text is rebuilt from its local nodes and the typing is
@@ -586,15 +598,16 @@ export function apply(liveRoot, mergedRoot, result, o) {
 
   /**
    * A head child the caller asked to keep (`head.preserve`) is never removed
-   * by the merge, only ever updated in place when the remote carries it.
+   * by the merge, only ever updated in place when the remote carries it. A
+   * runtime head tag (no local twin) is never removed either.
    */
   function preserved(el) {
     return (
-      o.preserve &&
       el.parentNode &&
       el.parentNode.nodeType === 1 &&
       el.parentNode.tagName === "HEAD" &&
-      o.preserve(el) === true
+      ((localHeadTwins && !localHeadTwins.has(el)) ||
+        (o.preserve && o.preserve(el) === true))
     );
   }
 

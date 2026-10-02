@@ -1,0 +1,68 @@
+{
+  "shape": "dirty",
+  "identity": "clay",
+  "options": {},
+  "requires": [
+    "localChanged",
+    "remoteChanged",
+    "liveDiffers"
+  ],
+  "title": "Local edits body text and remote changes the saved title while a runtime meta exists only in the live head",
+  "why": "The runtime-only meta must survive even though the saved heads differ. Merging the title change removes that live meta.",
+  "base": "",
+  "local": "<p> </p>",
+  "remote": "",
+  "heads": {
+    "base": "<title>Before</title>",
+    "local": "<title>Before</title>",
+    "remote": "<title>After</title>"
+  },
+  "live": {
+    "head": "<meta name=\"runtime\" content=\"keep\">"
+  },
+  "meta": {
+    "id": "cx-loss-dirty-clay-live-r00-canary-astra-runtime-meta-changed-head",
+    "candidate": "canary-astra-runtime-meta-changed-head.json",
+    "dedupeKey": "loss|dirty|clay|live",
+    "violations": [
+      "loss"
+    ],
+    "beyondReference": [],
+    "original": {
+      "shape": "dirty",
+      "identity": "clay",
+      "options": {},
+      "requires": [
+        "localChanged",
+        "remoteChanged",
+        "liveDiffers"
+      ],
+      "title": "Local edits body text and remote changes the saved title while a runtime meta exists only in the live head",
+      "why": "The runtime-only meta must survive even though the saved heads differ. Merging the title change removes that live meta.",
+      "base": "<p>alpha beta</p>",
+      "local": "<p>alpha LOCAL beta</p>",
+      "remote": "<p>alpha beta REMOTE</p>",
+      "heads": {
+        "base": "<title>Before</title>",
+        "local": "<title>Before</title>",
+        "remote": "<title>After</title>"
+      },
+      "live": {
+        "head": "<meta name=\"runtime\" content=\"keep\">"
+      },
+      "meta": {}
+    },
+    "foundBy": "seed round 0, area queued at init",
+    "round": null,
+    "class": "loss|dirty|clay|live",
+    "failsOn": {
+      "engine": "src-65f14237219f",
+      "src": "src-65f14237219f",
+      "violations": [
+        "loss"
+      ]
+    },
+    "fixedIn": "src-4953ffd40c26",
+    "fixedAt": "2026-10-01T18:20:42.378Z"
+  }
+}

@@ -311,6 +311,7 @@ function run({
 
   const ap = apply(liveRoot, result.root, result, {
     toLive,
+    localRoot,
     ignored: o.ignored,
     ignoreAttribute: o.ignoreAttribute,
     formState: o.formState,
