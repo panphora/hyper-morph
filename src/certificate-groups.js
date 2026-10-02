@@ -415,8 +415,11 @@ export function certificateGroups({
       }
       return { prev, next };
     };
-    const bn = nearest(base, twinHere),
-      sn = nearest(V.units, (unit) => baseSet.has(V.baseOf(unit)));
+    const bn = nearest(base, (unit) => unit.nodeType === 1 && twinHere(unit)),
+      sn = nearest(
+        V.units,
+        (unit) => unit.nodeType === 1 && baseSet.has(V.baseOf(unit)),
+      );
     const windows = new Map();
     const window = (bl, bh, sl, sh) => {
       if (bl > bh || sl > sh) return;
@@ -1317,12 +1320,7 @@ export function certifiedOrigins({
   }
 }
 
-export function inlineScopeUnits(
-  partition,
-  group,
-  complete = false,
-  externalPort = null,
-) {
+export function inlineScopeUnits(partition, group, complete = false) {
   let first = -1,
     last = -1;
   for (let i = 0; i < partition.list.length; i++) {
@@ -1334,36 +1332,18 @@ export function inlineScopeUnits(
   const out = [];
   for (let i = first; i >= 0 && i <= last; i++) {
     const cell = partition.list[i];
-    let from =
+    const from =
       !complete && i === first
         ? cell.inlineStart < 0
           ? cell.to
           : cell.inlineStart
         : cell.from;
-    let to =
+    const to =
       !complete && i === last
         ? cell.inlineEnd < 0
           ? cell.from
           : cell.inlineEnd
         : cell.to;
-    if (externalPort) {
-      if (i === first) {
-        const edge = cell.inlineStart < 0 ? cell.to : cell.inlineStart;
-        for (let j = from; j < edge; j++)
-          if (externalPort(partition.units[j])) {
-            from = edge;
-            break;
-          }
-      }
-      if (i === last) {
-        const edge = cell.inlineEnd < 0 ? cell.from : cell.inlineEnd;
-        for (let j = edge; j < to; j++)
-          if (externalPort(partition.units[j])) {
-            to = edge;
-            break;
-          }
-      }
-    }
     for (let j = from; j < to; j++) out.push(partition.units[j]);
     if (i < last) out.push(partition.units[cell.next]);
   }

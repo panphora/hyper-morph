@@ -2178,34 +2178,8 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
             const found = certPlan.certificatesBySource.get(unit);
             if (found) (groupCertificates ||= []).push(...found);
           }
-        const lu = Lv.asBase
-            ? null
-            : inlineScopeUnits(
-                Ls,
-                g,
-                !!groupCertificates,
-                groupCertificates
-                  ? (unit) =>
-                      isEl(unit) &&
-                      !!idLocal(unit) &&
-                      !blocks.has(unit) &&
-                      !Lv.baseOf(unit)
-                  : null,
-              ),
-          ru = Rv.asBase
-            ? null
-            : inlineScopeUnits(
-                Rs,
-                g,
-                !!groupCertificates,
-                groupCertificates
-                  ? (unit) =>
-                      isEl(unit) &&
-                      !!idRemote(unit) &&
-                      !blocks.has(unit) &&
-                      !Rv.baseOf(unit)
-                  : null,
-              );
+        const lu = Lv.asBase ? null : inlineScopeUnits(Ls, g),
+          ru = Rv.asBase ? null : inlineScopeUnits(Rs, g);
         if (groupCertificates) {
           const sideSets = [new Set(lu || units), new Set(ru || units)];
           let incomplete = groupCertificates.some(
