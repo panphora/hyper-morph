@@ -39,6 +39,7 @@ import {
   MAX_TOKENS,
   BREAK,
 } from "./text-merge.js";
+import { boundaryOccurrences, occurrenceBudget } from "./occurrence-map.js";
 
 export const ATOM = "￼";
 
@@ -464,7 +465,64 @@ function charMaps(hunks, baseLen, sideLen) {
   return { bTo, toB };
 }
 
-export function prepareInline(fb, fl, fr, keys = {}) {
+function editsFromOrigins(base, side, mapped) {
+  const hunks = [];
+  let bs = 0,
+    ss = 0;
+  const gap = (be, se) => {
+    if (bs === be && ss === se) return;
+    const text = side.text.slice(ss, se);
+    hunks.push({
+      bs,
+      be,
+      ss,
+      se,
+      text,
+      toks: textTokens(text, allAscii(text)),
+      lead: false,
+    });
+  };
+  for (const run of mapped.runs) {
+    gap(run.from, run.target);
+    bs = run.to;
+    ss = run.target + run.to - run.from;
+  }
+  gap(base.text.length, side.text.length);
+  return { hunks, respell: new Map() };
+}
+
+function tokenDiffFromOrigins(edits, bToks, sToks) {
+  const bOff = offsets(bToks),
+    sOff = offsets(sToks);
+  const index = (off, value) => {
+    let lo = 0,
+      hi = off.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (off[mid] < value) lo = mid + 1;
+      else hi = mid;
+    }
+    return off[lo] === value ? lo : -1;
+  };
+  const parts = [];
+  for (const h of edits.hunks) {
+    const bs = index(bOff, h.bs),
+      be = index(bOff, h.be);
+    const ss = index(sOff, h.ss),
+      se = index(sOff, h.se);
+    if (bs < 0 || be < 0 || ss < 0 || se < 0) return null;
+    parts.push({
+      bs,
+      be,
+      toks: sToks.slice(ss, se),
+      gap: [],
+      group: parts.length,
+    });
+  }
+  return { parts, cosmeticEq: [] };
+}
+
+export function prepareInline(fb, fl, fr, keys = {}, origins = null) {
   const fast = allAscii(stripAtoms(fb), stripAtoms(fl), stripAtoms(fr));
   let bToks = tokensOf(fb, fast, false, keys.base),
     lToks = tokensOf(fl, fast, false, keys.local),
@@ -478,19 +536,33 @@ export function prepareInline(fb, fl, fr, keys = {}) {
     lToks = tokensOf(fl, fast, true, keys.local);
     rToks = tokensOf(fr, fast, true, keys.remote);
   }
-  const paired = pairedHunks(
-    diffTokens(bToks, lToks),
-    diffTokens(bToks, rToks),
-    bToks,
-  );
-  const localEdits = sideDiff(fl, bToks, lToks, {
+  const localOrigins = origins?.local
+    ? editsFromOrigins(fb, fl, origins.local)
+    : null;
+  const remoteOrigins = origins?.remote
+    ? editsFromOrigins(fb, fr, origins.remote)
+    : null;
+  const localDiff = localOrigins
+    ? tokenDiffFromOrigins(localOrigins, bToks, lToks)
+    : diffTokens(bToks, lToks);
+  const remoteDiff = remoteOrigins
+    ? tokenDiffFromOrigins(remoteOrigins, bToks, rToks)
+    : diffTokens(bToks, rToks);
+  let localEdits, remoteEdits;
+  if (localDiff && remoteDiff) {
+    const paired = pairedHunks(localDiff, remoteDiff, bToks);
+    localEdits = sideDiff(fl, bToks, lToks, {
       hunks: paired.lh,
       cosmetic: paired.cosL,
-    }),
+    });
     remoteEdits = sideDiff(fr, bToks, rToks, {
       hunks: paired.rh,
       cosmetic: paired.cosR,
     });
+  } else {
+    localEdits = localOrigins || sideDiff(fl, bToks, lToks, localDiff);
+    remoteEdits = remoteOrigins || sideDiff(fr, bToks, rToks, remoteDiff);
+  }
   localEdits.hunks = refineBreaks(localEdits.hunks, fb.text, fl.text);
   remoteEdits.hunks = refineBreaks(remoteEdits.hunks, fb.text, fr.text);
   return {
@@ -762,13 +834,40 @@ export function mergeInline(o) {
     lKey = atomKeys(fl, L),
     rKey = atomKeys(fr, R);
 
+  let origins = null;
+  if (!o.prepared && o.blocks) {
+    const budget = occurrenceBudget();
+    const local = boundaryOccurrences({
+      base: fb,
+      side: fl,
+      baseOf: (el) => L?.reverse?.get(el) || null,
+      budget,
+    });
+    const remote = boundaryOccurrences({
+      base: fb,
+      side: fr,
+      baseOf: (el) => R?.reverse?.get(el) || null,
+      budget,
+    });
+    if (local.status === "ready" || remote.status === "ready")
+      origins = {
+        local: local.status === "ready" ? local : null,
+        remote: remote.status === "ready" ? remote : null,
+      };
+  }
   const prepared =
     o.prepared ||
-    prepareInline(fb, fl, fr, {
-      base: bKey,
-      local: lKey,
-      remote: rKey,
-    });
+    prepareInline(
+      fb,
+      fl,
+      fr,
+      {
+        base: bKey,
+        local: lKey,
+        remote: rKey,
+      },
+      origins,
+    );
   const lines = prepared.lines,
     bToks = prepared.baseTokens,
     Ld = prepared.localEdits,

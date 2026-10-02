@@ -132,3 +132,105 @@ export function compileOccurrenceMap({
 
   return { status: "ready", runs: byBase, bTo, toB, monotone, covers };
 }
+
+export function boundaryOccurrences({
+  base,
+  side,
+  baseOf = () => null,
+  budget = occurrenceBudget(),
+}) {
+  if (
+    base.text === side.text ||
+    (!base.text.includes(BREAK) && !side.text.includes(BREAK))
+  )
+    return { status: "none" };
+  const scanCost = (base.text.length + side.text.length) * 8;
+  if (scanCost > budget.remaining)
+    return { status: "fallback", reason: "work-limit" };
+  budget.remaining -= scanCost;
+  budget.boundarySteps = (budget.boundarySteps || 0) + scanCost;
+
+  const soft = (text, at) =>
+    at < text.length && (text[at] === BREAK || /\s/.test(text[at]));
+  const cache = new Map();
+  const exhausted = Symbol();
+  const block = (flat, at) => {
+    const stack = flat.stackAt[at] || [];
+    if (!cache.has(stack)) {
+      if (stack.length > budget.remaining) throw exhausted;
+      budget.remaining -= stack.length;
+      budget.boundarySteps += stack.length;
+      cache.set(stack, stack.find((mark) => mark.block)?.el || null);
+    }
+    return cache.get(stack);
+  };
+  const runs = [];
+  const append = (from, target) => {
+    const source = block(base, from),
+      destination = block(side, target),
+      kind =
+        source && destination && baseOf(destination) !== source
+          ? "transfer"
+          : "retained";
+    const last = runs[runs.length - 1];
+    if (
+      last &&
+      last.to === from &&
+      last.target + last.to - last.from === target &&
+      last.kind === kind &&
+      last.destination === destination
+    )
+      last.to++;
+    else runs.push({ from, to: from + 1, target, destination, kind });
+  };
+
+  let bi = 0,
+    si = 0,
+    changedBoundary = false;
+  try {
+    while (bi < base.text.length || si < side.text.length) {
+      if (
+        bi < base.text.length &&
+        si < side.text.length &&
+        base.text[bi] === side.text[si]
+      ) {
+        const ba = base.atomAt.get(bi),
+          sa = side.atomAt.get(si);
+        if (!!ba !== !!sa || (ba && baseOf(sa.el) !== ba.el))
+          return { status: "none" };
+        append(bi++, si++);
+        continue;
+      }
+      if (!soft(base.text, bi) && !soft(side.text, si))
+        return { status: "none" };
+      const bs = bi,
+        ss = si;
+      while (soft(base.text, bi)) bi++;
+      while (soft(side.text, si)) si++;
+      const bt = base.text.slice(bs, bi),
+        st = side.text.slice(ss, si);
+      if (bt.includes(BREAK) || st.includes(BREAK)) changedBoundary = true;
+      let tail = 0;
+      while (
+        tail < bi - bs &&
+        tail < si - ss &&
+        base.text[bi - tail - 1] === side.text[si - tail - 1]
+      )
+        tail++;
+      for (let k = tail; k > 0; k--) append(bi - k, si - k);
+    }
+  } catch (error) {
+    if (error === exhausted)
+      return { status: "fallback", reason: "work-limit" };
+    throw error;
+  }
+  if (!changedBoundary) return { status: "none" };
+  return compileOccurrenceMap({
+    base,
+    side,
+    retained: runs.filter((run) => run.kind === "retained"),
+    transfers: runs.filter((run) => run.kind === "transfer"),
+    sideAtomKey: (atom) => baseOf(atom.el) || atom.el,
+    budget,
+  });
+}
