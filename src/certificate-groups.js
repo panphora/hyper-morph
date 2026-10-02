@@ -27,7 +27,6 @@ function exactResidualOccurrence(
 ) {
   const original = models.get(source),
     destination = models.get(target);
-  if (original.flat.atoms.length || destination.flat.atoms.length) return null;
   const text = original.flat.text,
     used = reserved.get(source);
   charge(budget, text.length * 2 + runs.length);
@@ -69,6 +68,23 @@ function exactResidualOccurrence(
         break;
       }
     if (!covered) return null;
+  }
+  if (original.flat.atoms.length || destination.flat.atoms.length) {
+    charge(budget, original.flat.atoms.length + destination.flat.atoms.length);
+    let j = 0;
+    const atoms = destination.flat.atoms;
+    while (j < atoms.length && atoms[j].i < targetFrom) j++;
+    for (const atom of original.flat.atoms) {
+      if (atom.i < from || atom.i >= to) continue;
+      const counterpart = atoms[j++];
+      if (
+        !counterpart ||
+        counterpart.i !== targetFrom + atom.i - from ||
+        destination.alignment?.reverse.get(counterpart.el) !== atom.el
+      )
+        return null;
+    }
+    if (j < atoms.length && atoms[j].i < targetFrom + to - from) return null;
   }
   for (const [units, expected, offset] of [
     [B, source, from],
