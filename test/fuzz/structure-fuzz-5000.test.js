@@ -39,19 +39,15 @@ test("structural fuzz on a live page, seeds 1 to 5000", async () => {
 // Seeds the oracle fails in a mode, each reporting a conflict, identical on the
 // engine before E1 (5702dd0). Pinned, not skipped: a seed that starts passing
 // or a new one that fails turns the test red until it is reclassified.
-//   695: both sides split one block at different points, each tail with its
-//        own new id; an inline <b> lands in both tails (ambiguous split).
-//   706: an echoed split gives both sides the same new id, and the merge keeps
-//        two blocks with that id, one without its image (real; recheck at E4).
 //   860: remote replaces a block with a new id while local edits it: both
 //        kept with edit-beats-delete (right under id rules; the oracle cannot
 //        model it).
 const KNOWN = {
-  1: [695, 706, 860],
+  1: [860],
   3: [],
-  4: [695],
+  4: [],
   5: [],
-  6: [695, 706, 860],
+  6: [860],
 };
 const failedSeeds = (fails) => fails.map((f) => f.seed);
 

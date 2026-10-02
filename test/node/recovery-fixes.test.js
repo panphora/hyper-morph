@@ -688,14 +688,14 @@ for (const [name, b, l, r] of [
   [
     "paragraph",
     '<p>w0 w1 w2 <img src="i6.png"> w3 w4 w5</p><p><img src="i13.png"> w7 w8 w9 w10 w11 w12</p>',
-    '<p>w0</p><p>w16 w17 w18 w19</p><p>w1 w2 <img src="i6.png"> w3 w4 w5</p><p><img src="i13.png"> w15 w14 w8 w9 w10 w11 w12</p>',
-    '<p>w0</p><p>w1 w2 <img src="i6.png"> w3 w4 w5</p><p><img src="i13.png"> w20 w14 w8 w9 w10 w11 w12</p>',
+    '<p>w0</p><p>w16 w17 w18 w19</p><p>w1 L2 <img src="i6.png"> w3 w4 w5</p><p><img src="i13.png"> w15 w14 w8 w9 w10 w11 w12</p>',
+    '<p>w0</p><p>w1 R2 <img src="i6.png"> w3 w4 w5</p><p><img src="i13.png"> w20 w14 w8 w9 w10 w11 w12</p>',
   ],
   [
     "list",
     "<ul><li>w0 w1 w2 w3 w4 <b>w6</b> w5</li><li>w7 w8 w9 w10 w11 w12</li></ul><ul><li>w13 w14 w15 <b>w17</b> w16</li></ul>",
-    "<p>w25 w26 w27 w28</p><ul><li>w0 w1 w2 w3 w4 <b>w6</b></li><li>w5</li><li>w7 w8 w9 w10 w11 w12</li></ul><ul><li>w18 w19 <b>w24</b> w20 w21 w22 w23</li><li>w13 w14 w15 <b>w17</b> w16</li></ul>",
-    '<ul><li>w0 w1 w2 w3 w4 <b>w6</b></li><li><img src="i32.png"> w29</li><li>w30 w31</li><li>w5</li><li>w7 w8 w9 w10 w11 w12</li></ul><ul><li>w18 w19 <b>w24</b> w20 w21 w22 w23</li><li>w13 w14 w15 <b>w17</b> w16</li></ul>',
+    "<p>w25 w26 w27 w28</p><ul><li>w0 w1 L2 w3 w4 <b>w6</b></li><li>w5</li><li>w7 w8 w9 w10 w11 w12</li></ul><ul><li>w18 w19 <b>w24</b> w20 w21 w22 w23</li><li>w13 w14 w15 <b>w17</b> w16</li></ul>",
+    '<ul><li>w0 w1 R2 w3 w4 <b>w6</b></li><li><img src="i32.png"> w29</li><li>w30 w31</li><li>w5</li><li>w7 w8 w9 w10 w11 w12</li></ul><ul><li>w18 w19 <b>w24</b> w20 w21 w22 w23</li><li>w13 w14 w15 <b>w17</b> w16</li></ul>',
   ],
 ]) {
   test(`certification: opaque inserted blocks in a ${name} scope project exactly`, () => {
@@ -711,17 +711,36 @@ for (const [name, b, l, r] of [
     assert.ok(res.conflicts.length > 0);
     const final = finalTree(res.root);
     assert.deepEqual(recoveryProblems(res.conflicts, final, true, roots), []);
-    const t = res.conflicts.find((c) => c.recovery.text).recovery.text;
+    const tag = name === "paragraph" ? "p" : "li";
+    const clash = res.conflicts.find(
+      (c) => c.kind === "text" && c.base === `<${tag}>w2</${tag}>`,
+    );
+    assert.ok(clash);
+    assert.equal(res.conflicts.length, name === "paragraph" ? 2 : 1);
+    assert.equal(clash.local, `<${tag}>L2</${tag}>`);
+    assert.equal(clash.remote, `<${tag}>R2</${tag}>`);
+    const t = clash.recovery.text;
+    assert.deepEqual([t.base.start, t.base.end], [6, 8]);
+    assert.deepEqual([t.remote.start, t.remote.end], [6, 8]);
+    assert.equal(t.remote.text.slice(t.remote.start, t.remote.end), "R2");
+    assert.deepEqual(
+      [t.local.start, t.local.end],
+      name === "paragraph" ? [8, 10] : [6, 8],
+    );
+    assert.equal(t.local.text.slice(t.local.start, t.local.end), "L2");
     if (name === "list") {
-      assert.equal(t.remote.start, 18);
-      assert.equal(t.remote.end, 21);
-      assert.deepEqual(t.remote.span.end, { path: [1, 0, 3], offset: 0 });
-      assert.equal(
-        t.remote.text.slice(t.remote.start, t.remote.end),
-        "\ufffc\ufffc\u001e",
-      );
+      assert.deepEqual(t.remote.span.end, { path: [1, 0, 0, 0], offset: 8 });
+      assert.deepEqual(t.remote.scope.end, { path: [1, 0], offset: 4 });
+      assert.equal(t.remote.text.slice(18, 21), "\ufffc\ufffc\u001e");
+    } else {
+      assert.deepEqual(t.local.span.end, { path: [1, 2, 0], offset: 5 });
+      assert.deepEqual(t.local.scope.end, { path: [1], offset: 3 });
+      assert.equal(t.local.text.slice(3, 5), "\ufffc\u001e");
+      assert.deepEqual(t.remote.span.end, { path: [1, 1, 0], offset: 5 });
     }
-    t.local.text = t.local.text.replace("w0", "ZZ");
+    const before = t.local.text;
+    t.local.text = before.replace("L2", "ZZ");
+    assert.notEqual(t.local.text, before);
     assert.ok(
       recoveryProblems(res.conflicts, final, true, roots).some((x) =>
         x.includes("projection differs"),
