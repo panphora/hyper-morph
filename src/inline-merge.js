@@ -523,18 +523,31 @@ function tokenDiffFromOrigins(edits, bToks, sToks) {
 }
 
 export function prepareInline(fb, fl, fr, keys = {}, origins = null) {
+  return prepareInlineInputs(
+    fb,
+    fl,
+    fr,
+    keys.base,
+    keys.local,
+    keys.remote,
+    origins,
+    {},
+  );
+}
+
+function prepareInlineInputs(fb, fl, fr, bKey, lKey, rKey, origins, prepared) {
   const fast = allAscii(stripAtoms(fb), stripAtoms(fl), stripAtoms(fr));
-  let bToks = tokensOf(fb, fast, false, keys.base),
-    lToks = tokensOf(fl, fast, false, keys.local),
-    rToks = tokensOf(fr, fast, false, keys.remote);
+  let bToks = tokensOf(fb, fast, false, bKey),
+    lToks = tokensOf(fl, fast, false, lKey),
+    rToks = tokensOf(fr, fast, false, rKey);
   const lines =
     bToks.length > MAX_TOKENS ||
     lToks.length > MAX_TOKENS ||
     rToks.length > MAX_TOKENS;
   if (lines) {
-    bToks = tokensOf(fb, fast, true, keys.base);
-    lToks = tokensOf(fl, fast, true, keys.local);
-    rToks = tokensOf(fr, fast, true, keys.remote);
+    bToks = tokensOf(fb, fast, true, bKey);
+    lToks = tokensOf(fl, fast, true, lKey);
+    rToks = tokensOf(fr, fast, true, rKey);
   }
   const localOrigins = origins?.local
     ? editsFromOrigins(fb, fl, origins.local)
@@ -565,18 +578,25 @@ export function prepareInline(fb, fl, fr, keys = {}, origins = null) {
   }
   localEdits.hunks = refineBreaks(localEdits.hunks, fb.text, fl.text);
   remoteEdits.hunks = refineBreaks(remoteEdits.hunks, fb.text, fr.text);
-  return {
-    base: fb,
-    local: fl,
-    remote: fr,
-    lines,
-    baseTokens: bToks,
-    localEdits,
-    remoteEdits,
-    localMap: charMaps(localEdits.hunks, fb.text.length, fl.text.length),
-    remoteMap: charMaps(remoteEdits.hunks, fb.text.length, fr.text.length),
-    full: null,
-  };
+  prepared.base = fb;
+  prepared.local = fl;
+  prepared.remote = fr;
+  prepared.lines = lines;
+  prepared.baseTokens = bToks;
+  prepared.localEdits = localEdits;
+  prepared.remoteEdits = remoteEdits;
+  prepared.localMap = charMaps(
+    localEdits.hunks,
+    fb.text.length,
+    fl.text.length,
+  );
+  prepared.remoteMap = charMaps(
+    remoteEdits.hunks,
+    fb.text.length,
+    fr.text.length,
+  );
+  prepared.full = null;
+  return prepared;
 }
 
 function setEq(a, b) {
@@ -857,17 +877,7 @@ export function mergeInline(o) {
   }
   const prepared =
     o.prepared ||
-    prepareInline(
-      fb,
-      fl,
-      fr,
-      {
-        base: bKey,
-        local: lKey,
-        remote: rKey,
-      },
-      origins,
-    );
+    prepareInlineInputs(fb, fl, fr, bKey, lKey, rKey, origins, segMeta);
   const lines = prepared.lines,
     bToks = prepared.baseTokens,
     Ld = prepared.localEdits,
