@@ -1109,7 +1109,7 @@ export function mergeInline(o) {
   // a split or a join. Touching the other side's edit is not a conflict
   // (Decision 2 is about replacements of words): each lands beside the
   // break, in the block its own position names.
-  const structural = (h, fs, withPorts = false) => {
+  const structural = (h, fs, peer = null) => {
     let brk = false;
     for (let i = h.bs; i < h.be; i++) {
       const c = fb.text[i];
@@ -1120,9 +1120,11 @@ export function mergeInline(o) {
       const c = fs.text[i];
       if (c === BREAK) brk = true;
       else if (!/\s/.test(c)) {
-        const atom =
-          withPorts && o.scopeUnits && isInsert(h) && fs.atomAt.get(i);
+        const atom = peer && o.scopeUnits && isInsert(h) && fs.atomAt.get(i);
         if (!atom || !isBlock(atom.el)) return false;
+        if (peer.ss !== peer.se || peer.bs >= peer.be) return false;
+        for (let j = peer.bs; j < peer.be; j++)
+          if (!/\s/.test(fb.text[j])) return false;
         const side = fs === fl ? 1 : 2;
         if (
           !o.scopeUnits[side].includes(atom.el) ||
@@ -1158,8 +1160,8 @@ export function mergeInline(o) {
     overlaps(l, r) ||
     (touches(l, r) &&
       !(l.transferIn || l.transferOut || r.transferIn || r.transferOut) &&
-      !(structural(l, fl, true) && wordEdit(r, fr)) &&
-      !(structural(r, fr, true) && wordEdit(l, fl)));
+      !(structural(l, fl, r) && wordEdit(r, fr)) &&
+      !(structural(r, fr, l) && wordEdit(l, fl)));
   const sameHunk = (l, r) => {
     if (l.bs !== r.bs || l.be !== r.be || l.toks.length !== r.toks.length)
       return false;
