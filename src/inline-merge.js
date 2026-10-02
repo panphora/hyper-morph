@@ -1108,6 +1108,7 @@ export function mergeInline(o) {
   const textConflict = (l, r) =>
     overlaps(l, r) ||
     (touches(l, r) &&
+      !(l.transferIn || l.transferOut || r.transferIn || r.transferOut) &&
       !(structural(l, fl) && wordEdit(r, fr)) &&
       !(structural(r, fr) && wordEdit(l, fl)));
   const sameHunk = (l, r) => {
@@ -1193,6 +1194,8 @@ export function mergeInline(o) {
         lfrom: l.ss,
         rfrom: r.ss,
         len: h.text.length,
+        owner: l.owner || r.owner || null,
+        transfer: l.transferIn || r.transferIn || null,
       });
       pos = h.be;
       dL += h.text.length - (h.be - h.bs);
@@ -1208,6 +1211,8 @@ export function mergeInline(o) {
         from: h.ss,
         to: h.se,
         inherit: rel && rel !== "straddle" ? rel : null,
+        owner: h.owner || null,
+        transfer: h.transferIn || null,
       });
       pos = h.be;
       if (takeL) {
@@ -1348,14 +1353,14 @@ export function mergeInline(o) {
     if (p.src === "base") {
       for (let i = p.from; i < p.to; i++) {
         ob.push(i);
-        ol.push(i + p.dL);
-        or.push(i + p.dR);
+        ol.push(o.nativeTransfers ? ML.bTo[i] : i + p.dL);
+        or.push(o.nativeTransfers ? MR.bTo[i] : i + p.dR);
         pieceAt.push(p);
       }
       text += spelled.slice(p.from, p.to);
     } else if (p.src === "both") {
       for (let k = 0; k < p.len; k++) {
-        ob.push(-1);
+        ob.push(p.transfer ? p.transfer.bs + k : -1);
         ol.push(p.lfrom + k);
         or.push(p.rfrom + k);
         pieceAt.push(p);
@@ -1363,10 +1368,21 @@ export function mergeInline(o) {
       text += fl.text.slice(p.lfrom, p.lfrom + p.len);
     } else {
       const f = p.src === "local" ? fl : fr;
+      const movedElsewhere =
+        p.transfer &&
+        o.nativeTransfers.byOrigin[p.src === "local" ? "remote" : "local"].get(
+          p.transfer.key,
+        );
       for (let i = p.from; i < p.to; i++) {
-        ob.push(-1);
-        ol.push(p.src === "local" ? i : -1);
-        or.push(p.src === "remote" ? i : -1);
+        const b = p.transfer ? p.transfer.bs + i - p.from : -1;
+        const other =
+          p.transfer &&
+          (!movedElsewhere || movedElsewhere.destination === p.owner)
+            ? (p.src === "local" ? MR : ML).bTo[b]
+            : -1;
+        ob.push(b);
+        ol.push(p.src === "local" ? i : other);
+        or.push(p.src === "remote" ? i : other);
         pieceAt.push(p);
       }
       text += f.text.slice(p.from, p.to);
@@ -1465,7 +1481,16 @@ export function mergeInline(o) {
   // follow the new block's break.
   const blockOf = new Array(m).fill(null);
   const glue = new Set();
-  if (anyBlocks) {
+  if (o.nativeTransfers) {
+    for (let i = 0; i < m; i++) {
+      const owner = pieceAt[i].owner;
+      blockOf[i] = owner
+        ? resolve(byEl.get(owner))
+        : ob[i] >= 0
+          ? blockU(fb.stackAt[ob[i]])
+          : null;
+    }
+  } else if (anyBlocks) {
     const threeWay = (B, Ls, Rs) => {
       const cands = new Set([B, Ls, Rs]);
       cands.delete(null);
@@ -1610,7 +1635,9 @@ export function mergeInline(o) {
     });
   const setCache = new Map();
   const inheritCache = new Map();
+  const nativeMarks = o.nativeTransfers ? [] : null;
   const marksAt = (i) => {
+    if (nativeMarks) return nativeMarks;
     const b = ob[i],
       l = ol[i],
       r = or[i];

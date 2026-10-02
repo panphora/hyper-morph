@@ -25,6 +25,7 @@ import { emptyStats } from "./stats.js";
 import { align } from "./align.js";
 import { merge3Text, diff, words } from "./text-merge.js";
 import { mergeInline, isInlineUnit, MARK_TAGS } from "./inline-merge.js";
+import { planNativeTransfers } from "./native-transfers.js";
 import { indexByIdentity, defaultIdentity, warnDuplicate } from "./identity.js";
 import { headSignature } from "./head-merge.js";
 import { isHtmlScript, mergeIdentityOf } from "./scripts.js";
@@ -2036,7 +2037,31 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       const inlineOpts = { ignored, remoteWins: o.remoteWins, inlineCache };
       const inline0 = (u) =>
         isEl(u) ? isInlineUnit(u, inlineOpts) : u.kind === "text";
-      const blocks = splitJoinBlocks(inline0);
+      const nativePlan =
+        !Lv.asBase &&
+        !Rv.asBase &&
+        bUnits.length >= 2 &&
+        Lv.units.length === bUnits.length &&
+        Rv.units.length === bUnits.length
+          ? planNativeTransfers({
+              base: bUnits,
+              local: Lv.units,
+              remote: Rv.units,
+              localTwin: Lv.twin,
+              remoteTwin: Rv.twin,
+              eligible: (u) =>
+                isEl(u) &&
+                TEXT_BLOCK_TAGS.has(u.tagName) &&
+                !ignored(u) &&
+                !o.remoteWins(u),
+              nodes: {
+                base: Array.from(kidsOf(b).childNodes),
+                local: Array.from(kidsOf(Lv.el).childNodes),
+                remote: Array.from(kidsOf(Rv.el).childNodes),
+              },
+            })
+          : null;
+      const blocks = nativePlan ? nativePlan.blocks : splitJoinBlocks(inline0);
       const isInline = (u) => (blocks && blocks.has(u)) || inline0(u);
       const bInline = bUnits.map(isInline);
       if (!bInline.includes(true)) return;
@@ -2173,6 +2198,8 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           out,
           policy,
           blocks,
+          prepared: nativePlan ? nativePlan.prepared : null,
+          nativeTransfers: nativePlan,
           L: lu ? L : baseAlignment(L, b),
           R: ru ? R : baseAlignment(R, b),
           idOf: { local: idLocal, remote: idRemote },
@@ -2199,6 +2226,28 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           node: el,
         });
         segments.push(...res.segments);
+        if (nativePlan) {
+          const outputs = new Map();
+          for (const node of res.nodes) {
+            const owner = provenance.get(node)?.base;
+            if (!owner || outputs.has(owner))
+              throw new Error("Invalid native transfer owner output");
+            outputs.set(owner, node);
+          }
+          if (outputs.size !== nativePlan.owners.length)
+            throw new Error("Incomplete native transfer owner output");
+          for (const owner of nativePlan.owners) {
+            const node = outputs.get(owner.base);
+            if (!node) throw new Error("Missing native transfer owner output");
+            for (const unit of [owner.base, owner.local, owner.remote]) {
+              emitted.add(unit);
+              segUnits.add(unit);
+              outputOfUnit.set(unit, node);
+            }
+            segFrags.push({ frag: node, at: bPos.get(owner.base) });
+          }
+          continue;
+        }
         const frag = out.createDocumentFragment();
         for (const n of res.nodes) frag.appendChild(n);
         for (const u of [...units, ...(lu || []), ...(ru || [])]) {
