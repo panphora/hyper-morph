@@ -23,7 +23,7 @@
 import { createAnalyzer } from "./similarity.js";
 import { emptyStats } from "./stats.js";
 import { align } from "./align.js";
-import { merge3Text, diff, words } from "./text-merge.js";
+import { merge3Text, diff } from "./text-merge.js";
 import { mergeInline, isInlineUnit, MARK_TAGS } from "./inline-merge.js";
 import { planNativeTransfers } from "./native-transfers.js";
 import { indexByIdentity, defaultIdentity, warnDuplicate } from "./identity.js";
@@ -32,22 +32,20 @@ import { isHtmlScript, mergeIdentityOf } from "./scripts.js";
 import { mergeScriptText } from "./hyper-morph-json-merge.js";
 import { createRecovery } from "./recovery.js";
 import { createMergeMoveDestinations } from "./move-destinations.js";
-import { replacementViews } from "./certificate-groups.js";
+import {
+  replacementViews,
+  certificateGroups,
+  certifiedOrigins,
+  inlineScopeUnits,
+} from "./certificate-groups.js";
 
 const isEl = (u) => !!u && u.nodeType === 1;
 
-/**
- * Blocks a paragraph split or join can produce or consume: when one side's
- * copy of such a block holds most of the words of a block or text run the
- * other tree has beside it, the two merge as one word sequence with block
- * breaks (see inline-merge.js, BREAK).
- */
 const TEXT_BLOCK_TAGS = new Set(
   "P H1 H2 H3 H4 H5 H6 DIV LI DD DT BLOCKQUOTE FIGCAPTION SUMMARY ADDRESS".split(
     " ",
   ),
 );
-const SPLIT_SCAN_MAX = 50000;
 
 /**
  * The key alignment indexes a head child or a mergeable JSON script by, in
@@ -1257,6 +1255,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     // unit, and every unit of the three segments anchors on it.
     const segUnits = new Set();
     const segFrags = [];
+    let segOutputs = null;
     mergeSegments();
 
     // Kept children on each side, in that side's order, as base units.
@@ -1690,6 +1689,14 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     // Step 2: walk the order side.
     for (const su of O.V.units) {
       if (segUnits.has(su)) {
+        if (segOutputs?.has(su)) {
+          for (const node of segOutputs.get(su))
+            if (!inResult.has(node)) {
+              result.push(node);
+              inResult.add(node);
+            }
+          continue;
+        }
         // The order side's place for its segment: the merged fragment.
         const frag = outputOfUnit.get(su);
         if (!inResult.has(frag)) {
@@ -1728,7 +1735,13 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     // edited it: it goes after the nearest preceding base unit with output.
     for (const s of segFrags) {
       if (inResult.has(s.frag)) continue;
-      result.splice(afterBase(s.at), 0, s.frag);
+      result.splice(
+        s.previous && inResult.has(s.previous)
+          ? result.indexOf(s.previous) + 1
+          : afterBase(s.at),
+        0,
+        s.frag,
+      );
       inResult.add(s.frag);
     }
 
@@ -1804,351 +1817,6 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       return 0;
     }
 
-    // The text blocks under this parent that a side split or joined, with
-    // their twins: they merge as one word sequence with block breaks.
-    // Evidence is an orphan text block (a side one with no base twin, or a
-    // base one with no twin on that side) whose words are mostly held by a
-    // text block or text run on the other tree in the same gap: the gap's
-    // inside, or the paired blocks that bound it. A block a side moved to
-    // another parent never qualifies: its destination merges it.
-    function splitJoinBlocks(inline0) {
-      // An inline remote-wins region inside the block is one atom of its
-      // text, which the remote's copy fills.
-      const plainOpts = { ignored, remoteWins: () => false };
-      const inlineIn = (c) =>
-        inline0(c) ||
-        (isEl(c) &&
-          o.remoteWins(c) &&
-          MARK_TAGS.has(c.tagName) &&
-          isInlineUnit(c, plainOpts));
-      const tbCache = new Map();
-      const textBlock = (u) => {
-        if (!isEl(u) || !TEXT_BLOCK_TAGS.has(u.tagName)) return false;
-        let t = tbCache.get(u);
-        if (t === undefined) {
-          t = !ignored(u) && !o.remoteWins(u) && unitsOf(u).every(inlineIn);
-          tbCache.set(u, t);
-        }
-        return t;
-      };
-      const isText = (u) => !isEl(u) && u.kind === "text";
-      let out = null;
-      const tokCache = new Map();
-      const tokens = (u) => {
-        let t = tokCache.get(u);
-        if (t) return t;
-        const text = isEl(u) ? u.textContent : u.value;
-        t = new Set();
-        const low = text.toLowerCase();
-        if (text.length > SPLIT_SCAN_MAX);
-        else if (/^[\x00-\x7f]*$/.test(low))
-          for (const w of low.split(/[^\p{L}\p{N}]+/u)) {
-            if (w) t.add(w);
-          }
-        else for (const w of words(low)) if (!/^[\s\p{P}]+$/u.test(w)) t.add(w);
-        tokCache.set(u, t);
-        return t;
-      };
-      // The text with its whitespace collapsed: a piece split inside a word
-      // shares no whole word with its block, only its start or its end.
-      const flatText = (u) =>
-        (isEl(u) ? u.textContent : u.value)
-          .toLowerCase()
-          .replace(/\s+/g, " ")
-          .trim();
-      // A block's words together with its twins' words: a split right at a
-      // word one side changed still shows the half as part of the block.
-      const famCache = new Map();
-      const family = (u) => {
-        let f = famCache.get(u);
-        if (f) return f;
-        f = new Set(tokens(u));
-        const addAll = (x) => {
-          if (x) for (const w of tokens(x)) f.add(w);
-        };
-        const bk = bSet.has(u)
-          ? u
-          : (!Lv.asBase && Lv.baseOf(u)) || (!Rv.asBase && Rv.baseOf(u));
-        if (bk) {
-          addAll(bk);
-          addAll(twinIn(L, bk));
-          addAll(twinIn(R, bk));
-        }
-        famCache.set(u, f);
-        return f;
-      };
-      const holdsMost = (whole, part) => {
-        const piece = flatText(part);
-        const bk = bSet.has(whole)
-          ? whole
-          : (!Lv.asBase && Lv.baseOf(whole)) ||
-            (!Rv.asBase && Rv.baseOf(whole));
-        // A piece its own side's twin still holds at that end, as often as
-        // the base block did, is new text typed beside it: a split takes
-        // the piece out of the twin.
-        const count = (t) => (piece ? t.split(piece).length - 1 : 0);
-        if (bk && isEl(part) && !bSet.has(part)) {
-          const was = count(flatText(bk));
-          for (const x of [twinIn(L, bk), twinIn(R, bk)]) {
-            if (
-              !x ||
-              x === part ||
-              (isEl(x) ? x : x.parent).ownerDocument !== part.ownerDocument
-            )
-              continue;
-            const t = flatText(x);
-            if (
-              t.length >= piece.length &&
-              count(t) >= was &&
-              (t.startsWith(piece) || t.endsWith(piece))
-            )
-              return false;
-          }
-        }
-        // A base block the holder's own base twin already held, as often
-        // as the holder does now, did not join it: nothing arrived.
-        if (bk && !bSet.has(whole) && bSet.has(part)) {
-          const n = count(flatText(whole));
-          if (n && n <= count(flatText(bk))) return false;
-        }
-        const pt = tokens(part);
-        const wt = family(whole);
-        let n = 0;
-        for (const w of pt) if (wt.has(w)) n++;
-        if (pt.size && n * 2 >= pt.size) return true;
-        if (!piece || piece.length > SPLIT_SCAN_MAX) return false;
-        const kin = bk ? [whole, bk, twinIn(L, bk), twinIn(R, bk)] : [whole];
-        const atEnd = (t, p) => t !== p && (t.startsWith(p) || t.endsWith(p));
-        if (kin.some((x) => x && atEnd(flatText(x), piece))) return true;
-        // A base block a side joined away may carry the other side's edit:
-        // its twin's text counts when the block it joined into gained it at
-        // that end.
-        if (!bSet.has(part) || !bk) return false;
-        const w = flatText(whole),
-          was = flatText(bk);
-        return [twinIn(L, part), twinIn(R, part)].some((x) => {
-          const p = x && flatText(x);
-          return (
-            !!p &&
-            w !== p &&
-            ((w.startsWith(p) && !was.startsWith(p)) ||
-              (w.endsWith(p) && !was.endsWith(p)))
-          );
-        });
-      };
-      const add = (u) => {
-        if (!out) out = new Set();
-        out.add(u);
-      };
-      // A base block brings its twins here on both sides: they are units
-      // of the same sequence.
-      const addBase = (bk) => {
-        add(bk);
-        for (const [A, V2] of [
-          [L, Lv],
-          [R, Rv],
-        ]) {
-          if (V2.asBase) continue;
-          const t = twinIn(A, bk);
-          if (t && V2.here(t)) add(t);
-        }
-      };
-      // A side that kept every block of this parent as it was, and added
-      // none, split and joined nothing here.
-      const untouched = (V, A) =>
-        V.asBase ||
-        (bUnits.every(
-          (u) => !isEl(u) || (A.identical.has(u) && V.here(twinIn(A, u))),
-        ) &&
-          V.units.every((u) => !isEl(u) || V.baseOf(u)));
-      if (untouched(Lv, L) && untouched(Rv, R)) return null;
-      // A side that reordered the blocks here: a split or join beside the
-      // move merges block by block, since the kept order is the anchor the
-      // sequence needs.
-      const reordered = (V) => {
-        if (V.asBase) return false;
-        let last = -1;
-        for (const u of V.units) {
-          const bk = isEl(u) ? V.baseOf(u) : null;
-          if (!bk || !bSet.has(bk)) continue;
-          const at = bPos.get(bk);
-          if (at < last) return true;
-          last = at;
-        }
-        return false;
-      };
-      if (reordered(Lv) || reordered(Rv)) return null;
-      for (const [V, A] of [
-        [Lv, L],
-        [Rv, R],
-      ]) {
-        if (V.asBase || untouched(V, A)) continue;
-        const su = V.units;
-        const sideId = A === L ? authored.local : authored.remote;
-        // Two authored identities that differ name two elements, however
-        // alike their words.
-        const keysAgree = (bk, sk) => {
-          const kb = isEl(bk) && authored.base(bk),
-            ks = isEl(sk) && sideId(sk);
-          return !kb || !ks || kb === ks;
-        };
-        const sPos = new Map();
-        for (let j = 0; j < su.length; j++) sPos.set(su[j], j);
-        const here = (t) => !!t && (isEl(t) ? V.here(t) : sPos.has(t));
-        const twinHere = (bk) => {
-          const t = V.twin(bk);
-          return here(t) ? t : null;
-        };
-        // Base text blocks with no twin here on this side (deleted or moved
-        // out), and side text blocks with no base twin (inserted).
-        const bOrphans = bUnits.filter((u) => !V.twin(u) && textBlock(u));
-        const sOrphans = su.filter((u) => !V.baseOf(u) && textBlock(u));
-        const pairedHere = (u, list) =>
-          list === bUnits ? !!twinHere(u) : bSet.has(V.baseOf(u));
-        // For each index of a list, the index of the nearest paired unit
-        // before it (-1 if none) and after it (the length if none).
-        const nearest = (list) => {
-          const prev = new Int32Array(list.length),
-            next = new Int32Array(list.length);
-          let last = -1;
-          for (let i = 0; i < list.length; i++) {
-            prev[i] = last;
-            if (pairedHere(list[i], list)) last = i;
-          }
-          last = list.length;
-          for (let i = list.length - 1; i >= 0; i--) {
-            next[i] = last;
-            if (pairedHere(list[i], list)) last = i;
-          }
-          return { prev, next };
-        };
-        const sNear = nearest(su),
-          bNear = nearest(bUnits);
-        const qualify = (bk, sk) => {
-          addBase(bk);
-          add(sk);
-        };
-        for (const y of sOrphans) {
-          const j = sPos.get(y),
-            lo = sNear.prev[j],
-            hi = sNear.next[j];
-          const bLo = lo >= 0 ? V.baseOf(su[lo]) : null,
-            bHi = hi < su.length ? V.baseOf(su[hi]) : null;
-          const from = bLo ? bPos.get(bLo) : -1,
-            to = bHi ? bPos.get(bHi) : bUnits.length;
-          for (
-            let i = Math.max(0, from);
-            i <= Math.min(to, bUnits.length - 1);
-            i++
-          ) {
-            const x = bUnits[i];
-            if (!(textBlock(x) || isText(x))) continue;
-            if (!keysAgree(x, y) || !holdsMost(x, y)) continue;
-            if (isText(x)) add(y);
-            else qualify(x, y);
-          }
-        }
-        // A join or a split moves words between neighbours, and the slot
-        // pass may still have paired both blocks: a twin that gained the
-        // words its base neighbour holds, or lost the words its own
-        // neighbour holds, joins the sequence with that neighbour.
-        const nextText = (list, i, dir) => {
-          for (let j = i + dir; j >= 0 && j < list.length; j += dir) {
-            const u = list[j];
-            if (textBlock(u)) return u;
-            if (isEl(u) || u.value.trim()) return null;
-          }
-          return null;
-        };
-        // Only words in the block's own text count as moved between
-        // blocks: words inside an inline element move with that element,
-        // which the structural merge pairs on its own.
-        const plainTokens = (u) => {
-          const t = new Set();
-          for (const c of unitsOf(u))
-            if (!isEl(c) && c.kind === "text")
-              for (const w of tokens(c)) t.add(w);
-          return t;
-        };
-        const gainedBy = (to, from) => {
-          const ft = tokens(from),
-            g = new Set();
-          for (const w of plainTokens(to)) if (!ft.has(w)) g.add(w);
-          return g;
-        };
-        const mostIn = (set, u) => {
-          if (!set.size) return false;
-          const t = tokens(u);
-          let n = 0;
-          for (const w of set) if (t.has(w)) n++;
-          return n * 2 >= set.size;
-        };
-        for (const x of bUnits) {
-          if (A.identical.has(x) || !textBlock(x)) continue;
-          const y = twinHere(x);
-          if (!y || !textBlock(y)) continue;
-          const gained = gainedBy(y, x),
-            lost = gainedBy(x, y);
-          for (const dir of [-1, 1]) {
-            const x2 = nextText(bUnits, bPos.get(x), dir);
-            if (x2 && mostIn(gained, x2)) {
-              qualify(x, y);
-              addBase(x2);
-            }
-            const y2 = nextText(su, sPos.get(y) ?? -1, dir);
-            if (y2 && mostIn(lost, y2)) {
-              qualify(x, y);
-              const bk = V.baseOf(y2);
-              if (bk) qualify(bk, y2);
-              else add(y2);
-            }
-          }
-        }
-        for (const x of bOrphans) {
-          const i = bPos.get(x),
-            lo = bNear.prev[i],
-            hi = bNear.next[i];
-          const sLo = lo >= 0 ? twinHere(bUnits[lo]) : null,
-            sHi = hi < bUnits.length ? twinHere(bUnits[hi]) : null;
-          const from = sLo ? (sPos.get(sLo) ?? -1) : -1,
-            to = sHi ? (sPos.get(sHi) ?? -1) : su.length;
-          for (
-            let j = Math.max(0, from);
-            j <= Math.min(to, su.length - 1);
-            j++
-          ) {
-            const y = su[j];
-            if (!(textBlock(y) || isText(y))) continue;
-            if (!keysAgree(x, y) || !holdsMost(y, x)) continue;
-            addBase(x);
-            if (!isText(y)) {
-              const bk = V.baseOf(y);
-              if (bk) qualify(bk, y);
-              else add(y);
-            }
-          }
-        }
-      }
-      if (!out) return null;
-      // A block one side moved to another parent stays a unit of its own.
-      for (const u of Array.from(out)) {
-        if (!bSet.has(u)) continue;
-        for (const A of [L, R]) {
-          const t = twinIn(A, u);
-          if (
-            t &&
-            !isSameParent(t, A === L ? l : r, A) &&
-            !(A === L ? Lv : Rv).asBase
-          ) {
-            out.delete(u);
-            out.delete(twinIn(L, u));
-            out.delete(twinIn(R, u));
-          }
-        }
-      }
-      return out.size ? out : null;
-    }
-
     function mergeSegments() {
       if (
         (Lv.asBase || L.identical.has(b)) &&
@@ -2213,7 +1881,40 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
               },
             })
           : null;
-      const blocks = nativePlan ? nativePlan.blocks : splitJoinBlocks(inline0);
+      let certPlan = null;
+      if (!nativePlan && !Lv.asBase && !Rv.asBase) {
+        const plainOpts = { ignored, remoteWins: () => false };
+        const inlineIn = (c) =>
+          inline0(c) ||
+          (isEl(c) &&
+            o.remoteWins(c) &&
+            MARK_TAGS.has(c.tagName) &&
+            isInlineUnit(c, plainOpts));
+        const eligible = (u) =>
+          isEl(u)
+            ? TEXT_BLOCK_TAGS.has(u.tagName) &&
+              !ignored(u) &&
+              !o.remoteWins(u) &&
+              unitsOf(u).every(inlineIn)
+            : u.kind === "text";
+        certPlan = certificateGroups({
+          base: bUnits,
+          views: [
+            { V: Lv, A: L, idOf: authored.local },
+            { V: Rv, A: R, idOf: authored.remote },
+          ],
+          eligible,
+          ignored,
+          remoteWins: o.remoteWins,
+          baseId: authored.base,
+          atomKey: analyzer.exactUnitKey,
+        });
+      }
+      let blocks = nativePlan ? nativePlan.blocks : null;
+      if (certPlan) {
+        blocks = new Set();
+        for (const unit of certPlan.blocks) blocks.add(unit);
+      }
       const isInline = (u) => (blocks && blocks.has(u)) || inline0(u);
       const bInline = bUnits.map(isInline);
       if (!bInline.includes(true)) return;
@@ -2242,17 +1943,27 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         for (let k = 0; k <= anchors.length; k++) {
           const [nb, ns] =
             k < anchors.length ? anchors[k] : [bUnits.length, units.length];
-          const st = { bLo: -1, bHi: -1, sLo: -1, sHi: -1, next: ns };
+          const st = {
+            bLo: -1,
+            bHi: -1,
+            from: ps + 1,
+            to: ns,
+            inlineStart: -1,
+            inlineEnd: -1,
+            next: ns,
+          };
           for (let i = pb + 1; i < nb; i++)
             if (bInline[i]) {
               if (st.bLo < 0) st.bLo = i;
               st.bHi = i;
             }
-          for (let j = ps + 1; j < ns; j++)
-            if (isInline(units[j])) {
-              if (st.sLo < 0) st.sLo = j;
-              st.sHi = j;
+          for (let j = ps + 1; j < ns; j++) {
+            const unit = units[j];
+            if (isInline(unit)) {
+              if (st.inlineStart < 0) st.inlineStart = j;
+              st.inlineEnd = j + 1;
             }
+          }
           list.push(st);
           pb = nb;
           ps = ns;
@@ -2274,32 +1985,6 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         if (g && lo <= g.hi) g.hi = Math.max(g.hi, hi);
         else groups.push({ lo, hi });
       }
-      // The side units of a group: from its first to its last stretch, the
-      // side's inline units and the anchors between those stretches.
-      const sideRange = (S, g) => {
-        let k0 = -1,
-          k1 = -1;
-        for (let k = 0; k < S.list.length; k++) {
-          const st = S.list[k];
-          if (st.bLo < g.lo || st.bLo > g.hi) continue;
-          if (k0 < 0) k0 = k;
-          k1 = k;
-        }
-        let from = Infinity,
-          to = -1;
-        for (let k = k0; k >= 0 && k <= k1; k++) {
-          const st = S.list[k];
-          if (st.sLo >= 0) {
-            from = Math.min(from, st.sLo);
-            to = Math.max(to, st.sHi);
-          }
-          if (k < k1) {
-            from = Math.min(from, st.next);
-            to = Math.max(to, st.next);
-          }
-        }
-        return to < 0 ? [] : S.units.slice(from, to + 1);
-      };
       const sameUnits = (a, s) =>
         a.length === s.length &&
         a.every((u, i) => analyzer.equalUnits(u, s[i]));
@@ -2325,8 +2010,34 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       const hasPins = (nodes) => nodes.some((n) => isEl(n) && ignored(n));
       for (const g of groups) {
         const units = bUnits.slice(g.lo, g.hi + 1);
-        const lu = Lv.asBase ? null : sideRange(Ls, g),
-          ru = Rv.asBase ? null : sideRange(Rs, g);
+        let groupCertificates = null;
+        if (certPlan)
+          for (const unit of units) {
+            const found = certPlan.certificatesBySource.get(unit);
+            if (found) (groupCertificates ||= []).push(...found);
+          }
+        const lu = Lv.asBase
+            ? null
+            : inlineScopeUnits(Ls, g, !!groupCertificates),
+          ru = Rv.asBase ? null : inlineScopeUnits(Rs, g, !!groupCertificates);
+        if (groupCertificates) {
+          const sideSets = [new Set(lu || units), new Set(ru || units)];
+          let incomplete = groupCertificates.some(
+            (cert) => !sideSets[cert.side].has(cert.target),
+          );
+          for (const unit of units) {
+            if (!blocks.has(unit)) continue;
+            for (const [side, V] of [
+              [0, Lv],
+              [1, Rv],
+            ]) {
+              const twin = V.twin(unit);
+              if (twin && V.here(twin) && !sideSets[side].has(twin))
+                incomplete = true;
+            }
+          }
+          if (incomplete) continue;
+        }
         // A comment has no place in an inline sequence: such a group stays
         // on the per-unit path.
         if (
@@ -2350,6 +2061,18 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           out,
           policy,
           blocks,
+          scopeUnits: groupCertificates
+            ? [units, lu || units, ru || units]
+            : null,
+          certifiedOrigins: groupCertificates
+            ? (fb, fl, fr, bKey, lKey, rKey) =>
+                certifiedOrigins({
+                  certificates: groupCertificates,
+                  scopes: [units, lu || units, ru || units],
+                  flats: [fb, fl, fr],
+                  keys: [bKey, lKey, rKey],
+                })
+            : null,
           prepared: nativePlan ? nativePlan.prepared : null,
           nativeTransfers: nativePlan,
           L: lu ? L : baseAlignment(L, b),
@@ -2379,6 +2102,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           decisions,
           node: el,
         });
+        if (!res) continue;
         segments.push(...res.segments);
         if (nativePlan) {
           const outputs = new Map();
@@ -2400,6 +2124,24 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
             }
             segFrags.push({ frag: node, at: bPos.get(owner.base) });
           }
+          continue;
+        }
+        if (res.unitOutputs) {
+          segOutputs ||= new Map();
+          for (const unit of [...units, ...(lu || []), ...(ru || [])]) {
+            const outputs = res.unitOutputs.get(unit) || [];
+            resolved.add(unit);
+            segUnits.add(unit);
+            segOutputs.set(unit, outputs);
+            if (outputs.length)
+              outputOfUnit.set(unit, outputs[outputs.length - 1]);
+          }
+          for (let i = 0; i < res.nodes.length; i++)
+            segFrags.push({
+              frag: res.nodes[i],
+              at: g.lo,
+              previous: i > 0 ? res.nodes[i - 1] : null,
+            });
           continue;
         }
         const frag = out.createDocumentFragment();

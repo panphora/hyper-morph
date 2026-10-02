@@ -491,9 +491,9 @@ function editsFromOrigins(base, side, mapped) {
   return { hunks, respell: new Map() };
 }
 
-function tokenDiffFromOrigins(edits, bToks, sToks) {
-  const bOff = offsets(bToks),
-    sOff = offsets(sToks);
+function tokenDiffFromOrigins(edits, bToks, sToks, splitSide) {
+  const bOff = offsets(bToks);
+  let sOff = offsets(sToks);
   const index = (off, value) => {
     let lo = 0,
       hi = off.length;
@@ -504,6 +504,37 @@ function tokenDiffFromOrigins(edits, bToks, sToks) {
     }
     return off[lo] === value ? lo : -1;
   };
+  for (const h of edits.hunks)
+    if (index(bOff, h.bs) < 0 || index(bOff, h.be) < 0) return null;
+  if (edits.hunks.some((h) => index(sOff, h.ss) < 0 || index(sOff, h.se) < 0)) {
+    if (!splitSide) return null;
+    const cuts = [];
+    for (const h of edits.hunks) cuts.push(h.ss, h.se);
+    const refined = [];
+    let ci = 0,
+      at = 0;
+    for (const token of sToks) {
+      const end = at + token.len;
+      while (ci < cuts.length && cuts[ci] <= at) ci++;
+      let from = at;
+      while (ci < cuts.length && cuts[ci] < end) {
+        const cut = cuts[ci++];
+        if (cut > from) {
+          const raw = token.raw.slice(from - at, cut - at);
+          refined.push(...textTokens(raw, allAscii(raw)));
+          from = cut;
+        }
+      }
+      if (from === at) refined.push(token);
+      else {
+        const raw = token.raw.slice(from - at);
+        refined.push(...textTokens(raw, allAscii(raw)));
+      }
+      at = end;
+    }
+    sToks = refined;
+    sOff = offsets(sToks);
+  }
   const parts = [];
   for (const h of edits.hunks) {
     const bs = index(bOff, h.bs),
@@ -519,7 +550,7 @@ function tokenDiffFromOrigins(edits, bToks, sToks) {
       group: parts.length,
     });
   }
-  return { parts, cosmeticEq: [] };
+  return { parts, cosmeticEq: [], tokens: sToks };
 }
 
 export function prepareInline(fb, fl, fr, keys = {}, origins = null) {
@@ -556,11 +587,13 @@ function prepareInlineInputs(fb, fl, fr, bKey, lKey, rKey, origins, prepared) {
     ? editsFromOrigins(fb, fr, origins.remote)
     : null;
   const localDiff = localOrigins
-    ? tokenDiffFromOrigins(localOrigins, bToks, lToks)
+    ? tokenDiffFromOrigins(localOrigins, bToks, lToks, !lines)
     : diffTokens(bToks, lToks);
   const remoteDiff = remoteOrigins
-    ? tokenDiffFromOrigins(remoteOrigins, bToks, rToks)
+    ? tokenDiffFromOrigins(remoteOrigins, bToks, rToks, !lines)
     : diffTokens(bToks, rToks);
+  if (localOrigins && localDiff) lToks = localDiff.tokens;
+  if (remoteOrigins && remoteDiff) rToks = remoteDiff.tokens;
   let localEdits, remoteEdits;
   if (localDiff && remoteDiff) {
     const paired = pairedHunks(localDiff, remoteDiff, bToks);
@@ -856,8 +889,11 @@ export function mergeInline(o) {
     lKey = atomKeys(fl, L),
     rKey = atomKeys(fr, R);
 
-  let origins = null;
-  if (!o.prepared && o.blocks) {
+  let origins = o.certifiedOrigins
+    ? o.certifiedOrigins(fb, fl, fr, bKey, lKey, rKey)
+    : null;
+  if (origins?.fallback) return null;
+  if (!origins && !o.prepared && o.blocks) {
     const budget = occurrenceBudget();
     const local = boundaryOccurrences({
       base: fb,
@@ -2017,7 +2053,14 @@ export function mergeInline(o) {
   const track = conflicts.length > firstConflict;
   for (let i = 0; i < m; i++) {
     const at = atomsAt(i);
-    const atomBlock = !!at && isBlock((at.ab || at.al || at.ar).el);
+    const nestedAtom =
+      o.scopeUnits &&
+      at &&
+      (at.ab?.stack.some((mark) => mark.block) ||
+        at.al?.stack.some((mark) => mark.block) ||
+        at.ar?.stack.some((mark) => mark.block));
+    const atomBlock =
+      !!at && isBlock((at.ab || at.al || at.ar).el) && !nestedAtom;
     const want = atomBlock
       ? []
       : blockOf[i]
@@ -2376,7 +2419,66 @@ export function mergeInline(o) {
     segMeta.textNodes = textNodes;
     segMeta.out = flatten(nodes, { ...outOpts, via: standIn });
   }
+  let unitOutputs = null;
+  if (o.scopeUnits) {
+    unitOutputs = new Map();
+    const roots = new Set(nodes);
+    const rootOf = (node) => {
+      while (node && !roots.has(node)) node = node.parentNode;
+      return node;
+    };
+    const indexes = o.scopeUnits.map((units) => {
+      const direct = new Map();
+      for (const unit of units) {
+        if (unit.nodeType === 1) direct.set(unit, unit);
+        else for (const node of unit.nodes) direct.set(node, unit);
+      }
+      return direct;
+    });
+    const owner = (node, direct) => {
+      while (node && !direct.has(node)) node = node.parentNode;
+      return node ? direct.get(node) : null;
+    };
+    const flatUnits = [fb, fl, fr].map((flat, side) => {
+      const at = new Array(flat.text.length);
+      for (const range of flat.nodes) {
+        const unit = owner(range.node, indexes[side]);
+        if (unit) at.fill(unit, range.s, range.e);
+      }
+      for (const atom of flat.atoms) at[atom.i] = owner(atom.el, indexes[side]);
+      return at;
+    });
+    const claim = (unit, root) => {
+      if (!unit || !root) return;
+      let held = unitOutputs.get(unit);
+      if (!held) unitOutputs.set(unit, (held = new Set()));
+      held.add(root);
+    };
+    for (const root of nodes) {
+      const source = provenance.get(root);
+      if (!source) continue;
+      claim(owner(source.base, indexes[0]), root);
+      claim(owner(source.local, indexes[1]), root);
+      claim(owner(source.remote, indexes[2]), root);
+    }
+    for (const range of textNodes) {
+      const root = rootOf(range.node);
+      for (let i = range.ms; i < range.me; i++) {
+        if (ob[i] >= 0) claim(flatUnits[0][ob[i]], root);
+        if (ol[i] >= 0) claim(flatUnits[1][ol[i]], root);
+        if (or[i] >= 0) claim(flatUnits[2][or[i]], root);
+      }
+    }
+    const order = new Map(nodes.map((node, i) => [node, i]));
+    for (const [unit, held] of unitOutputs)
+      unitOutputs.set(
+        unit,
+        Array.from(held).sort((a, b) => order.get(a) - order.get(b)),
+      );
+  }
+
   return {
+    unitOutputs,
     nodes,
     text,
     textNodes,
