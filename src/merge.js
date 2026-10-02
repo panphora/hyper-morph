@@ -348,8 +348,24 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     // their parents sit, whatever their markup; the copies merge. Not when
     // either holds an element base had: merging the copies would keep one
     // and drop the other's base descendant, so both stay.
-    const holdsBase = (A, el) =>
-      [...el.querySelectorAll("*")].some((d) => A.reverse.has(d));
+    const heldMemo = new Map([
+      [L, new Map()],
+      [R, new Map()],
+    ]);
+    const holdsBase = (A, el) => {
+      const memo = heldMemo.get(A);
+      let v = memo.get(el);
+      if (v === undefined) {
+        v = false;
+        for (const c of el.children)
+          if (A.reverse.has(c) || holdsBase(A, c)) {
+            v = true;
+            break;
+          }
+        memo.set(el, v);
+      }
+      return v;
+    };
     const rById = new Map();
     for (const rs of rIns.values())
       for (const ru of rs) {
@@ -366,9 +382,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           !isInlineUnit(lu, inlineOpts) &&
           !isInlineUnit(ru, inlineOpts) &&
           !o.remoteWins(lu) &&
-          !o.remoteWins(ru) &&
-          !holdsBase(L, lu) &&
-          !holdsBase(R, ru)
+          !o.remoteWins(ru)
         )
           cands.push([lu, [ru], depth(lu), true, true]);
       }
@@ -396,6 +410,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     const baseParentOf = (A, el) => A.reverse.get(el.parentNode) || null;
     for (const [lu, rs, , crossable, byId] of cands) {
       if (covered.has(lu) || taken.has(lu)) continue;
+      if (byId && (holdsBase(L, lu) || holdsBase(R, rs[0]))) continue;
       const bp = baseParentOf(L, lu);
       const free = (x) =>
         !taken.has(x) &&
@@ -496,8 +511,17 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     for (const bk of Array.from(A.weak)) {
       const su = twinIn(A, bk);
       if (!su) continue;
-      // A side element with an identity of its own is no echo of anything.
-      if (A === L ? freshLocal(su) : freshRemote(su)) continue;
+      // A side element with an identity of its own echoes only the other
+      // side's insertion under that identity, never a copy of its markup.
+      const fid = A === L ? freshLocal(su) : freshRemote(su);
+      if (fid) {
+        const copy = (A === L ? rIndex : lIndex)?.get(fid);
+        if (copy && copy.tagName === su.tagName && !O.reverse.has(copy)) {
+          A.unpair(bk);
+          any = true;
+        }
+        continue;
+      }
       const list = ins.get(analyzer.unitHash(su));
       if (
         list &&
@@ -639,15 +663,24 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         : out.createElement(b.tagName);
     const prov = { base: b, local: l || null, remote: r || null };
     provenance.set(el, prov);
-    if (asBase && !localAsBase && l && changed(b, l, L))
-      conflict({
-        kind: "structure",
-        el,
-        detail: "remote-wins",
-        base: b,
-        local: l,
-        remote: r || null,
-      });
+    if (
+      asBase &&
+      !localAsBase &&
+      l &&
+      changed(b, l, L) &&
+      (!r || !analyzer.equalUnits(l, r))
+    )
+      conflict(
+        {
+          kind: "structure",
+          el,
+          detail: "remote-wins",
+          base: b,
+          local: l,
+          remote: r || null,
+        },
+        { subject: b },
+      );
     emitted.add(b);
     placed.add(b);
     if (l) emitted.add(l);

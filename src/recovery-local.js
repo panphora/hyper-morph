@@ -39,6 +39,7 @@ export function captureLocal(conflicts, links, toLive) {
   };
   for (const c of conflicts) {
     const rv = c.recovery;
+    if (!rv) continue;
     if (states.has(rv)) continue;
     const state = {
       subject: ref(rv.subject),
