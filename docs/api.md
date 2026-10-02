@@ -701,8 +701,10 @@ insertion that pair with base nodes (a new wrapper around existing
 content) are emitted through the merge, not copied.
 
 An insertion made on both sides under the same identity, or the same
-content at the same anchor, is an echo: it is emitted once with local's
-version and provenance covering both sides.
+content at the same anchor when neither copy carries an identity base
+lacks, is an echo: it is emitted once with local's version and provenance
+covering both sides. Two copies under different identities are two
+elements, however alike.
 
 ### Children and order
 
