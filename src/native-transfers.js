@@ -9,6 +9,118 @@ import {
 } from "./text-merge.js";
 import { compileOccurrenceMap, occurrenceBudget } from "./occurrence-map.js";
 
+function nativeTokenRange(text, from, to, fast, charge) {
+  if (!charge(text.length * 8 + 1)) return null;
+  let offset = 0,
+    begins = from === 0,
+    ends = false;
+  for (const token of textTokens(text, fast)) {
+    if (!charge(1)) return null;
+    offset += token.len;
+    if (offset === from) begins = true;
+    if (offset === to) ends = true;
+    if (offset >= to) break;
+  }
+  return begins && ends;
+}
+
+function replacementTransfers(
+  side,
+  hunks,
+  owners,
+  transfers,
+  byOrigin,
+  fast,
+  charge,
+) {
+  if (!charge(hunks.length * 2)) return false;
+  const removed = new Map(),
+    inserted = new Map(),
+    replacementKeys = new Set();
+  for (const h of hunks) {
+    const removal = h.bs < h.be;
+    const text = removal
+      ? owners[h.ownerIndex].text.base
+      : owners[h.ownerIndex].text[side];
+    let from = removal ? h.bs : h.ss,
+      to = removal ? h.be : h.se;
+    if (!charge((to - from) * 4 + 1)) return false;
+    while (from < to && /\s/.test(text[from])) from++;
+    while (to > from && /\s/.test(text[to - 1])) to--;
+    if (from === to) continue;
+    const key = text.slice(from, to),
+      map = removal ? removed : inserted;
+    if (removal && h.text) replacementKeys.add(key);
+    if (map.has(key)) map.set(key, null);
+    else map.set(key, { h, from, to });
+  }
+  for (const event of transfers) {
+    if (!charge(1)) return false;
+    if (event.side !== side) continue;
+    const h = event.deletion,
+      text = owners[h.ownerIndex].text.base;
+    if (!charge((h.be - h.bs) * 3)) return false;
+    if (replacementKeys.has(text.slice(h.bs, h.be).trim())) return false;
+  }
+  for (const [text, sourceRange] of removed) {
+    if (!charge(text.length + 1)) return false;
+    const targetRange = inserted.get(text);
+    if (!sourceRange || !targetRange) continue;
+    const deletion = sourceRange.h,
+      insertion = targetRange.h;
+    if (
+      !deletion.text ||
+      deletion.transferOut ||
+      insertion.transferIn ||
+      deletion.owner === insertion.owner
+    )
+      continue;
+    const source = owners[deletion.ownerIndex],
+      destination = owners[insertion.ownerIndex];
+    if (!charge(source.text.base.length)) return false;
+    if (
+      !/\S/.test(
+        source.text.base.slice(0, deletion.bs) +
+          source.text.base.slice(deletion.be),
+      )
+    )
+      continue;
+    const sourceTokens = nativeTokenRange(
+        source.text.base,
+        sourceRange.from,
+        sourceRange.to,
+        fast,
+        charge,
+      ),
+      targetTokens = nativeTokenRange(
+        destination.text[side],
+        targetRange.from,
+        targetRange.to,
+        fast,
+        charge,
+      );
+    if (sourceTokens === null || targetTokens === null) return false;
+    if (!sourceTokens || !targetTokens) continue;
+    const key = `${source.index}:${sourceRange.from}:${sourceRange.to}`;
+    const event = {
+      key,
+      side,
+      source: deletion.owner,
+      destination: insertion.owner,
+      deletion,
+      insertion,
+      sourceOffset: sourceRange.from - deletion.bs,
+      targetOffset: targetRange.from - insertion.ss,
+      length: sourceRange.to - sourceRange.from,
+    };
+    deletion.transferOut = event;
+    insertion.transferIn = event;
+    byOrigin[side].set(key, event);
+    transfers.push(event);
+  }
+  return true;
+}
+
 export function planNativeTransfers({
   base,
   local,
@@ -119,6 +231,7 @@ export function planNativeTransfers({
   for (const side of ["local", "remote"]) {
     const removed = new Map(),
       inserted = new Map();
+    let hasReplacement = false;
     const add = (map, text, h) => {
       if (map.has(text)) map.set(text, null);
       else map.set(text, h);
@@ -133,7 +246,7 @@ export function planNativeTransfers({
       } else if (h.bs === h.be && /\S/.test(h.text)) {
         if (!charge(h.text.length * 2)) return null;
         add(inserted, h.text, h);
-      }
+      } else if (h.bs < h.be) hasReplacement = true;
     }
     for (const [text, deletion] of removed) {
       if (!charge(text.length + 1)) return null;
@@ -163,6 +276,20 @@ export function planNativeTransfers({
       byOrigin[side].set(key, event);
       transfers.push(event);
     }
+    if (
+      hasReplacement &&
+      inserted.size &&
+      !replacementTransfers(
+        side,
+        hunks[side],
+        owners,
+        transfers,
+        byOrigin,
+        fast,
+        charge,
+      )
+    )
+      return null;
   }
   if (!transfers.length) return null;
 
@@ -230,10 +357,12 @@ export function planNativeTransfers({
     }
   }
   for (const event of transfers) {
-    event.bs = event.deletion.bs;
-    event.be = event.deletion.be;
-    event.ss = event.insertion.ss;
-    event.se = event.insertion.se;
+    event.bs = event.deletion.bs + (event.sourceOffset || 0);
+    event.be =
+      event.length === undefined ? event.deletion.be : event.bs + event.length;
+    event.ss = event.insertion.ss + (event.targetOffset || 0);
+    event.se =
+      event.length === undefined ? event.insertion.se : event.ss + event.length;
   }
 
   const maps = {};

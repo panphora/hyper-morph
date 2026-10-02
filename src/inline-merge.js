@@ -1424,7 +1424,14 @@ export function mergeInline(o) {
       text += spelled.slice(p.from, p.to);
     } else if (p.src === "both") {
       for (let k = 0; k < p.len; k++) {
-        ob.push(p.transfer ? p.transfer.bs + k : -1);
+        const at =
+          p.transfer &&
+          (p.transfer.side === "remote" ? p.rfrom + k : p.lfrom + k);
+        ob.push(
+          p.transfer && at >= p.transfer.ss && at < p.transfer.se
+            ? p.transfer.bs + at - p.transfer.ss
+            : -1,
+        );
         ol.push(p.lfrom + k);
         or.push(p.rfrom + k);
         pieceAt.push(p);
@@ -1438,10 +1445,12 @@ export function mergeInline(o) {
           p.transfer.key,
         );
       for (let i = p.from; i < p.to; i++) {
-        const b = p.transfer ? p.transfer.bs + i - p.from : -1;
+        const b =
+          p.transfer && i >= p.transfer.ss && i < p.transfer.se
+            ? p.transfer.bs + i - p.transfer.ss
+            : -1;
         const other =
-          p.transfer &&
-          (!movedElsewhere || movedElsewhere.destination === p.owner)
+          b >= 0 && (!movedElsewhere || movedElsewhere.destination === p.owner)
             ? (p.src === "local" ? MR : ML).bTo[b]
             : -1;
         ob.push(b);
