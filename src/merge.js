@@ -48,6 +48,11 @@ const TEXT_BLOCK_TAGS = new Set(
   ),
 );
 
+function hasTextBlock(units) {
+  for (const unit of units) if (TEXT_BLOCK_TAGS.has(unit.tagName)) return true;
+  return false;
+}
+
 /**
  * The key alignment indexes a head child or a mergeable JSON script by, in
  * place of its identity: a head child's head signature, a script's merge
@@ -1943,7 +1948,14 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
             })
           : null;
       let certPlan = null;
-      if (!nativePlan && !Lv.asBase && !Rv.asBase) {
+      if (
+        !nativePlan &&
+        !Lv.asBase &&
+        !Rv.asBase &&
+        (hasTextBlock(bUnits) ||
+          hasTextBlock(Lv.units) ||
+          hasTextBlock(Rv.units))
+      ) {
         const plainOpts = { ignored, remoteWins: () => false };
         const inlineIn = (c) =>
           inline0(c) ||

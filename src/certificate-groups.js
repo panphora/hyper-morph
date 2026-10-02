@@ -8,6 +8,11 @@ import {
 } from "./text-merge.js";
 import { compileOccurrenceMap, occurrenceBudget } from "./occurrence-map.js";
 
+const NON_SPACE = /\S/;
+const SPACE = /\s/;
+const SOFT = /[\s\u001e]/g;
+const EVIDENCE = /[^\s\p{P}\u001e\ufffc]/u;
+
 export function replacementViews({
   base,
   views,
@@ -90,7 +95,7 @@ export function replacementViews({
     const short = left.text.length <= right.text.length ? left : right;
     const long = short === left ? right : left;
     charge(budget, short.text.length + long.text.length);
-    if (!short.text || !/\S/.test(short.text.replaceAll(ATOM, "")))
+    if (!short.text || !NON_SPACE.test(short.text.replaceAll(ATOM, "")))
       return false;
     let at;
     if (short.text === long.text) at = 0;
@@ -268,13 +273,23 @@ export function certificateGroups({
             atoms: [],
           }
         : flatten(nodes, { ignored, remoteWins });
-    charge(budget, flat.text.length * 8);
+    value = { unit, flat, alignment: A, tokens: null };
+    models.set(unit, value);
+    return value;
+  };
+  const tokensOf = (value, budget) => {
+    if (value.tokens) return value.tokens;
+    charge(budget, value.flat.text.length * 8);
+    const { unit, flat, alignment: A } = value;
     const tokens = [];
     const fast = allAscii(flat.text);
     let at = 0;
     const addText = (end) => {
       for (const token of textTokens(flat.text.slice(at, end), fast)) {
-        tokens.push({ ...token, from: at, to: at + token.len, unit });
+        token.from = at;
+        token.to = at + token.len;
+        token.unit = unit;
+        tokens.push(token);
         at += token.len;
       }
     };
@@ -296,20 +311,22 @@ export function certificateGroups({
       at++;
     }
     addText(flat.text.length);
-    value = { unit, flat, tokens };
-    models.set(unit, value);
-    return value;
+    value.tokens = tokens;
+    return tokens;
   };
   const equalAtoms = (X, Y, from, length, budget) => {
-    charge(budget, X.tokens.length + Y.tokens.length);
+    if (!X.flat.atoms.length && !Y.flat.atoms.length) return true;
+    const xt = tokensOf(X, budget),
+      yt = tokensOf(Y, budget);
+    charge(budget, xt.length + yt.length);
     let xi = 0;
-    for (const y of Y.tokens) {
+    for (const y of yt) {
       if (!y.atom || y.from < from || y.from >= from + length) continue;
-      while (xi < X.tokens.length && !X.tokens[xi].atom) xi++;
-      const x = X.tokens[xi++];
+      while (xi < xt.length && !xt[xi].atom) xi++;
+      const x = xt[xi++];
       if (!x || x.from !== y.from - from || x.k !== y.k) return false;
     }
-    while (xi < X.tokens.length) if (X.tokens[xi++].atom) return false;
+    while (xi < xt.length) if (xt[xi++].atom) return false;
     return true;
   };
   const equalPairs = (B, S, budget) => {
@@ -345,20 +362,36 @@ export function certificateGroups({
     }
     return pairs;
   };
-  const append = (runs, source, target, from, to, targetFrom) => {
+  const append = (runs, source, target, from, to, targetFrom, budget) => {
     if (to <= from) return;
     const last = runs[runs.length - 1];
     if (
       last &&
       last.source === source &&
       last.target === target &&
-      last.to === from &&
-      last.targetFrom + last.to - last.from === targetFrom
-    )
-      last.to = to;
-    else runs.push({ source, target, from, to, targetFrom });
+      last.to <= from &&
+      last.targetFrom - last.from === targetFrom - from
+    ) {
+      charge(budget, (from - last.to) * 3);
+      const before = models.get(source).flat.text;
+      const after = models.get(target).flat.text;
+      let same = true;
+      for (let i = last.to; i < from; i++)
+        if (
+          !SPACE.test(before[i]) ||
+          before[i] !== after[targetFrom + i - from]
+        ) {
+          same = false;
+          break;
+        }
+      if (same) {
+        last.to = to;
+        return;
+      }
+    }
+    runs.push({ source, target, from, to, targetFrom });
   };
-  const hard = (text) => text.replace(/[\s\u001e]/g, "");
+  const hard = (text) => text.replace(SOFT, "");
   for (let side = 0; side < views.length; side++) {
     const { V, A, idOf } = views[side];
     if (V.asBase) continue;
@@ -491,25 +524,41 @@ export function certificateGroups({
               !blocked.has(V.baseOf(unit)),
           );
         const sSet = new Set(S);
-        const reserved = new Map();
         let failed = false;
-        for (const unit of B.concat(S)) {
-          const M = model(unit, baseSet.has(unit) ? null : A, budget);
-          charge(budget, M.flat.text.length * 16);
-          reserved.set(unit, new Uint8Array(M.flat.text.length));
+        let before = "",
+          after = "",
+          total = 0;
+        for (const unit of B) {
+          const M = model(unit, null, budget);
+          before += M.flat.text;
+          total += M.flat.text.length;
         }
-        if (failed) continue;
-        const wholeB = B.map((unit) => model(unit, null, budget).tokens).flat();
-        const wholeS = S.map((unit) => model(unit, A, budget).tokens).flat();
-        charge(
-          budget,
-          wholeB.reduce((n, t) => n + t.len, 0) +
-            wholeS.reduce((n, t) => n + t.len, 0),
-        );
-        const conservation =
-          hard(wholeB.map((t) => t.raw).join("")) ===
-          hard(wholeS.map((t) => t.raw).join(""));
+        for (const unit of S) {
+          const M = model(unit, A, budget);
+          after += M.flat.text;
+          total += M.flat.text.length;
+        }
+        charge(budget, total);
+        const beforeHard = hard(before),
+          afterHard = hard(after);
+        const conservation = beforeHard === afterHard;
         if (members && !conservation) continue;
+        const reserved = conservation ? null : new Map();
+        if (reserved)
+          for (const unit of B.concat(S)) {
+            const length = models.get(unit).flat.text.length;
+            charge(budget, length * 16);
+            reserved.set(unit, new Uint8Array(length));
+          }
+        const whole = (list) => {
+          const spans = [];
+          for (const unit of list) {
+            const M = models.get(unit);
+            if (M.flat.atoms.length) spans.push(...tokensOf(M, budget));
+            else spans.push({ unit, raw: M.flat.text, from: 0 });
+          }
+          return spans;
+        };
         const retained = [];
         for (const unit of conservation ? [] : B) {
           const twin = twinHere(unit);
@@ -531,10 +580,22 @@ export function certificateGroups({
           ) {
             reserved.get(unit).fill(1);
             reserved.get(twin).fill(1, at, at + original.flat.text.length);
-            append(retained, unit, twin, 0, original.flat.text.length, at);
+            append(
+              retained,
+              unit,
+              twin,
+              0,
+              original.flat.text.length,
+              at,
+              budget,
+            );
             continue;
           }
-          const pairs = equalPairs(original.tokens, current.tokens, budget);
+          const pairs = equalPairs(
+            tokensOf(original, budget),
+            tokensOf(current, budget),
+            budget,
+          );
           if (!pairs) {
             failed = true;
             break;
@@ -542,7 +603,7 @@ export function certificateGroups({
           for (const [x, y] of pairs) {
             reserved.get(unit).fill(1, x.from, x.to);
             reserved.get(twin).fill(1, y.from, y.to);
-            append(retained, unit, twin, x.from, x.to, y.from);
+            append(retained, unit, twin, x.from, x.to, y.from, budget);
           }
         }
         if (failed) continue;
@@ -551,7 +612,7 @@ export function certificateGroups({
           for (const unit of list) {
             const M = model(unit, baseSet.has(unit) ? null : A, budget),
               used = reserved.get(unit);
-            for (const token of M.tokens) {
+            for (const token of tokensOf(M, budget)) {
               let at = token.from;
               while (at < token.to) {
                 while (at < token.to && used[at]) at++;
@@ -559,7 +620,7 @@ export function certificateGroups({
                 while (at < token.to && !used[at]) at++;
                 if (at > from) {
                   const raw = M.flat.text.slice(from, at);
-                  if (/\S/.test(raw))
+                  if (NON_SPACE.test(raw))
                     tokens.push({
                       ...token,
                       raw,
@@ -574,10 +635,14 @@ export function certificateGroups({
           }
           return tokens;
         };
-        const bt = conservation ? wholeB : residual(B),
-          st = conservation ? wholeS : residual(S);
-        const bhard = bt.map((token) => hard(token.raw)).join("");
-        const shard = st.map((token) => hard(token.raw)).join("");
+        const bt = conservation ? whole(B) : residual(B),
+          st = conservation ? whole(S) : residual(S);
+        const bhard = conservation
+          ? beforeHard
+          : bt.map((token) => hard(token.raw)).join("");
+        const shard = conservation
+          ? afterHard
+          : st.map((token) => hard(token.raw)).join("");
         if (!bhard || !shard) continue;
         const matches = [];
         if (bhard === shard) {
@@ -588,8 +653,8 @@ export function certificateGroups({
           while (ti < bt.length && tj < st.length) {
             const x = bt[ti],
               y = st[tj];
-            while (bi < x.raw.length && /\s/.test(x.raw[bi])) bi++;
-            while (sj < y.raw.length && /\s/.test(y.raw[sj])) sj++;
+            while (bi < x.raw.length && SPACE.test(x.raw[bi])) bi++;
+            while (sj < y.raw.length && SPACE.test(y.raw[sj])) sj++;
             if (bi === x.raw.length) {
               ti++;
               bi = 0;
@@ -613,6 +678,7 @@ export function certificateGroups({
               x.from + bi,
               x.from + bi + 1,
               y.from + sj,
+              budget,
             );
             bi++;
             sj++;
@@ -621,7 +687,7 @@ export function certificateGroups({
           const pairs = equalPairs(bt, st, budget);
           if (!pairs) continue;
           for (const [x, y] of pairs)
-            append(matches, x.unit, y.unit, x.from, x.to, y.from);
+            append(matches, x.unit, y.unit, x.from, x.to, y.from, budget);
         }
         if (failed) continue;
         const bySource = new Map();
@@ -646,17 +712,16 @@ export function certificateGroups({
               ? model(counterpart, other.A, budget)
               : null;
           const sameModel = (x, y) => {
+            const xt = tokensOf(x, budget),
+              yt = tokensOf(y, budget);
             charge(
               budget,
-              x.flat.text.length +
-                y.flat.text.length +
-                x.tokens.length +
-                y.tokens.length,
+              x.flat.text.length + y.flat.text.length + xt.length + yt.length,
             );
             return (
               x.flat.text === y.flat.text &&
-              x.tokens.length === y.tokens.length &&
-              x.tokens.every((token, i) => token.k === y.tokens[i].k)
+              xt.length === yt.length &&
+              xt.every((token, i) => token.k === yt[i].k)
             );
           };
           const echoedRewrite =
@@ -741,7 +806,7 @@ export function certificateGroups({
                 !retained.some(
                   (run) =>
                     run.source === targetBase &&
-                    /\S/.test(targetBefore.slice(run.from, run.to)),
+                    NON_SPACE.test(targetBefore.slice(run.from, run.to)),
                 );
               if (
                 !conservation &&
@@ -760,17 +825,15 @@ export function certificateGroups({
           for (const run of selected) covered.fill(1, run.from, run.to);
           const hardIndices = [];
           for (let i = 0; i < sourceText.length; i++)
-            if (!/\s/.test(sourceText[i])) hardIndices.push(i);
+            if (!SPACE.test(sourceText[i])) hardIndices.push(i);
           if (!hardIndices.length) continue;
           const targets = new Set(selected.map((run) => run.target));
           const evidence = hardIndices.filter((i) =>
-            /[^\s\p{P}\u001e\ufffc]/u.test(sourceText[i]),
+            EVIDENCE.test(sourceText[i]),
           );
           if (
             !selected.some((run) =>
-              /[^\s\p{P}\u001e\ufffc]/u.test(
-                sourceText.slice(run.from, run.to),
-              ),
+              EVIDENCE.test(sourceText.slice(run.from, run.to)),
             ) &&
             !hardIndices.every((i) => covered[i])
           )
@@ -801,7 +864,7 @@ export function certificateGroups({
             !retained.some(
               (run) =>
                 run.source === source &&
-                /\S/.test(sourceText.slice(run.from, run.to)),
+                NON_SPACE.test(sourceText.slice(run.from, run.to)),
             )
           )
             continue;
@@ -911,7 +974,9 @@ export function certifiedOrigins({
     const textTo = (end) => {
       const text = flat.text.slice(at, end);
       for (const token of textTokens(text, allAscii(text))) {
-        tokens.push({ ...token, from: at, to: at + token.len });
+        token.from = at;
+        token.to = at + token.len;
+        tokens.push(token);
         at += token.len;
       }
     };
@@ -935,6 +1000,26 @@ export function certifiedOrigins({
   };
   const gap = (runs, side, from, to, start, end) => {
     if (from === to || start === end) return;
+    if (to - from === end - start) {
+      charge((to - from) * 4);
+      let same = true;
+      for (let b = from, s = start; b < to; b++, s++) {
+        if (flats[0].text[b] !== flats[side].text[s]) {
+          same = false;
+          break;
+        }
+        const ba = flats[0].atomAt.get(b),
+          sa = flats[side].atomAt.get(s);
+        if (!!ba !== !!sa || (ba && keys[0](ba) !== keys[side](sa))) {
+          same = false;
+          break;
+        }
+      }
+      if (same) {
+        append(runs, from, to, start, "retained");
+        return;
+      }
+    }
     const B = tokenize(flats[0], keys[0], from, to);
     const S = tokenize(flats[side], keys[side], start, end);
     const size = B.length + S.length + 4;
@@ -1002,7 +1087,7 @@ export function certifiedOrigins({
         if (run.target - run.from !== last.target - last.from) throw exhausted;
         last.to = Math.max(last.to, run.to);
         if (run.kind === "transfer") last.kind = "transfer";
-      } else ordered.push({ ...run });
+      } else ordered.push(run);
     }
     const runs = [];
     let bi = 0,

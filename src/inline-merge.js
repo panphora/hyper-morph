@@ -2464,9 +2464,9 @@ export function mergeInline(o) {
     for (const range of textNodes) {
       const root = rootOf(range.node);
       for (let i = range.ms; i < range.me; i++) {
-        if (ob[i] >= 0) claim(flatUnits[0][ob[i]], root);
-        if (ol[i] >= 0) claim(flatUnits[1][ol[i]], root);
-        if (or[i] >= 0) claim(flatUnits[2][or[i]], root);
+        claim(flatUnits[0][ob[i]], root);
+        claim(flatUnits[1][ol[i]], root);
+        claim(flatUnits[2][or[i]], root);
       }
     }
     const order = new Map(nodes.map((node, i) => [node, i]));
