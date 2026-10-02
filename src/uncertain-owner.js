@@ -42,6 +42,132 @@ function retainedBoundary(original, current, tokensOf, budget, charge) {
   return !!(af && bf && (af.raw === bf.raw || al.raw === bl.raw));
 }
 
+function editedEndpointGain({
+  base,
+  V,
+  A,
+  source,
+  original,
+  current,
+  edited,
+  destination,
+  at,
+  ownLength,
+  eligible,
+  model,
+  tokensOf,
+  budget,
+  charge,
+}) {
+  const before = original.flat.text,
+    kept = current.flat.text,
+    opposite = edited.flat.text,
+    after = destination.flat.text;
+  charge(budget, before.length + kept.length + after.length);
+  if (before.startsWith(kept) || before.endsWith(kept)) return false;
+  const left = HARD.test(after.slice(0, at)),
+    right = HARD.test(after.slice(at + ownLength));
+  if (left === right) return false;
+  let from = left ? 0 : at + ownLength,
+    to = left ? at : after.length;
+  while (from < to && !HARD.test(after[from])) from++;
+  while (to > from && !HARD.test(after[to - 1])) to--;
+  const gained = after.slice(from, to);
+  if (
+    exactOccurrence(
+      gained,
+      after,
+      tokensOf(destination, budget),
+      budget,
+      charge,
+      true,
+    ) !== from
+  )
+    return false;
+  const origin = exactOccurrence(
+    gained,
+    before,
+    tokensOf(original, budget),
+    budget,
+    charge,
+    true,
+  );
+  if (origin < 0) return false;
+  const end = origin + gained.length,
+    prefix = !HARD.test(before.slice(0, origin)),
+    suffix = !HARD.test(before.slice(end));
+  if (prefix === suffix) return false;
+  if (
+    exactOccurrence(
+      gained,
+      kept,
+      tokensOf(current, budget),
+      budget,
+      charge,
+      false,
+    ) >= 0
+  )
+    return false;
+  const residual = prefix ? before.slice(end) : before.slice(0, origin),
+    position = prefix ? opposite.length - residual.length : 0;
+  charge(budget, before.length + opposite.length);
+  if (
+    position < 0 ||
+    !HARD.test(residual) ||
+    exactOccurrence(
+      residual,
+      opposite,
+      tokensOf(edited, budget),
+      budget,
+      charge,
+      true,
+    ) !== position ||
+    !HARD.test(
+      prefix ? opposite.slice(0, position) : opposite.slice(residual.length),
+    )
+  )
+    return false;
+  for (const owner of base) {
+    charge(budget, 1);
+    if (owner === source || !plainOwner(owner, eligible, budget, charge))
+      continue;
+    const candidate = model(owner, null, budget);
+    if (
+      exactOccurrence(
+        gained,
+        candidate.flat.text,
+        tokensOf(candidate, budget),
+        budget,
+        charge,
+        false,
+      ) >= 0
+    )
+      return false;
+  }
+  for (const unit of V.units) {
+    charge(budget, 1);
+    if (
+      unit === current.unit ||
+      unit === destination.unit ||
+      !plainOwner(unit, eligible, budget, charge)
+    )
+      continue;
+    const candidate = model(unit, A, budget);
+    if (
+      exactOccurrence(
+        gained,
+        candidate.flat.text,
+        tokensOf(candidate, budget),
+        budget,
+        charge,
+        false,
+      ) >= 0
+    )
+      return false;
+  }
+  return true;
+}
+
 export function uncertainSourceOwners({
   base,
   views,
@@ -149,7 +275,7 @@ export function uncertainSourceOwners({
         const at = exactOccurrence(own, after, tokens, budget, charge, true);
         if (
           at < 0 ||
-          exactOccurrence(
+          (exactOccurrence(
             before,
             after,
             tokens,
@@ -158,7 +284,24 @@ export function uncertainSourceOwners({
             true,
             at,
             at + own.length,
-          ) < 0
+          ) < 0 &&
+            !editedEndpointGain({
+              base,
+              V,
+              A,
+              source,
+              original,
+              current,
+              edited,
+              destination,
+              at,
+              ownLength: own.length,
+              eligible,
+              model,
+              tokensOf,
+              budget,
+              charge,
+            }))
         )
           continue;
         if (gained) {
