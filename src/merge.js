@@ -2036,7 +2036,8 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
               },
             })
           : null;
-      let certPlan = null;
+      let certPlan = null,
+        sourceAlternatives = null;
       if (
         !nativePlan &&
         !Lv.asBase &&
@@ -2060,6 +2061,8 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
               unitsOf(u).every(inlineIn)
             : u.kind === "text";
         certPlan = certificateGroups({
+          onUncertainOwner: (record) =>
+            (sourceAlternatives ||= []).push(record),
           onUncertainSource: (record) => {
             if (!sourceRetentions) sourceRetentions = new Map();
             let records = sourceRetentions.get(record.source);
@@ -2084,6 +2087,56 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           baseId: authored.base,
           atomKey: analyzer.exactUnitKey,
         });
+      }
+      if (sourceAlternatives) {
+        segOutputs ||= new Map();
+        for (const record of sourceAlternatives) {
+          const { source, local, remote } = record;
+          const alignment = {
+            map: new Map(),
+            reverse: new Map(),
+            identical: new Set(),
+          };
+          const res = mergeInline({
+            base: [source],
+            local: [local],
+            remote: [remote],
+            out,
+            policy: "both",
+            L: alignment,
+            R: alignment,
+            ignored,
+            remoteWins: o.remoteWins,
+            atomKey: analyzer.exactUnitKey,
+            cloneUnit,
+            provenance,
+            textMappers,
+            conflicts,
+            decisions,
+            conflict: (rec, meta) => conflict(rec, { ...meta, policy: "both" }),
+            scope: {
+              base: b,
+              local: Lv.el,
+              remote: Rv.el,
+              units: bUnits,
+              at: bPos.get(source),
+            },
+            node: el,
+          });
+          segments.push(...res.segments);
+          for (const unit of [source, local, remote]) {
+            resolved.add(unit);
+            segUnits.add(unit);
+            segOutputs.set(unit, res.nodes);
+            outputOfUnit.set(unit, res.nodes[res.nodes.length - 1]);
+          }
+          for (let i = 0; i < res.nodes.length; i++)
+            segFrags.push({
+              frag: res.nodes[i],
+              at: bPos.get(source),
+              previous: i ? res.nodes[i - 1] : null,
+            });
+        }
       }
       let blocks = nativePlan ? nativePlan.blocks : null;
       if (certPlan) {

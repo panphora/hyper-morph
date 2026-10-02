@@ -1,3 +1,4 @@
+import { uncertainSourceOwners } from "./uncertain-owner.js";
 import { ATOM, MARK_TAGS, flatten } from "./inline-merge.js";
 import {
   MAX_TOKENS,
@@ -402,6 +403,7 @@ export function replacementViews({
 
 export function certificateGroups({
   onUncertainSource,
+  onUncertainOwner,
   base,
   views,
   eligible,
@@ -417,6 +419,7 @@ export function certificateGroups({
   const models = new Map();
   const certificates = [];
   let sourceRetentions = null,
+    sourceAlternatives = null,
     contestedSources = null;
   const blocked = new Set();
   for (const unit of base)
@@ -1387,6 +1390,23 @@ export function certificateGroups({
       } catch (error) {
         if (error !== exhausted) throw error;
       } finally {
+        if (onUncertainOwner && !members && !conserved) {
+          const alternatives = uncertainSourceOwners({
+            base,
+            views,
+            side,
+            attempt,
+            eligible,
+            blocked,
+            baseId,
+            model,
+            tokensOf,
+            charge,
+            exhausted,
+            limit,
+          });
+          if (alternatives) (sourceAlternatives ||= []).push(...alternatives);
+        }
         if (onUncertainSource && !members && !conserved) {
           const retained = declinedSourceRetentions({
             base,
@@ -1448,6 +1468,32 @@ export function certificateGroups({
       }
       if (!covered) onUncertainSource(record);
     }
+  if (sourceAlternatives) {
+    const seen = new Set(),
+      budget = occurrenceBudget(limit);
+    try {
+      for (const record of sourceAlternatives) {
+        charge(budget, 1);
+        if (seen.has(record.source)) continue;
+        seen.add(record.source);
+        let claimed = false;
+        for (const certificate of certificates) {
+          charge(budget, 1);
+          if (
+            certificate.source === record.source ||
+            certificate.target === record.local ||
+            certificate.target === record.remote
+          ) {
+            claimed = true;
+            break;
+          }
+        }
+        if (!claimed) onUncertainOwner(record);
+      }
+    } catch (error) {
+      if (error !== exhausted) throw error;
+    }
+  }
   for (const unit of base) {
     if (!blocks.has(unit)) continue;
     for (const { V } of views) {
