@@ -40,6 +40,7 @@ import {
   BREAK,
 } from "./text-merge.js";
 import { boundaryOccurrences, occurrenceBudget } from "./occurrence-map.js";
+import { retainedSourcePolicy } from "./source-retention.js";
 
 export const ATOM = "￼";
 
@@ -1333,18 +1334,30 @@ export function mergeInline(o) {
       rss,
       rse,
     };
+    const effectivePolicy = o.sourceRetentions
+      ? retainedSourcePolicy(
+          o.sourceRetentions,
+          o.scope?.base,
+          fb,
+          fl,
+          fr,
+          policy,
+          rec,
+        )
+      : policy;
     rec.resolved =
-      policy === "local"
+      effectivePolicy === "local"
         ? rec.local
-        : policy === "remote"
+        : effectivePolicy === "remote"
           ? rec.remote
           : rec.local + rec.remote;
-    if (policy !== "remote")
+    if (effectivePolicy !== "remote")
       pieces.push({ src: "local", from: lss, to: lse, conflict: rec });
-    if (policy !== "local")
+    if (effectivePolicy !== "local")
       pieces.push({ src: "remote", from: rss, to: rse, conflict: rec });
     const meta = {
       site: "inline",
+      policy: effectivePolicy,
       fb,
       fl,
       fr,

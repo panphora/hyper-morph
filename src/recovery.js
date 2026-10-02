@@ -860,7 +860,7 @@ export function createRecovery(ctx) {
       const localLost =
         meta.site === "whole" || meta.site === "comment"
           ? rec.resolved !== rec.local
-          : policy !== "both" && rec.resolved !== rec.local;
+          : (meta.policy || policy) !== "both" && rec.resolved !== rec.local;
       return {
         key:
           (meta.site === "comment" && commentKeys.get(U.b || U.l || U.r)) ||

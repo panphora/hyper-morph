@@ -279,6 +279,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   const placed = new Set(); // base elements merged into the output
   const building = new Set(); // base elements whose output is under construction
   const inlineCache = new WeakMap(); // element -> its subtree is inline-only
+  let sourceRetentions = null;
 
   const policy = o.conflicts || "remote";
   const localDecision = (d) => decisions.push(d);
@@ -2059,6 +2060,19 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
               unitsOf(u).every(inlineIn)
             : u.kind === "text";
         certPlan = certificateGroups({
+          onUncertainSource: (record) => {
+            if (!sourceRetentions) sourceRetentions = new Map();
+            let records = sourceRetentions.get(record.source);
+            if (!records) sourceRetentions.set(record.source, (records = []));
+            for (const previous of records)
+              if (
+                previous.side === record.side &&
+                previous.from === record.from &&
+                previous.to === record.to
+              )
+                return;
+            records.push(record);
+          },
           base: bUnits,
           views: [
             { V: Lv, A: L, idOf: authored.local },
@@ -2216,6 +2230,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           continue;
         const res = mergeInline({
           base: nodesOf(units),
+          sourceRetentions: sourceRetentions?.get(b),
           local: lNodes,
           remote: rNodes,
           out,

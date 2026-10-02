@@ -7,6 +7,10 @@ import {
   textTokens,
 } from "./text-merge.js";
 import { compileOccurrenceMap, occurrenceBudget } from "./occurrence-map.js";
+import {
+  declinedSourceRetentions,
+  certifiedSourceRetention,
+} from "./source-retention.js";
 
 const NON_SPACE = /\S/;
 const SPACE = /\s/;
@@ -350,6 +354,7 @@ export function replacementViews({
 }
 
 export function certificateGroups({
+  onUncertainSource,
   base,
   views,
   eligible,
@@ -364,6 +369,7 @@ export function certificateGroups({
   const bPos = new Map(base.map((unit, i) => [unit, i]));
   const models = new Map();
   const certificates = [];
+  let sourceRetentions = null;
   const blocked = new Set();
   for (const unit of base)
     for (const { V } of views) {
@@ -659,6 +665,7 @@ export function certificateGroups({
       const budget = occurrenceBudget(limit);
       const pending = [],
         pendingBlocks = new Set();
+      let conserved = false;
       try {
         charge(budget, (bh - bl + sh - sl + 2) * 4);
         const B = base
@@ -695,6 +702,7 @@ export function certificateGroups({
         const beforeHard = hard(before),
           afterHard = hard(after);
         const conservation = beforeHard === afterHard;
+        conserved = conservation;
         if (members && !conservation) continue;
         const reserved = conservation ? null : new Map();
         if (reserved)
@@ -1285,9 +1293,43 @@ export function certificateGroups({
         for (const unit of pendingBlocks) blocks.add(unit);
       } catch (error) {
         if (error !== exhausted) throw error;
+      } finally {
+        if (onUncertainSource && !members && !conserved) {
+          const retained = declinedSourceRetentions({
+            base,
+            views,
+            side,
+            attempt,
+            eligible,
+            blocked,
+            baseId,
+            model,
+            tokensOf,
+            certificates,
+            charge,
+            exhausted,
+            limit,
+          });
+          if (retained) (sourceRetentions ||= []).push(...retained);
+        }
       }
     }
   }
+  if (sourceRetentions)
+    for (const record of sourceRetentions) {
+      let covered = false;
+      try {
+        covered = certifiedSourceRetention(
+          record,
+          certificates,
+          occurrenceBudget(limit),
+          charge,
+        );
+      } catch (error) {
+        if (error !== exhausted) throw error;
+      }
+      if (!covered) onUncertainSource(record);
+    }
   for (const unit of base) {
     if (!blocks.has(unit)) continue;
     for (const { V } of views) {
