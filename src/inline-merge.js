@@ -704,6 +704,8 @@ export function mergeInline(o) {
       const outL = !!lt && !inL(lt),
         outR = !!rt && !inR(rt);
       if (!outL && !outR) continue;
+      if (outL) o.movePlanned?.(a.el, "local", lt, null);
+      if (outR) o.movePlanned?.(a.el, "remote", rt, null);
       skip.base.add(a.el);
       if (lt && !outL) skip.local.add(lt);
       if (rt && !outR) skip.remote.add(rt);
@@ -1757,6 +1759,7 @@ export function mergeInline(o) {
         p.local = p.local || L.map.get(b) || null;
         p.remote = p.remote || R.map.get(b) || null;
         decisions.push({ kind: "move", el, source: movedIn });
+        o.moveBuilt?.(b, movedIn, u[movedIn], el);
       } else if (!u.base)
         decisions.push({
           kind: "insert",

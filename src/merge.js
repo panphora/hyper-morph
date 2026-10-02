@@ -31,6 +31,7 @@ import { headSignature } from "./head-merge.js";
 import { isHtmlScript, mergeIdentityOf } from "./scripts.js";
 import { mergeScriptText } from "./hyper-morph-json-merge.js";
 import { createRecovery } from "./recovery.js";
+import { createMergeMoveDestinations } from "./move-destinations.js";
 
 const isEl = (u) => !!u && u.nodeType === 1;
 
@@ -241,7 +242,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     conflicts = [];
   const mergedScripts = new Set();
   const segments = []; // inline segment records for apply (typing after the snapshot)
-  const emitted = new Set(); // base units and side units that produced output
+  const resolved = new Set(); // units already constructed or deliberately removed
   const placed = new Set(); // base elements merged into the output
   const building = new Set(); // base elements whose output is under construction
   const inlineCache = new WeakMap(); // element -> its subtree is inline-only
@@ -261,6 +262,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     conflicts.push(c);
     if (meta) recovery.note(c, meta);
   };
+  let destinations = null;
   const crossEcho = pairCrossEchoes();
 
   const html = mergeElement(
@@ -272,6 +274,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   );
   if (html.tagName === "HTML") out.replaceChild(html, out.documentElement);
   else out.body.appendChild(html);
+  destinations?.drain(html);
   if (prof) prof.build = (prof.build || 0) + (performance.now() - t0);
   const localDiverged = o.childrenOnly
     ? !sameChildren(kidsOf(html), kidsOf(rRoot))
@@ -442,9 +445,9 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   }
 
   function emitCrossEcho(su, side, partner) {
-    emitted.add(su);
+    resolved.add(su);
     if (crossEcho.drop.has(su)) return null;
-    emitted.add(partner);
+    resolved.add(partner);
     const lu = side === "local" ? su : partner,
       ru = side === "local" ? partner : su;
     let node;
@@ -556,7 +559,30 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     return twin;
   }
 
-  function moveInto(bk, side, sideEl) {
+  function moveInto(bk, side, sideEl, builtOutput) {
+    if (builtOutput !== undefined) {
+      destinations ||= createMergeMoveDestinations(
+        provenance,
+        logicalParent,
+        L,
+        R,
+        twinIn,
+        mergeElement,
+        ignored,
+        o.remoteWins,
+        conflicts,
+        conflict,
+        changed,
+        lRoot,
+        rRoot,
+      );
+      destinations.plan(bk, side, sideEl, !!builtOutput);
+      if (builtOutput) {
+        destinations.produced(bk, builtOutput);
+        placed.add(bk);
+      }
+      return builtOutput;
+    }
     if (placed.has(bk) || building.has(bk)) {
       conflict(
         { kind: "structure", el: null, detail: "both-moved", base: bk },
@@ -564,6 +590,22 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       );
       return placed.has(bk) ? null : cloneUnit(sideEl, side);
     }
+    destinations ||= createMergeMoveDestinations(
+      provenance,
+      logicalParent,
+      L,
+      R,
+      twinIn,
+      mergeElement,
+      ignored,
+      o.remoteWins,
+      conflicts,
+      conflict,
+      changed,
+      lRoot,
+      rRoot,
+    );
+    destinations.plan(bk, side, sideEl, true);
     const lk = twinIn(L, bk),
       rk = twinIn(R, bk);
     if (!lk || !rk)
@@ -682,10 +724,10 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         },
         { subject: b },
       );
-    emitted.add(b);
+    resolved.add(b);
     placed.add(b);
-    if (l) emitted.add(l);
-    if (r) emitted.add(r);
+    if (l) resolved.add(l);
+    if (r) resolved.add(r);
     // Unchanged on both sides: nothing to merge below this element. The
     // output carries the element alone, flagged, and apply leaves the live
     // subtree untouched.
@@ -702,6 +744,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         if (a.namespaceURI) el.setAttributeNS(a.namespaceURI, a.name, a.value);
         else el.setAttribute(a.name, a.value);
       }
+      destinations?.produced(b, el);
       return el;
     }
     building.add(b);
@@ -723,6 +766,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       for (const k of kids) target.appendChild(k);
     }
     building.delete(b);
+    destinations?.produced(b, el);
     return el;
   }
 
@@ -913,9 +957,9 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     const bv = bRun.value;
     const lv = lAsBase ? bv : lRun ? lRun.value : "";
     const rv = rRun ? rRun.value : "";
-    emitted.add(bRun);
-    if (lRun) emitted.add(lRun);
-    if (rRun) emitted.add(rRun);
+    resolved.add(bRun);
+    if (lRun) resolved.add(lRun);
+    if (rRun) resolved.add(rRun);
     const res = merge3Text(bv, lv, rv, policy);
     const node = res.text === "" ? null : out.createTextNode(res.text);
     if (node) {
@@ -976,8 +1020,8 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         { unit: { b: null, l: lRun, r: rRun }, localLost: policy === "remote" },
       );
     }
-    if (lRun) emitted.add(lRun);
-    if (rRun) emitted.add(rRun);
+    if (lRun) resolved.add(lRun);
+    if (rRun) resolved.add(rRun);
     if (text === "") return null;
     const node = out.createTextNode(text);
     provenance.set(node, {
@@ -1044,8 +1088,8 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         : out.createElement(lu.tagName);
     mergeAttrs(null, lu, ru, el);
     provenance.set(el, { base: null, local: lu, remote: ru });
-    emitted.add(lu);
-    emitted.add(ru);
+    resolved.add(lu);
+    resolved.add(ru);
     const res = mergeInline({
       base: Array.from(base.childNodes),
       local: Array.from(lu.childNodes),
@@ -1089,7 +1133,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         local: side === "local" ? su.nodes : null,
         remote: side === "remote" ? su.nodes : null,
       });
-      emitted.add(su);
+      resolved.add(su);
       return t;
     }
     const el =
@@ -1105,7 +1149,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       local: side === "local" ? su : null,
       remote: side === "remote" ? su : null,
     });
-    emitted.add(su);
+    resolved.add(su);
     const target = su.tagName === "TEMPLATE" && el.content ? el.content : el;
     const A = side === "local" ? L : R;
     for (const child of unitsOf(su)) {
@@ -1132,6 +1176,22 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         const lk = twinIn(L, bk) || null,
           rk = twinIn(R, bk) || null;
         if (lk || rk) {
+          destinations ||= createMergeMoveDestinations(
+            provenance,
+            logicalParent,
+            L,
+            R,
+            twinIn,
+            mergeElement,
+            ignored,
+            o.remoteWins,
+            conflicts,
+            conflict,
+            changed,
+            lRoot,
+            rRoot,
+          );
+          destinations.plan(bk, side, child, true);
           const node = mergeElement(bk, lk, rk, false);
           if (side === "local")
             localDecision({ kind: "move", el: node, source: "local" });
@@ -1327,7 +1387,8 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     }
 
     const emitBaseKid = (bk) => {
-      if (emitted.has(bk)) return outputOfUnit.get(bk) || null;
+      if (resolved.has(bk) || destinations?.has(bk))
+        return outputOfUnit.get(bk) || null;
       const lk = Lv.twin(bk),
         rk = Rv.twin(bk);
       // Moved out by a side: that side's destination emits it (with the
@@ -1347,7 +1408,25 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
             { subject: bk, deleted: lk ? "remote" : "local" },
           );
         if (!moveCycle(bk)) {
-          emitted.add(bk);
+          if (isEl(bk)) {
+            destinations ||= createMergeMoveDestinations(
+              provenance,
+              logicalParent,
+              L,
+              R,
+              twinIn,
+              mergeElement,
+              ignored,
+              o.remoteWins,
+              conflicts,
+              conflict,
+              changed,
+              lRoot,
+              rRoot,
+            );
+            if (lOut) destinations.plan(bk, "local", lk);
+            if (rOut) destinations.plan(bk, "remote", rk);
+          } else resolved.add(bk);
           return null;
         }
         conflict(
@@ -1362,17 +1441,17 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       }
       // Deleted by a side: gone unless the other side edited it.
       if (!lk && !rk) {
-        emitted.add(bk);
+        resolved.add(bk);
         remoteDecision({ kind: "remove", source: "both", base: bk });
         return null;
       }
       if (!lk && !changed(bk, rk, R)) {
-        emitted.add(bk);
+        resolved.add(bk);
         localDecision({ kind: "remove", source: "local", base: bk });
         return null;
       }
       if (!rk && !changed(bk, lk, L)) {
-        emitted.add(bk);
+        resolved.add(bk);
         remoteDecision({ kind: "remove", source: "remote", base: bk });
         return null;
       }
@@ -1397,7 +1476,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       else if (bk.kind === "comment")
         node = mergeComment(bk, lTwin, rk, Lv.asBase);
       else node = mergeRun(bk, lTwin, rk, Lv.asBase);
-      emitted.add(bk);
+      resolved.add(bk);
       if (node) {
         outputOfUnit.set(bk, node);
         if (lk) outputOfUnit.set(lk, node);
@@ -1422,7 +1501,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
 
     const emitSideUnit = (su, V, A, side) => {
       // Returns the output node or null; handles kept, moved-in, echo, insertion.
-      if (emitted.has(su)) return outputOfUnit.get(su) || null;
+      if (resolved.has(su)) return outputOfUnit.get(su) || null;
       const bk = V.baseOf(su);
       if (bk && bSet.has(bk)) {
         // Its base twin merged inline while this unit stayed outside that
@@ -1446,8 +1525,8 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
             provenance.get(node).remote = ru;
           } else node = mergeEchoPair(lu, ru);
         } else node = insertedRunPair(lu, ru);
-        emitted.add(lu);
-        emitted.add(ru);
+        resolved.add(lu);
+        resolved.add(ru);
         if (node) {
           outputOfUnit.set(lu, node);
           outputOfUnit.set(ru, node);
@@ -1470,10 +1549,10 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       let node;
       if (isEl(bk)) {
         node = moveInto(bk, side, su);
-        if (node) emitted.add(su);
+        if (node) resolved.add(su);
       } else {
         node = cloneUnit(su, side);
-        emitted.add(su);
+        resolved.add(su);
         if (node)
           (side === "local" ? localDecision : remoteDecision)({
             kind: "insert",
@@ -1547,6 +1626,24 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         if (node) outputOfUnit.set(su, node);
         return node;
       }
+      if (isEl(bk)) {
+        destinations ||= createMergeMoveDestinations(
+          provenance,
+          logicalParent,
+          L,
+          R,
+          twinIn,
+          mergeElement,
+          ignored,
+          o.remoteWins,
+          conflicts,
+          conflict,
+          changed,
+          lRoot,
+          rRoot,
+        );
+        destinations.plan(bk, side, myTwin, true);
+      }
       const node = isEl(bk)
         ? mergeElement(
             bk,
@@ -1578,7 +1675,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         continue;
       }
       if (
-        emitted.has(su) &&
+        resolved.has(su) &&
         !(outputOfUnit.get(su) && inResult.has(outputOfUnit.get(su)))
       ) {
         const bk = O.V.baseOf(su);
@@ -1627,7 +1724,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           pendingAfter = null;
           continue;
         }
-        if (emitted.has(su)) {
+        if (resolved.has(su)) {
           // Already produced output elsewhere: this side moved it here, the
           // order side kept or moved it somewhere else.
           const bk = P.baseOf(su);
@@ -1663,7 +1760,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     // walk of its own). emitBaseKid decides between gone and resurrected.
     for (let i = 0; i < bUnits.length; i++) {
       const bk = bUnits[i];
-      if (emitted.has(bk)) continue;
+      if (resolved.has(bk)) continue;
       const node = emitBaseKid(bk);
       if (!node) continue;
       result.splice(afterBase(i), 0, node);
@@ -2211,6 +2308,8 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           mergeAttrs,
           atomKey: analyzer.exactUnitKey,
           moveIn: moveInto,
+          moveBuilt: moveInto,
+          movePlanned: moveInto,
           provenance,
           textMappers,
           conflicts,
@@ -2240,7 +2339,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
             const node = outputs.get(owner.base);
             if (!node) throw new Error("Missing native transfer owner output");
             for (const unit of [owner.base, owner.local, owner.remote]) {
-              emitted.add(unit);
+              resolved.add(unit);
               segUnits.add(unit);
               outputOfUnit.set(unit, node);
             }
@@ -2251,7 +2350,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         const frag = out.createDocumentFragment();
         for (const n of res.nodes) frag.appendChild(n);
         for (const u of [...units, ...(lu || []), ...(ru || [])]) {
-          emitted.add(u);
+          resolved.add(u);
           segUnits.add(u);
           outputOfUnit.set(u, frag);
         }
@@ -2368,9 +2467,9 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     const bv = bRun.value,
       lv = lAsBase ? bv : lRun ? lRun.value : "",
       rv = rRun ? rRun.value : "";
-    emitted.add(bRun);
-    if (lRun) emitted.add(lRun);
-    if (rRun) emitted.add(rRun);
+    resolved.add(bRun);
+    if (lRun) resolved.add(lRun);
+    if (rRun) resolved.add(rRun);
     const text =
       lv === rv
         ? lv
