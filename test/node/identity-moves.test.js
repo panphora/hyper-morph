@@ -151,7 +151,9 @@ for (const shape of ["containers", "siblings", "template"])
           // edit to the paragraph remote moved out, which survived: a known
           // over-report, so this row only requires that one exists.
           const dropped =
-            region === "remoteWins" && shape !== "siblings" && route !== "clean";
+            region === "remoteWins" &&
+            shape !== "siblings" &&
+            route !== "clean";
           assert.deepEqual(
             result.conflicts.filter(([, d]) => d !== "remote-wins"),
             [],
