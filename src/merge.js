@@ -32,6 +32,7 @@ import { isHtmlScript, mergeIdentityOf } from "./scripts.js";
 import { mergeScriptText } from "./hyper-morph-json-merge.js";
 import { createRecovery } from "./recovery.js";
 import { createMergeMoveDestinations } from "./move-destinations.js";
+import { createCrossParentConsumer } from "./cross-parent-consumer.js";
 import {
   replacementViews,
   certificateGroups,
@@ -262,6 +263,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     if (meta) recovery.note(c, meta);
   };
   let destinations = null;
+  let incoming = null;
   const crossEcho = pairCrossEchoes();
   let abandonedEchoShells = null;
 
@@ -275,6 +277,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   if (html.tagName === "HTML") out.replaceChild(html, out.documentElement);
   else out.body.appendChild(html);
   destinations?.drain(html);
+  incoming?.drain(html);
   if (prof) prof.build = (prof.build || 0) + (performance.now() - t0);
   const localDiverged = o.childrenOnly
     ? !sameChildren(kidsOf(html), kidsOf(rRoot))
@@ -560,6 +563,46 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   }
 
   function moveInto(bk, side, sideEl, builtOutput) {
+    if (
+      isEl(bk) &&
+      TEXT_BLOCK_TAGS.has(bk.tagName) &&
+      !L.identical.has(bk) &&
+      (bk.previousSibling?.nodeType === 3 || bk.nextSibling?.nodeType === 3)
+    ) {
+      const parent = logicalParent(bk),
+        local = twinIn(L, bk),
+        remote = twinIn(R, bk);
+      if (
+        local &&
+        remote &&
+        isSameParent(local, twinIn(L, parent), L) &&
+        !isSameParent(remote, twinIn(R, parent), R)
+      ) {
+        incoming ||= createCrossParentConsumer({
+          L,
+          R,
+          twinIn,
+          unitsOf,
+          view,
+          parentOf: logicalParent,
+          ignored,
+          remoteWins: o.remoteWins,
+          eligible: (node) => isEl(node) && TEXT_BLOCK_TAGS.has(node.tagName),
+          build: mergeElement,
+          out,
+          policy,
+          provenance,
+          textMappers,
+          segments,
+          conflicts,
+          conflict,
+          decisions,
+        });
+        incoming.ensureOwner(bk);
+      }
+    }
+    // A null side discovers text origins without planning or constructing a move.
+    if (side === null) return null;
     if (builtOutput !== undefined) {
       destinations ||= createMergeMoveDestinations(
         provenance,
@@ -760,7 +803,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         el,
         "text",
       );
-    } else {
+    } else if (!incoming?.render(b, el)) {
       const kids = mergeChildren(b, l, r, asBase, el);
       const target = tag === "TEMPLATE" && el.content ? el.content : el;
       for (const k of kids) target.appendChild(k);
@@ -1158,6 +1201,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       // changed). Merge it rather than cloning it, so apply keeps the live
       // node and the other side's edits are not lost.
       const bk = isEl(child) ? A.reverse.get(child) : null;
+      if (bk) moveInto(bk, null, null);
       if (bk && placed.has(bk)) {
         // Already merged elsewhere: both sides moved it, the first place
         // wins.
@@ -1256,6 +1300,20 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     const segUnits = new Set();
     const segFrags = [];
     let segOutputs = null;
+    if (
+      !Lv.asBase &&
+      !Rv.asBase &&
+      !L.identical.has(b) &&
+      !R.identical.has(b)
+    ) {
+      for (const unit of bUnits) {
+        if (!isEl(unit) || !TEXT_BLOCK_TAGS.has(unit.tagName)) continue;
+        const local = Lv.twin(unit),
+          remote = Rv.twin(unit);
+        if (local && remote && (!Lv.here(local) || !Rv.here(remote)))
+          moveInto(unit, null, null);
+      }
+    }
     mergeSegments();
 
     // Kept children on each side, in that side's order, as base units.
@@ -1410,6 +1468,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     }
 
     const emitBaseKid = (bk) => {
+      if (incoming?.consumes(bk)) return null;
       if (resolved.has(bk) || destinations?.has(bk))
         return outputOfUnit.get(bk) || null;
       const lk = Lv.twin(bk),
@@ -1523,6 +1582,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     };
 
     const emitSideUnit = (su, V, A, side) => {
+      if (incoming?.consumes(su)) return null;
       // Returns the output node or null; handles kept, moved-in, echo, insertion.
       if (resolved.has(su)) return outputOfUnit.get(su) || null;
       const bk = V.baseOf(su);
@@ -1588,6 +1648,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     };
 
     const emitMovedIn = (bk, su, side) => {
+      moveInto(bk, null, null);
       // su is a side unit whose base twin lives under another base parent.
       const otherA = side === "local" ? R : L;
       const otherTwin = twinIn(otherA, bk);
@@ -1915,7 +1976,8 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         blocks = new Set();
         for (const unit of certPlan.blocks) blocks.add(unit);
       }
-      const isInline = (u) => (blocks && blocks.has(u)) || inline0(u);
+      const isInline = (u) =>
+        !incoming?.consumes(u) && ((blocks && blocks.has(u)) || inline0(u));
       const bInline = bUnits.map(isInline);
       if (!bInline.includes(true)) return;
       // A side's anchors are the blocks it kept here, in base order. Between
