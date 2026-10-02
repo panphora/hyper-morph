@@ -32,6 +32,7 @@ import { isHtmlScript, mergeIdentityOf } from "./scripts.js";
 import { mergeScriptText } from "./hyper-morph-json-merge.js";
 import { createRecovery } from "./recovery.js";
 import { createMergeMoveDestinations } from "./move-destinations.js";
+import { replacementViews } from "./certificate-groups.js";
 
 const isEl = (u) => !!u && u.nodeType === 1;
 
@@ -1214,8 +1215,8 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     // twins reach provenance and apply keeps the live nodes.
     if (l && L.identical.has(b)) L.pairIdenticalChildren(b);
     if (r && R.identical.has(b)) R.pairIdenticalChildren(b);
-    const Lv = view(L, l, b, localAsBase);
-    const Rv = view(R, r, b, false);
+    let Lv = view(L, l, b, localAsBase);
+    let Rv = view(R, r, b, false);
     const bUnits = unitsOf(b);
     const bSet = new Set(bUnits);
     const bPos = new Map();
@@ -2134,6 +2135,36 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       const inlineOpts = { ignored, remoteWins: o.remoteWins, inlineCache };
       const inline0 = (u) =>
         isEl(u) ? isInlineUnit(u, inlineOpts) : u.kind === "text";
+      if (!Lv.asBase && !Rv.asBase) {
+        for (const unit of bUnits) {
+          if (!isEl(unit) || !TEXT_BLOCK_TAGS.has(unit.tagName)) continue;
+          const lt = Lv.twin(unit),
+            rt = Rv.twin(unit);
+          if ((!lt && rt) || (lt && !rt)) {
+            const replacements = replacementViews({
+              base: bUnits,
+              views: [
+                { V: Lv, A: L, idOf: authored.local },
+                { V: Rv, A: R, idOf: authored.remote },
+              ],
+              eligible: (u) =>
+                isEl(u) &&
+                TEXT_BLOCK_TAGS.has(u.tagName) &&
+                !ignored(u) &&
+                !o.remoteWins(u),
+              baseId: authored.base,
+              ignored,
+              remoteWins: o.remoteWins,
+              atomKey: analyzer.exactUnitKey,
+            });
+            if (replacements) {
+              Lv = replacements[0];
+              Rv = replacements[1];
+            }
+            break;
+          }
+        }
+      }
       const nativePlan =
         !Lv.asBase &&
         !Rv.asBase &&
