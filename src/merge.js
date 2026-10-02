@@ -53,6 +53,19 @@ function hasTextBlock(units) {
   return false;
 }
 
+function ignoredCopy(base, parent, ignored) {
+  let copy = null;
+  for (const node of parent.childNodes) {
+    if (!isEl(node) || !ignored(node) || !node.isEqualNode(base)) continue;
+    if (copy) return null;
+    copy = node;
+  }
+  if (!copy) return null;
+  for (const node of base.parentNode.childNodes)
+    if (node !== base && node.isEqualNode(base)) return null;
+  return copy;
+}
+
 /**
  * The key alignment indexes a head child or a mergeable JSON script by, in
  * place of its identity: a head child's head signature, a script's merge
@@ -229,6 +242,21 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     const p = isEl(x) || x.nodeType ? x.parentNode : x.parent;
     return p && p.nodeType === 11 ? ownerOf(p) : p;
   };
+  if (R.moved.size) {
+    let demoted = false;
+    for (const bk of Array.from(R.moved)) {
+      if (
+        !isEl(bk) ||
+        R.identityPaired.has(bk) ||
+        !authored.base(bk) ||
+        twinIn(R, logicalParent(bk))
+      )
+        continue;
+      R.unpair(bk);
+      demoted = true;
+    }
+    if (demoted) R.rematch();
+  }
   splitCrossRewrites();
   demoteEchoes(L, R);
   demoteEchoes(R, L);
@@ -1525,6 +1553,66 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           },
           { subject: bk },
         );
+      }
+      if (
+        lk &&
+        !rk &&
+        !Lv.asBase &&
+        !Rv.asBase &&
+        isEl(bk) &&
+        TEXT_BLOCK_TAGS.has(bk.tagName) &&
+        !o.remoteWins(bk) &&
+        !o.remoteWins(lk) &&
+        changed(bk, lk, L) &&
+        ignoredCopy(bk, kidsOf(Rv.el), ignored)
+      ) {
+        const inlineOpts = { ignored, remoteWins: o.remoteWins, inlineCache };
+        const inline = (unit) =>
+          isEl(unit) ? isInlineUnit(unit, inlineOpts) : unit.kind === "text";
+        if (unitsOf(bk).every(inline) && unitsOf(lk).every(inline)) {
+          const res = mergeInline({
+            base: [bk],
+            local: [lk],
+            remote: [],
+            blocks: new Set([bk, lk]),
+            out,
+            policy,
+            L,
+            R,
+            idOf: { local: idLocal, remote: idRemote },
+            ignored,
+            ignoreAttribute: o.ignoreAttribute,
+            remoteWins: o.remoteWins,
+            mergeElement: (b, l, r) => mergeElement(b, l, r, false),
+            cloneUnit,
+            mergeAttrs,
+            atomKey: analyzer.exactUnitKey,
+            moveIn: moveInto,
+            moveBuilt: moveInto,
+            movePlanned: moveInto,
+            provenance,
+            textMappers,
+            conflicts,
+            conflict,
+            scope: {
+              base: b,
+              local: Lv.el,
+              remote: Rv.el,
+              units: bUnits,
+              at: bPos.get(bk),
+            },
+            decisions,
+            node: el,
+          });
+          segments.push(...res.segments);
+          resolved.add(bk);
+          resolved.add(lk);
+          const node = out.createDocumentFragment();
+          for (const child of res.nodes) node.appendChild(child);
+          outputOfUnit.set(bk, node);
+          outputOfUnit.set(lk, node);
+          return node;
+        }
       }
       // Deleted by a side: gone unless the other side edited it.
       if (!lk && !rk) {
