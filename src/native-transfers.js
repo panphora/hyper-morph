@@ -298,7 +298,14 @@ export function planNativeTransfers({
   const touches = (a, b) =>
     a.bs <= b.be && b.bs <= a.be && insertion(a) !== insertion(b);
   const same = (a, b) => a.bs === b.bs && a.be === b.be && a.text === b.text;
-  const transported = (h) => !!(h.transferIn || h.transferOut);
+  const transported = (h, peer) =>
+    !!(
+      h.transferIn ||
+      (h.transferOut &&
+        (!h.text ||
+          (peer.bs === h.be && /\s/.test(peer.text[0])) ||
+          (peer.bs === h.bs && /\s/.test(peer.text[peer.text.length - 1]))))
+    );
   for (const event of transfers) {
     const opposite = event.side === "local" ? "remote" : "local";
     const source = owners[event.deletion.ownerIndex];
@@ -318,7 +325,7 @@ export function planNativeTransfers({
         }
         if (
           overlaps(l, r) ||
-          (touches(l, r) && !transported(l) && !transported(r))
+          (touches(l, r) && !transported(l, r) && !transported(r, l))
         )
           return null;
       }
