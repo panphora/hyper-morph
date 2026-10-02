@@ -265,6 +265,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   };
   let destinations = null;
   const crossEcho = pairCrossEchoes();
+  let abandonedEchoShells = null;
 
   const html = mergeElement(
     bRoot,
@@ -1204,6 +1205,28 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       const c = cloneUnit(child, side);
       if (c) target.appendChild(c);
     }
+    if (
+      !plain &&
+      crossEcho.drop.size &&
+      su.tagName === "DIV" &&
+      !target.firstChild &&
+      !su.attributes.length &&
+      !(side === "local" ? idLocal(su) : idRemote(su)) &&
+      !A.reverse.has(su) &&
+      !ignored(su) &&
+      !o.remoteWins(su)
+    ) {
+      const child = su.firstChild;
+      if (
+        child &&
+        child === su.lastChild &&
+        isEl(child) &&
+        (crossEcho.drop.has(child) || abandonedEchoShells?.has(child))
+      ) {
+        (abandonedEchoShells ||= new WeakSet()).add(su);
+        return null;
+      }
+    }
     return el;
   }
 
@@ -1523,7 +1546,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         if (isEl(lu)) {
           if (analyzer.equalUnits(lu, ru)) {
             node = cloneUnit(lu, "local");
-            provenance.get(node).remote = ru;
+            if (node) provenance.get(node).remote = ru;
           } else node = mergeEchoPair(lu, ru);
         } else node = insertedRunPair(lu, ru);
         resolved.add(lu);
