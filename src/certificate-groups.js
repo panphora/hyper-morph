@@ -607,6 +607,102 @@ export function certificateGroups({
           }
         }
         if (failed) continue;
+        let exactTransfers = null,
+          ambiguousSources = null;
+        if (!conservation)
+          for (const source of B) {
+            const twin = twinHere(source),
+              original = models.get(source);
+            if (!twin || original.flat.atoms.length || !sSet.has(twin))
+              continue;
+            const text = original.flat.text,
+              used = reserved.get(source);
+            charge(budget, text.length * 3 + S.length);
+            let from = -1,
+              to = -1,
+              kept = false;
+            for (let i = 0; i < text.length; i++) {
+              if (SPACE.test(text[i])) continue;
+              if (used[i]) kept = true;
+              else {
+                if (from < 0) from = i;
+                to = i + 1;
+              }
+            }
+            if (!kept || from < 0) continue;
+            let contiguous = true;
+            for (let i = from; i < to; i++)
+              if (used[i] && !SPACE.test(text[i])) {
+                contiguous = false;
+                break;
+              }
+            if (!contiguous) continue;
+            const remainder = hard(text.slice(from, to));
+            let target = null,
+              ambiguous = false;
+            for (const candidate of S) {
+              if (V.baseOf(candidate)) continue;
+              const M = models.get(candidate);
+              if (M.flat.atoms.length) continue;
+              charge(budget, M.flat.text.length);
+              if (hard(M.flat.text) !== remainder) continue;
+              if (target) {
+                ambiguous = true;
+                break;
+              }
+              target = candidate;
+            }
+            if (ambiguous) {
+              (ambiguousSources ||= new Set()).add(source);
+              continue;
+            }
+            if (!target) continue;
+            if (ambiguousSources?.has(source)) continue;
+            let competing = false;
+            for (const other of B) {
+              if (other === source || !sSet.has(twinHere(other))) continue;
+              const M = models.get(other);
+              if (M.flat.atoms.length) continue;
+              const otherUsed = reserved.get(other);
+              charge(budget, M.flat.text.length * 3);
+              let missing = "",
+                otherKept = false;
+              for (let i = 0; i < M.flat.text.length; i++) {
+                if (SPACE.test(M.flat.text[i])) continue;
+                if (otherUsed[i]) otherKept = true;
+                else missing += M.flat.text[i];
+              }
+              if (otherKept && missing === remainder) {
+                ambiguousSources ||= new Set();
+                ambiguousSources.add(source);
+                ambiguousSources.add(other);
+                competing = true;
+              }
+            }
+            if (competing) continue;
+            const after = models.get(target).flat.text;
+            charge(budget, to - from + after.length);
+            let bi = from,
+              si = 0;
+            while (bi < to && si < after.length) {
+              while (bi < to && SPACE.test(text[bi])) bi++;
+              while (si < after.length && SPACE.test(after[si])) si++;
+              if (bi >= to || si >= after.length) break;
+              append(
+                (exactTransfers ||= []),
+                source,
+                target,
+                bi,
+                bi + 1,
+                si,
+                budget,
+              );
+              bi++;
+              si++;
+            }
+            used.fill(1, from, to);
+            reserved.get(target).fill(1);
+          }
         const residual = (list) => {
           const tokens = [];
           for (const unit of list) {
@@ -643,9 +739,9 @@ export function certificateGroups({
         const shard = conservation
           ? afterHard
           : st.map((token) => hard(token.raw)).join("");
-        if (!bhard || !shard) continue;
-        const matches = [];
-        if (bhard === shard) {
+        if ((!bhard || !shard) && !exactTransfers) continue;
+        const matches = exactTransfers || [];
+        if (bhard && shard && bhard === shard) {
           let ti = 0,
             tj = 0,
             bi = 0,
@@ -683,7 +779,7 @@ export function certificateGroups({
             bi++;
             sj++;
           }
-        } else {
+        } else if (bhard && shard) {
           const pairs = equalPairs(bt, st, budget);
           if (!pairs) continue;
           for (const [x, y] of pairs)
@@ -692,6 +788,7 @@ export function certificateGroups({
         if (failed) continue;
         const bySource = new Map();
         for (const run of matches) {
+          if (ambiguousSources?.has(run.source)) continue;
           if (twinHere(run.source) === run.target) {
             if (conservation) retained.push(run);
             continue;
@@ -850,8 +947,106 @@ export function certificateGroups({
               covered[evidence[evidence.length - 1]] &&
               targets.size === 1
             )
-          )
-            continue;
+          ) {
+            let joinedSlotTarget = null,
+              joinedSlotFrom = 0,
+              joinedSlotTo = 0,
+              joinedFirst = null,
+              joinedLast = null;
+            if (
+              !twin &&
+              replacement &&
+              source.nodeType === 1 &&
+              !sourceModel.flat.atoms.length
+            ) {
+              const lexical = tokensOf(sourceModel, budget).filter((token) =>
+                EVIDENCE.test(token.raw),
+              );
+              charge(budget, S.length + sourceText.length);
+              for (const candidate of S) {
+                const owner = V.baseOf(candidate);
+                if (
+                  !owner ||
+                  owner === source ||
+                  owner.nodeType !== 1 ||
+                  candidate.nodeType !== 1 ||
+                  owner.tagName !== source.tagName ||
+                  candidate.tagName !== owner.tagName
+                )
+                  continue;
+                const a = bPos.get(source),
+                  b = bPos.get(owner);
+                let adjacent = true;
+                for (let i = Math.min(a, b) + 1; i < Math.max(a, b); i++) {
+                  const between = base[i];
+                  charge(
+                    budget,
+                    between.nodeType === 1 ? 1 : between.value.length + 1,
+                  );
+                  if (between.nodeType === 1 || between.value.trim()) {
+                    adjacent = false;
+                    break;
+                  }
+                }
+                if (!adjacent) continue;
+                const original = model(owner, null, budget),
+                  current = model(candidate, A, budget);
+                if (original.flat.atoms.length || current.flat.atoms.length)
+                  continue;
+                const before = original.flat.text,
+                  after = current.flat.text;
+                charge(
+                  budget,
+                  before.length + after.length + sourceText.length,
+                );
+                if (!before || !lexical.length) continue;
+                let start = 0,
+                  end = after.length;
+                if (a < b && after.endsWith(before)) end -= before.length;
+                else if (a > b && after.startsWith(before))
+                  start = before.length;
+                else continue;
+                while (start < end && SPACE.test(after[start])) start++;
+                while (end > start && SPACE.test(after[end - 1])) end--;
+                const remainder = after.slice(start, end);
+                if (
+                  !remainder ||
+                  !(
+                    remainder.startsWith(lexical[0].raw) ||
+                    remainder.endsWith(lexical[lexical.length - 1].raw)
+                  )
+                )
+                  continue;
+                if (joinedSlotTarget) {
+                  joinedSlotTarget = null;
+                  break;
+                }
+                joinedSlotTarget = candidate;
+                joinedSlotFrom = start;
+                joinedSlotTo = end;
+                joinedFirst = lexical[0];
+                joinedLast = lexical[lexical.length - 1];
+              }
+            }
+            charge(budget, selected.length);
+            if (
+              !joinedSlotTarget ||
+              !targets.has(joinedSlotTarget) ||
+              !selected.some(
+                (run) =>
+                  run.target === joinedSlotTarget &&
+                  ((run.from <= joinedFirst.from &&
+                    run.to >= joinedFirst.to &&
+                    run.targetFrom + joinedFirst.from - run.from ===
+                      joinedSlotFrom) ||
+                    (run.from <= joinedLast.from &&
+                      run.to >= joinedLast.to &&
+                      run.targetFrom + joinedLast.to - run.from ===
+                        joinedSlotTo)),
+              )
+            )
+              continue;
+          }
           if (
             twin &&
             !(
@@ -1122,7 +1317,12 @@ export function certifiedOrigins({
   }
 }
 
-export function inlineScopeUnits(partition, group, complete = false) {
+export function inlineScopeUnits(
+  partition,
+  group,
+  complete = false,
+  externalPort = null,
+) {
   let first = -1,
     last = -1;
   for (let i = 0; i < partition.list.length; i++) {
@@ -1134,18 +1334,36 @@ export function inlineScopeUnits(partition, group, complete = false) {
   const out = [];
   for (let i = first; i >= 0 && i <= last; i++) {
     const cell = partition.list[i];
-    const from =
+    let from =
       !complete && i === first
         ? cell.inlineStart < 0
           ? cell.to
           : cell.inlineStart
         : cell.from;
-    const to =
+    let to =
       !complete && i === last
         ? cell.inlineEnd < 0
           ? cell.from
           : cell.inlineEnd
         : cell.to;
+    if (externalPort) {
+      if (i === first) {
+        const edge = cell.inlineStart < 0 ? cell.to : cell.inlineStart;
+        for (let j = from; j < edge; j++)
+          if (externalPort(partition.units[j])) {
+            from = edge;
+            break;
+          }
+      }
+      if (i === last) {
+        const edge = cell.inlineEnd < 0 ? cell.from : cell.inlineEnd;
+        for (let j = edge; j < to; j++)
+          if (externalPort(partition.units[j])) {
+            to = edge;
+            break;
+          }
+      }
+    }
     for (let j = from; j < to; j++) out.push(partition.units[j]);
     if (i < last) out.push(partition.units[cell.next]);
   }

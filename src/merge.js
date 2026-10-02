@@ -2180,8 +2180,32 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           }
         const lu = Lv.asBase
             ? null
-            : inlineScopeUnits(Ls, g, !!groupCertificates),
-          ru = Rv.asBase ? null : inlineScopeUnits(Rs, g, !!groupCertificates);
+            : inlineScopeUnits(
+                Ls,
+                g,
+                !!groupCertificates,
+                groupCertificates
+                  ? (unit) =>
+                      isEl(unit) &&
+                      !!idLocal(unit) &&
+                      !blocks.has(unit) &&
+                      !Lv.baseOf(unit)
+                  : null,
+              ),
+          ru = Rv.asBase
+            ? null
+            : inlineScopeUnits(
+                Rs,
+                g,
+                !!groupCertificates,
+                groupCertificates
+                  ? (unit) =>
+                      isEl(unit) &&
+                      !!idRemote(unit) &&
+                      !blocks.has(unit) &&
+                      !Rv.baseOf(unit)
+                  : null,
+              );
         if (groupCertificates) {
           const sideSets = [new Set(lu || units), new Set(ru || units)];
           let incomplete = groupCertificates.some(
