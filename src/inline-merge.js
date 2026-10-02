@@ -464,6 +464,49 @@ function charMaps(hunks, baseLen, sideLen) {
   return { bTo, toB };
 }
 
+export function prepareInline(fb, fl, fr, keys = {}) {
+  const fast = allAscii(stripAtoms(fb), stripAtoms(fl), stripAtoms(fr));
+  let bToks = tokensOf(fb, fast, false, keys.base),
+    lToks = tokensOf(fl, fast, false, keys.local),
+    rToks = tokensOf(fr, fast, false, keys.remote);
+  const lines =
+    bToks.length > MAX_TOKENS ||
+    lToks.length > MAX_TOKENS ||
+    rToks.length > MAX_TOKENS;
+  if (lines) {
+    bToks = tokensOf(fb, fast, true, keys.base);
+    lToks = tokensOf(fl, fast, true, keys.local);
+    rToks = tokensOf(fr, fast, true, keys.remote);
+  }
+  const paired = pairedHunks(
+    diffTokens(bToks, lToks),
+    diffTokens(bToks, rToks),
+    bToks,
+  );
+  const localEdits = sideDiff(fl, bToks, lToks, {
+      hunks: paired.lh,
+      cosmetic: paired.cosL,
+    }),
+    remoteEdits = sideDiff(fr, bToks, rToks, {
+      hunks: paired.rh,
+      cosmetic: paired.cosR,
+    });
+  localEdits.hunks = refineBreaks(localEdits.hunks, fb.text, fl.text);
+  remoteEdits.hunks = refineBreaks(remoteEdits.hunks, fb.text, fr.text);
+  return {
+    base: fb,
+    local: fl,
+    remote: fr,
+    lines,
+    baseTokens: bToks,
+    localEdits,
+    remoteEdits,
+    localMap: charMaps(localEdits.hunks, fb.text.length, fl.text.length),
+    remoteMap: charMaps(remoteEdits.hunks, fb.text.length, fr.text.length),
+    full: null,
+  };
+}
+
 function setEq(a, b) {
   if (a.size !== b.size) return false;
   for (const x of a) if (!b.has(x)) return false;
@@ -528,7 +571,7 @@ export function mergeInline(o) {
   // edit the other side made inside it goes with it instead of conflicting
   // with the move.
   const atomizers = { base: null, local: null, remote: null };
-  if (byTwin && o.moveIn) {
+  if (!o.prepared && byTwin && o.moveIn) {
     const within = (nodes) => (x) =>
       nodes.some((n) => n === x || (n.nodeType === 1 && n.contains(x)));
     const inL = within(o.local),
@@ -558,7 +601,7 @@ export function mergeInline(o) {
   // and could glue that side's neighbouring edits into a conflict, or be
   // emitted a second time by a region that takes the other side whole.
   const skip = { base: new Set(), local: new Set(), remote: new Set() };
-  if (byTwin && o.moveIn) {
+  if (!o.prepared && byTwin && o.moveIn) {
     const within = (nodes) => (x) =>
       nodes.some((n) => n === x || (n.nodeType === 1 && n.contains(x)));
     const inL = within(o.local),
@@ -578,26 +621,33 @@ export function mergeInline(o) {
       if (inR(a.el)) skip.remote.add(a.el);
     }
   }
-  const fb = flatten(o.base, {
-      ...o,
-      atomize: atomizers.base,
-      skip: skip.base,
-    }),
-    fl = flatten(o.local, {
-      ...o,
-      atomize: atomizers.local,
-      skip: skip.local,
-    }),
-    fr = flatten(o.remote, {
-      ...o,
-      atomize: atomizers.remote,
-      skip: skip.remote,
-    });
+  const fb =
+      o.prepared?.base ||
+      flatten(o.base, {
+        ...o,
+        atomize: atomizers.base,
+        skip: skip.base,
+      }),
+    fl =
+      o.prepared?.local ||
+      flatten(o.local, {
+        ...o,
+        atomize: atomizers.local,
+        skip: skip.local,
+      }),
+    fr =
+      o.prepared?.remote ||
+      flatten(o.remote, {
+        ...o,
+        atomize: atomizers.remote,
+        skip: skip.remote,
+      });
   const baseAtomOf = new Map(fb.atoms.map((a) => [a.el, a]));
   // For the conflict report: a side's whole segment, an atom the other side
   // moved out of it included, so its scope reads as the DOM between its ends.
   const fullFlats = {};
   const full = (sd) => {
+    if (o.prepared) return o.prepared.full?.(sd) || null;
     if (!skip[sd].size) return null;
     if (!fullFlats[sd])
       fullFlats[sd] = flatten(o[sd], { ...o, atomize: atomizers[sd] });
@@ -712,37 +762,19 @@ export function mergeInline(o) {
     lKey = atomKeys(fl, L),
     rKey = atomKeys(fr, R);
 
-  // Tokens and hunks: words, or lines past the same bound text-merge uses.
-  const fast = allAscii(stripAtoms(fb), stripAtoms(fl), stripAtoms(fr));
-  let bToks = tokensOf(fb, fast, false, bKey),
-    lToks = tokensOf(fl, fast, false, lKey),
-    rToks = tokensOf(fr, fast, false, rKey);
-  const lines =
-    bToks.length > MAX_TOKENS ||
-    lToks.length > MAX_TOKENS ||
-    rToks.length > MAX_TOKENS;
-  if (lines) {
-    bToks = tokensOf(fb, fast, true, bKey);
-    lToks = tokensOf(fl, fast, true, lKey);
-    rToks = tokensOf(fr, fast, true, rKey);
-  }
-  const paired = pairedHunks(
-    diffTokens(bToks, lToks),
-    diffTokens(bToks, rToks),
-    bToks,
-  );
-  const Ld = sideDiff(fl, bToks, lToks, {
-      hunks: paired.lh,
-      cosmetic: paired.cosL,
-    }),
-    Rd = sideDiff(fr, bToks, rToks, {
-      hunks: paired.rh,
-      cosmetic: paired.cosR,
+  const prepared =
+    o.prepared ||
+    prepareInline(fb, fl, fr, {
+      base: bKey,
+      local: lKey,
+      remote: rKey,
     });
-  Ld.hunks = refineBreaks(Ld.hunks, fb.text, fl.text);
-  Rd.hunks = refineBreaks(Rd.hunks, fb.text, fr.text);
-  const ML = charMaps(Ld.hunks, fb.text.length, fl.text.length),
-    MR = charMaps(Rd.hunks, fb.text.length, fr.text.length);
+  const lines = prepared.lines,
+    bToks = prepared.baseTokens,
+    Ld = prepared.localEdits,
+    Rd = prepared.remoteEdits,
+    ML = prepared.localMap,
+    MR = prepared.remoteMap;
   const n = fb.text.length;
 
   // Base atoms a side deleted in place and inserted elsewhere in this
