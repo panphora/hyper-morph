@@ -58,8 +58,14 @@ function completeSourceCertificate(certificate, budget, charge) {
   charge(budget, text.length * 2 + retained.length + runs.length);
   const covered = new Uint8Array(text.length);
   for (const run of retained)
-    if (run.source === source) covered.fill(1, run.from, run.to);
-  for (const run of runs) covered.fill(1, run.from, run.to);
+    if (run.source === source) {
+      charge(budget, run.to - run.from);
+      covered.fill(1, run.from, run.to);
+    }
+  for (const run of runs) {
+    charge(budget, run.to - run.from);
+    covered.fill(1, run.from, run.to);
+  }
   for (let i = 0; i < text.length; i++)
     if (!covered[i] && NON_SPACE.test(text[i])) return false;
   return true;
@@ -1366,6 +1372,21 @@ export function certificateGroups({
             )
           )
             continue;
+          let conservedSource = false;
+          if (conservation) {
+            charge(budget, retained.length + hardIndices.length);
+            for (const run of retained)
+              if (run.source === source) {
+                charge(budget, run.to - run.from);
+                covered.fill(1, run.from, run.to);
+              }
+            conservedSource = true;
+            for (const i of hardIndices)
+              if (!covered[i]) {
+                conservedSource = false;
+                break;
+              }
+          }
           for (const target of targets) {
             charge(budget, selected.length);
             const targetRuns = selected.filter((run) => run.target === target);
@@ -1376,6 +1397,7 @@ export function certificateGroups({
               runs: targetRuns,
               models,
               retained,
+              conservedSource,
             });
             if (source.nodeType === 1) pendingBlocks.add(source);
             if (target.nodeType === 1) pendingBlocks.add(target);
@@ -1428,22 +1450,55 @@ export function certificateGroups({
       }
     }
   }
-  if (contestedSources) {
-    const budget = occurrenceBudget(limit);
-    let keep = 0;
-    for (const certificate of certificates) {
-      if (contestedSources.get(certificate.source) & (1 << certificate.side)) {
-        let complete = false;
-        try {
-          complete = completeSourceCertificate(certificate, budget, charge);
-        } catch (error) {
-          if (error !== exhausted) throw error;
+  const certificatesBySource = certificates.length ? new Map() : null;
+  for (const certificate of certificates) {
+    let list = certificatesBySource.get(certificate.source);
+    if (!list) certificatesBySource.set(certificate.source, (list = []));
+    list.push(certificate);
+  }
+  let rejected = null;
+  if (certificatesBySource) {
+    let budget = null;
+    for (const [source, list] of certificatesBySource) {
+      const contested = contestedSources?.get(source) || 0;
+      if (list.length < 2 && !contested) continue;
+      let conservedSides = 0;
+      for (const certificate of list)
+        if (certificate.conservedSource)
+          conservedSides |= 1 << certificate.side;
+      for (const certificate of list) {
+        if (certificate.conservedSource) continue;
+        const side = 1 << certificate.side;
+        let complete = true;
+        if (conservedSides & side) complete = false;
+        else if (contested & side) {
+          complete = false;
+          try {
+            complete = completeSourceCertificate(
+              certificate,
+              (budget ||= occurrenceBudget(limit)),
+              charge,
+            );
+          } catch (error) {
+            if (error !== exhausted) throw error;
+          }
         }
-        if (!complete) continue;
+        if (!complete) (rejected ||= new Set()).add(certificate);
       }
-      certificates[keep++] = certificate;
     }
+  }
+  if (rejected) {
+    let keep = 0;
+    for (const certificate of certificates)
+      if (!rejected.has(certificate)) certificates[keep++] = certificate;
     certificates.length = keep;
+    for (const [source, list] of certificatesBySource) {
+      keep = 0;
+      for (const certificate of list)
+        if (!rejected.has(certificate)) list[keep++] = certificate;
+      list.length = keep;
+      if (!keep) certificatesBySource.delete(source);
+    }
     blocks.clear();
     for (const certificate of certificates) {
       const { source, target, side } = certificate;
@@ -1453,21 +1508,22 @@ export function certificateGroups({
       if (owner?.nodeType === 1) blocks.add(owner);
     }
   }
-  if (sourceRetentions)
+  if (sourceRetentions) {
+    const budget = occurrenceBudget(limit);
+    let exhaustedSuppression = false;
     for (const record of sourceRetentions) {
       let covered = false;
-      try {
-        covered = certifiedSourceRetention(
-          record,
-          certificates,
-          occurrenceBudget(limit),
-          charge,
-        );
-      } catch (error) {
-        if (error !== exhausted) throw error;
-      }
+      const list = certificatesBySource?.get(record.source);
+      if (list && !exhaustedSuppression)
+        try {
+          covered = certifiedSourceRetention(record, list, budget, charge);
+        } catch (error) {
+          if (error !== exhausted) throw error;
+          exhaustedSuppression = true;
+        }
       if (!covered) onUncertainSource(record);
     }
+  }
   if (sourceAlternatives) {
     const seen = new Set(),
       budget = occurrenceBudget(limit);
@@ -1502,12 +1558,6 @@ export function certificateGroups({
     }
   }
   if (!certificates.length) return null;
-  const certificatesBySource = new Map();
-  for (const certificate of certificates) {
-    let list = certificatesBySource.get(certificate.source);
-    if (!list) certificatesBySource.set(certificate.source, (list = []));
-    list.push(certificate);
-  }
   return { blocks, certificates, certificatesBySource, models };
 }
 
