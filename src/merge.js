@@ -2061,8 +2061,15 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
               unitsOf(u).every(inlineIn)
             : u.kind === "text";
         certPlan = certificateGroups({
-          onUncertainOwner: (record) =>
-            (sourceAlternatives ||= []).push(record),
+          onUncertainOwner: (record) => {
+            const localIdentity = o.identity.local(record.local);
+            if (
+              localIdentity &&
+              localIdentity === o.identity.remote(record.remote)
+            )
+              return;
+            (sourceAlternatives ||= []).push(record);
+          },
           onUncertainSource: (record) => {
             if (!sourceRetentions) sourceRetentions = new Map();
             let records = sourceRetentions.get(record.source);
