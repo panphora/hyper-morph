@@ -2138,6 +2138,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         !Lv.asBase &&
         !Rv.asBase &&
         bUnits.length >= 2 &&
+        TEXT_BLOCK_TAGS.has(bUnits[0].tagName) &&
         Lv.units.length === bUnits.length &&
         Rv.units.length === bUnits.length
           ? planNativeTransfers({
