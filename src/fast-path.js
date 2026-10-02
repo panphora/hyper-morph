@@ -385,6 +385,8 @@ export function findScope({
       onChain,
       baseIndex,
       remoteIndex,
+      baseDropped,
+      remoteDropped,
       // The keyed head the whole-document merge pairs by identity and
       // certifies, or null.
       head,

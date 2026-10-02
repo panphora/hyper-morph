@@ -134,16 +134,33 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   let t0 = prof ? performance.now() : 0;
   const fast = (fn) => (fn === defaultIdentity ? KEYED : null);
   const scope = o.scope || null;
+  // The ids each index dropped as duplicates: an identity one side holds
+  // twice decides nothing on the other side either.
+  const bDropped = scope ? scope.baseDropped : new Set(),
+    lDropped = new Set(),
+    rDropped = scope ? scope.remoteDropped : new Set();
   const bIndex = scope
     ? scope.baseIndex
-    : indexByIdentity(bRoot, idBase, ignored, fast(o.identity.base));
+    : indexByIdentity(bRoot, idBase, ignored, fast(o.identity.base), bDropped);
   const lIndex =
     o.localIsBase || bRoot === lRoot
       ? null
-      : indexByIdentity(lRoot, idLocal, ignored, fast(o.identity.local));
+      : indexByIdentity(
+          lRoot,
+          idLocal,
+          ignored,
+          fast(o.identity.local),
+          lDropped,
+        );
   const rIndex = scope
     ? scope.remoteIndex
-    : indexByIdentity(rRoot, idRemote, ignored, fast(o.identity.remote));
+    : indexByIdentity(
+        rRoot,
+        idRemote,
+        ignored,
+        fast(o.identity.remote),
+        rDropped,
+      );
   // An identity names one element only when base lacks it and its side
   // holds it once.
   const freshLocal = (el) => {
@@ -162,6 +179,10 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         sideIndex: lIndex,
         baseId: authored.base,
         sideId: authored.local,
+        baseKey: idBase,
+        sideKey: idLocal,
+        baseDropped: bDropped,
+        sideDropped: lDropped,
         stats,
       });
   const R = align(bRoot, rRoot, {
@@ -170,6 +191,10 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     sideIndex: rIndex,
     baseId: authored.base,
     sideId: authored.remote,
+    baseKey: idBase,
+    sideKey: idRemote,
+    baseDropped: bDropped,
+    sideDropped: rDropped,
     stats,
     scope,
     comparisons: o.comparisons,
@@ -471,6 +496,8 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     for (const bk of Array.from(A.weak)) {
       const su = twinIn(A, bk);
       if (!su) continue;
+      // A side element with an identity of its own is no echo of anything.
+      if (A === L ? freshLocal(su) : freshRemote(su)) continue;
       const list = ins.get(analyzer.unitHash(su));
       if (
         list &&
@@ -1722,6 +1749,12 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
             )
               return false;
           }
+        }
+        // A base block the holder's own base twin already held, as often
+        // as the holder does now, did not join it: nothing arrived.
+        if (bk && !bSet.has(whole) && bSet.has(part)) {
+          const n = count(flatText(whole));
+          if (n && n <= count(flatText(bk))) return false;
         }
         const pt = tokens(part);
         const wt = family(whole);

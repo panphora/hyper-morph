@@ -44,8 +44,12 @@ const POSITIONAL_LOOKAHEAD = 3;
  * @param {ReturnType<import("./similarity.js").createAnalyzer>} o.analyzer
  * @param {Map<string, Element>} o.baseIndex - identity index of the base side
  * @param {Map<string, Element>} o.sideIndex - identity index of the side
- * @param {(el: Element) => string | null} [o.baseId] - identity of a base element
- * @param {(el: Element) => string | null} [o.sideId] - identity of a side element
+ * @param {(el: Element) => string | null} [o.baseId] - authored identity of a base element
+ * @param {(el: Element) => string | null} [o.sideId] - authored identity of a side element
+ * @param {(el: Element) => string | null} [o.baseKey] - full identity of a base element, the key o.baseIndex holds it under
+ * @param {(el: Element) => string | null} [o.sideKey] - full identity of a side element, the key o.sideIndex holds it under
+ * @param {Set<string>} [o.baseDropped] - ids the base index dropped as duplicates
+ * @param {Set<string>} [o.sideDropped] - ids the side index dropped as duplicates
  * @param {object} [o.stats] - per-apply counters to fill
  * @param {object} [o.scope] - the fast path's changed branch (fast-path.js): certification walks only the branch, and refuses the ancestors on its chain unwalked, since each holds the change
  * @returns {Alignment}
@@ -69,6 +73,10 @@ export function align(baseRoot, sideRoot, o) {
   } = o.analyzer;
   const baseId = o.baseId || (() => null),
     sideId = o.sideId || (() => null);
+  const baseKey = o.baseKey || (() => null),
+    sideKey = o.sideKey || (() => null);
+  const baseDropped = o.baseDropped || new Set(),
+    sideDropped = o.sideDropped || new Set();
   const stats = o.stats || null;
   const tieCounted = stats ? new Set() : null;
   const refused = stats ? new Set() : null;
@@ -160,6 +168,25 @@ export function align(baseRoot, sideRoot, o) {
     if (!kb) return true;
     const ks = sideId(s);
     return !ks || kb === ks;
+  };
+  // A full identity each side holds once (and the other side does not hold
+  // twice, where it would decide nothing) travels with its element: a copy
+  // elsewhere under another identity is another element, so it never moves
+  // there. In place the two still pair, since two tabs mint different ids
+  // for one element until they have met.
+  const nameB = (u) => {
+    const k = baseKey(u);
+    return k && o.baseIndex.get(k) === u && !sideDropped.has(k) ? k : null;
+  };
+  const nameS = (u) => {
+    const k = sideKey(u);
+    return k && o.sideIndex.get(k) === u && !baseDropped.has(k) ? k : null;
+  };
+  const namesAgree = (b, s) => {
+    const nb = nameB(b);
+    if (!nb) return true;
+    const ns = nameS(s);
+    return !ns || nb === ns;
   };
 
   const prof = globalThis.__hyperMorphProfile;
@@ -529,12 +556,22 @@ export function align(baseRoot, sideRoot, o) {
   /**
    * Pair two identical subtrees unit by unit without scoring. Descendants
    * must still be paired so apply can keep every live node, but nothing
-   * about them needs to be compared.
+   * about them needs to be compared. Two subtrees an identity pair inside
+   * contradicts (a child of one is paired elsewhere by identity) are not
+   * the same subtree when either is named: both stay unpaired, and nothing
+   * pairs them crosswise. Unnamed ones still pair on their content, and
+   * the identity pair inside moves out.
    */
+  function mayLockstep(b, s) {
+    if (!isEl(b) || !(holdsB.has(b) || holdsS.has(s))) return true;
+    return !!ownership(b, s) || !(nameB(b) || nameS(s));
+  }
+
   function lockstep(b, s) {
     if (isEl(b) && (holdsB.has(b) || holdsS.has(s))) {
       const pairs = ownership(b, s);
       if (!pairs) {
+        if (nameB(b) || nameS(s)) return;
         pair(b, s);
         queue.push([b, s]);
         return;
@@ -865,7 +902,9 @@ export function align(baseRoot, sideRoot, o) {
               weak.has(x) &&
               !isBanned(x, s) &&
               keysAgree(x, s) &&
-              equalUnits(x, s),
+              namesAgree(x, s) &&
+              equalUnits(x, s) &&
+              mayLockstep(x, s),
           );
         if (!b) continue;
         unpair(b);
@@ -927,7 +966,13 @@ export function align(baseRoot, sideRoot, o) {
       const same = byHash.get(meta(b).hash);
       if (same) {
         const s = same.find(
-          (x) => x !== was && free(x, b) && !isBanned(b, x) && equalUnits(b, x),
+          (x) =>
+            x !== was &&
+            free(x, b) &&
+            !isBanned(b, x) &&
+            namesAgree(b, x) &&
+            equalUnits(b, x) &&
+            mayLockstep(b, x),
         );
         if (s) {
           claim(s);
@@ -943,7 +988,13 @@ export function align(baseRoot, sideRoot, o) {
       let hit = null,
         count = 0;
       for (const s of bucket) {
-        if (s === was || !free(s, b) || !keysAgree(b, s) || isBanned(b, s))
+        if (
+          s === was ||
+          !free(s, b) ||
+          !keysAgree(b, s) ||
+          !namesAgree(b, s) ||
+          isBanned(b, s)
+        )
           continue;
         if (budget-- <= 0) break;
         if (similar(b, s)) {

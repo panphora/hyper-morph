@@ -160,9 +160,17 @@ export const defaultIdentity = tieredIdentity([
  * @param {Element} root
  * @param {(el: Element) => string | null} idOf
  * @param {(n: Node) => boolean} ignored
+ * @param {string | null} [fastSelector]
+ * @param {Set<string>} [dropped] - filled with the ids dropped as duplicates
  * @returns {Map<string, Element>}
  */
-export function indexByIdentity(root, idOf, ignored, fastSelector = null) {
+export function indexByIdentity(
+  root,
+  idOf,
+  ignored,
+  fastSelector = null,
+  dropped = null,
+) {
   const map = new Map();
   const dup = new Set();
   const consider = (el) => {
@@ -198,6 +206,7 @@ export function indexByIdentity(root, idOf, ignored, fastSelector = null) {
   }
   for (const id of dup) {
     map.delete(id);
+    if (dropped) dropped.add(id);
     warnDuplicate(id);
   }
   return map;
