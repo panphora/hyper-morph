@@ -26,6 +26,7 @@ import { align } from "./align.js";
 import { merge3Text, diff } from "./text-merge.js";
 import { mergeInline, isInlineUnit, MARK_TAGS } from "./inline-merge.js";
 import { planNativeTransfers } from "./native-transfers.js";
+import { rejectedCertificateRetentions } from "./rejected-certificate.js";
 import { indexByIdentity, defaultIdentity, warnDuplicate } from "./identity.js";
 import { headSignature } from "./head-merge.js";
 import { isHtmlScript, mergeIdentityOf } from "./scripts.js";
@@ -2337,7 +2338,31 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           decisions,
           node: el,
         });
-        if (!res) continue;
+        if (!res) {
+          if (groupCertificates) {
+            const rejected = rejectedCertificateRetentions({
+              certificates: groupCertificates,
+              scopes: [units, lu || units, ru || units],
+              views: [
+                { V: Lv, A: L, idOf: authored.local },
+                { V: Rv, A: R, idOf: authored.remote },
+              ],
+              eligible: (u) =>
+                isEl(u) &&
+                TEXT_BLOCK_TAGS.has(u.tagName) &&
+                !ignored(u) &&
+                !o.remoteWins(u),
+              baseId: authored.base,
+            });
+            for (const record of rejected.records) {
+              sourceRetentions ||= new Map();
+              let records = sourceRetentions.get(record.source);
+              if (!records) sourceRetentions.set(record.source, (records = []));
+              records.push(record);
+            }
+          }
+          continue;
+        }
         segments.push(...res.segments);
         if (nativePlan) {
           const outputs = new Map();
