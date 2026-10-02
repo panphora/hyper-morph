@@ -9,6 +9,7 @@ import {
 import { compileOccurrenceMap, occurrenceBudget } from "./occurrence-map.js";
 import {
   declinedSourceRetentions,
+  endpointSourceRetention,
   certifiedSourceRetention,
 } from "./source-retention.js";
 
@@ -16,6 +17,52 @@ const NON_SPACE = /\S/;
 const SPACE = /\s/;
 const SOFT = /[\s\u001e]/g;
 const EVIDENCE = /[^\s\p{P}\u001e\ufffc]/u;
+
+function contestedOrphans(
+  targets,
+  matches,
+  retained,
+  V,
+  models,
+  budget,
+  charge,
+) {
+  let orphans = 0;
+  for (const target of targets) {
+    charge(budget, 1);
+    if (target.nodeType === 1 && !V.baseOf(target)) orphans++;
+  }
+  if (orphans < 2) return false;
+  for (const target of targets) {
+    if (target.nodeType !== 1 || V.baseOf(target)) continue;
+    const flat = models.get(target).flat;
+    if (flat.atoms.length || flat.pins?.length) continue;
+    charge(budget, flat.text.length * 2 + matches.length + retained.length);
+    const covered = new Uint8Array(flat.text.length);
+    for (const run of retained)
+      if (run.target === target)
+        covered.fill(1, run.targetFrom, run.targetFrom + run.to - run.from);
+    for (const run of matches)
+      if (run.target === target)
+        covered.fill(1, run.targetFrom, run.targetFrom + run.to - run.from);
+    for (let i = 0; i < flat.text.length; i++)
+      if (!covered[i] && NON_SPACE.test(flat.text[i])) return true;
+  }
+  return false;
+}
+
+function completeSourceCertificate(certificate, budget, charge) {
+  const { source, models, retained, runs } = certificate;
+  const text = models.get(source).flat.text;
+  charge(budget, text.length * 2 + retained.length + runs.length);
+  const covered = new Uint8Array(text.length);
+  for (const run of retained)
+    if (run.source === source) covered.fill(1, run.from, run.to);
+  for (const run of runs) covered.fill(1, run.from, run.to);
+  for (let i = 0; i < text.length; i++)
+    if (!covered[i] && NON_SPACE.test(text[i])) return false;
+  return true;
+}
 
 function exactResidualOccurrence(
   source,
@@ -369,7 +416,8 @@ export function certificateGroups({
   const bPos = new Map(base.map((unit, i) => [unit, i]));
   const models = new Map();
   const certificates = [];
-  let sourceRetentions = null;
+  let sourceRetentions = null,
+    contestedSources = null;
   const blocked = new Set();
   for (const unit of base)
     for (const { V } of views) {
@@ -1132,6 +1180,51 @@ export function certificateGroups({
             if (!SPACE.test(sourceText[i])) hardIndices.push(i);
           if (!hardIndices.length) continue;
           const targets = new Set(selected.map((run) => run.target));
+          if (
+            !conservation &&
+            twin &&
+            targets.size > 1 &&
+            contestedOrphans(
+              targets,
+              matches,
+              retained,
+              V,
+              models,
+              budget,
+              charge,
+            )
+          ) {
+            contestedSources ||= new Map();
+            contestedSources.set(
+              source,
+              (contestedSources.get(source) || 0) | (1 << side),
+            );
+            if (onUncertainSource) {
+              const record = endpointSourceRetention({
+                source,
+                side,
+                views,
+                eligible,
+                blocked,
+                baseId,
+                model,
+                tokensOf,
+                budget,
+                charge,
+              });
+              if (record) {
+                charge(budget, record.to - record.from);
+                let complete = true;
+                for (let i = record.from; i < record.to; i++)
+                  if (NON_SPACE.test(sourceText[i]) && !covered[i]) {
+                    complete = false;
+                    break;
+                  }
+                if (complete) (sourceRetentions ||= []).push(record);
+              }
+            }
+            continue;
+          }
           const evidence = hardIndices.filter((i) =>
             EVIDENCE.test(sourceText[i]),
           );
@@ -1313,6 +1406,31 @@ export function certificateGroups({
           if (retained) (sourceRetentions ||= []).push(...retained);
         }
       }
+    }
+  }
+  if (contestedSources) {
+    const budget = occurrenceBudget(limit);
+    let keep = 0;
+    for (const certificate of certificates) {
+      if (contestedSources.get(certificate.source) & (1 << certificate.side)) {
+        let complete = false;
+        try {
+          complete = completeSourceCertificate(certificate, budget, charge);
+        } catch (error) {
+          if (error !== exhausted) throw error;
+        }
+        if (!complete) continue;
+      }
+      certificates[keep++] = certificate;
+    }
+    certificates.length = keep;
+    blocks.clear();
+    for (const certificate of certificates) {
+      const { source, target, side } = certificate;
+      if (source.nodeType === 1) blocks.add(source);
+      if (target.nodeType === 1) blocks.add(target);
+      const owner = views[side].V.baseOf(target);
+      if (owner?.nodeType === 1) blocks.add(owner);
     }
   }
   if (sourceRetentions)
