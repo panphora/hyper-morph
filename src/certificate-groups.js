@@ -556,10 +556,19 @@ export function certificateGroups({
       }
       return { prev, next };
     };
-    const bn = nearest(base, (unit) => unit.nodeType === 1 && twinHere(unit)),
+    const bn = nearest(
+        base,
+        (unit) =>
+          (unit.nodeType === 1 ||
+            (unit.kind === "text" && NON_SPACE.test(unit.value))) &&
+          twinHere(unit),
+      ),
       sn = nearest(
         V.units,
-        (unit) => unit.nodeType === 1 && baseSet.has(V.baseOf(unit)),
+        (unit) =>
+          (unit.nodeType === 1 ||
+            (unit.kind === "text" && NON_SPACE.test(unit.value))) &&
+          baseSet.has(V.baseOf(unit)),
       );
     const windows = new Map();
     const window = (bl, bh, sl, sh) => {
