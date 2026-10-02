@@ -13,6 +13,131 @@ const SPACE = /\s/;
 const SOFT = /[\s\u001e]/g;
 const EVIDENCE = /[^\s\p{P}\u001e\ufffc]/u;
 
+function exactResidualOccurrence(
+  source,
+  target,
+  runs,
+  B,
+  S,
+  models,
+  reserved,
+  tokensOf,
+  charge,
+  budget,
+) {
+  const original = models.get(source),
+    destination = models.get(target);
+  if (original.flat.atoms.length || destination.flat.atoms.length) return null;
+  const text = original.flat.text,
+    used = reserved.get(source);
+  charge(budget, text.length * 2 + runs.length);
+  let from = text.length,
+    to = 0;
+  for (let i = 0; i < text.length; i++)
+    if (!SPACE.test(text[i]) && !used[i]) {
+      from = Math.min(from, i);
+      to = i + 1;
+    }
+  if (from >= to) return null;
+  for (let i = from; i < to; i++)
+    if (!SPACE.test(text[i]) && used[i]) return null;
+  let targetFrom = -1;
+  for (const run of runs)
+    if (run.target === target && run.from <= from && run.to > from) {
+      targetFrom = run.targetFrom + from - run.from;
+      break;
+    }
+  if (targetFrom < 0) return null;
+  const needle = text.slice(from, to);
+  charge(budget, needle.length * (runs.length + 2));
+  if (
+    destination.flat.text.slice(targetFrom, targetFrom + needle.length) !==
+    needle
+  )
+    return null;
+  for (let i = from; i < to; i++) {
+    if (SPACE.test(text[i])) continue;
+    let covered = false;
+    for (const run of runs)
+      if (
+        run.target === target &&
+        run.from <= i &&
+        run.to > i &&
+        run.targetFrom + i - run.from === targetFrom + i - from
+      ) {
+        covered = true;
+        break;
+      }
+    if (!covered) return null;
+  }
+  for (const [units, expected, offset] of [
+    [B, source, from],
+    [S, target, targetFrom],
+  ]) {
+    let found = false;
+    for (const unit of units) {
+      const M = models.get(unit),
+        mask = reserved.get(unit),
+        tokens = tokensOf(M, budget);
+      for (let i = 0; i < tokens.length; i++) {
+        const start = tokens[i].from,
+          end = start + needle.length;
+        charge(budget, needle.length * 2 + 1);
+        if (M.flat.text.slice(start, end) !== needle) continue;
+        let j = i;
+        while (j < tokens.length && tokens[j].to < end) {
+          charge(budget, 1);
+          j++;
+        }
+        if (j === tokens.length || tokens[j].to !== end) continue;
+        let available = true;
+        for (let k = start; k < end; k++)
+          if (!SPACE.test(M.flat.text[k]) && mask[k]) {
+            available = false;
+            break;
+          }
+        if (!available) continue;
+        if (found || unit !== expected || start !== offset) return null;
+        found = true;
+      }
+    }
+    if (!found) return null;
+  }
+  return needle;
+}
+
+function wholeRetainedOwner(
+  source,
+  target,
+  text,
+  after,
+  retained,
+  tokens,
+  charge,
+  budget,
+) {
+  charge(
+    budget,
+    retained.length + tokens.length + (after.length + 1) * text.length * 2,
+  );
+  if (!text) return false;
+  const at = after.indexOf(text);
+  if (at < 0 || after.lastIndexOf(text) !== at) return false;
+  if (
+    !tokens.some((token) => token.from === at) ||
+    !tokens.some((token) => token.to === at + text.length)
+  )
+    return false;
+  return retained.some(
+    (run) =>
+      run.source === source &&
+      run.target === target &&
+      run.from === 0 &&
+      run.to === text.length &&
+      run.targetFrom === at,
+  );
+}
+
 export function replacementViews({
   base,
   views,
@@ -912,8 +1037,54 @@ export function certificateGroups({
                 !conservation &&
                 ((!pureSource && !replacementProof) ||
                   (!pureTarget && !orphanSlot))
-              )
-                continue;
+              ) {
+                const exact = exactResidualOccurrence(
+                  source,
+                  target,
+                  runs,
+                  B,
+                  S,
+                  models,
+                  reserved,
+                  tokensOf,
+                  charge,
+                  budget,
+                );
+                if (!exact) continue;
+                const replacedSourceSlot =
+                  A.weak?.has(source) &&
+                  !A.identityPaired?.has(source) &&
+                  sourceText.trim() === exact;
+                if (!pureSource && !replacementProof && !replacedSourceSlot)
+                  continue;
+                const replacedTargetSlot =
+                  A.weak?.has(targetBase) &&
+                  !A.identityPaired?.has(targetBase) &&
+                  targetText.trim() === exact &&
+                  !models.get(targetBase).flat.atoms.length &&
+                  !retained.some(
+                    (run) =>
+                      run.source === targetBase &&
+                      NON_SPACE.test(targetBefore.slice(run.from, run.to)),
+                  );
+                if (
+                  !pureTarget &&
+                  !orphanSlot &&
+                  !replacedTargetSlot &&
+                  !wholeRetainedOwner(
+                    targetBase,
+                    target,
+                    targetBefore,
+                    targetText,
+                    retained,
+                    tokensOf(targetModel, budget),
+                    charge,
+                    budget,
+                  )
+                )
+                  continue;
+                if (replacedSourceSlot) replacementTargets.add(target);
+              }
             }
             if (replacementProof) replacementTargets.add(target);
             charge(budget, runs.length);
