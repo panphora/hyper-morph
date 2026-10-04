@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Add opt-in element lineage to live apply reports, with synchronous callbacks and explicit unknown results for regions that cannot be proven. Lineage locates protection and does not authorize recovery writes.
+
 ## [1.3.0] - 2026-10-02
 
 ### Added

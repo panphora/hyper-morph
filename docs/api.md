@@ -9,6 +9,7 @@ Type declarations for everything here are in `types/index.d.ts`.
 
 - [Entry points](#entry-points)
 - [Options](#options)
+- [lineage](#lineage)
 - [The report](#the-report)
 - [Merge semantics](#merge-semantics)
 - [Apply semantics](#apply-semantics)
@@ -80,9 +81,9 @@ The pure merge. Takes documents or element roots, never touches them, and
 returns a fresh document plus provenance. `base` may be `null`, which
 makes `local` the base. Takes every option in the table below except
 `live`, `base`, `remote`, `local`, `hooks` (only `beforeNodeMorphed` and
-`afterNodeMorphed` matter, and only to disable the unchanged fast path) and
-`beforeApply`. `children: true` merges only the roots' children and leaves
-the root attributes alone.
+`afterNodeMorphed` matter, and only to disable the unchanged fast path),
+`beforeApply` and `lineage`. `children: true` merges only the roots' children
+and leaves the root attributes alone.
 
 ```ts
 type MergeResult = {
@@ -111,27 +112,28 @@ type Provenance = {
 Unknown keys throw `TypeError` before any DOM mutation. `options` must be
 an object.
 
-| Option                | Type                                                                       | Default                | Applies to                                       |
-| --------------------- | -------------------------------------------------------------------------- | ---------------------- | ------------------------------------------------ |
-| `live`                | `Document`                                                                 | required               | `mergeDocument`                                  |
-| `base`                | `string \| Document \| null`                                               | required               | `mergeDocument`; `morphElement` (also `Element`) |
-| `remote`              | `string \| Document`                                                       | required               | `mergeDocument`                                  |
-| `local`               | `{ root: Element; toLive: (n: Node) => Node \| null }`                     | live DOM               | `mergeDocument`                                  |
-| `identity`            | `{ base?, local?, remote?: IdentitySpec }`                                 | `data-id`, then `id`   | all                                              |
-| `ignore`              | `(el: Element) => boolean`                                                 | `() => false`          | all                                              |
-| `remoteWins`          | `(el: Element) => boolean`                                                 | `() => false`          | all                                              |
-| `ignoreAttribute`     | `(el: Element, name: string) => boolean`                                   | `() => false`          | all                                              |
-| `conflicts`           | `"remote" \| "local" \| "both"`                                            | `"remote"`             | all                                              |
-| `protectFocusedValue` | `boolean \| "subtree"`                                                     | `true`                 | applying calls                                   |
-| `restoreFocus`        | `boolean`                                                                  | `true`                 | applying calls                                   |
-| `formState`           | `"attribute" \| "property"`                                                | `"attribute"`          | applying calls                                   |
-| `head`                | `{ awaitLoads?: boolean; preserve?: (el: Element) => boolean }`            | `false`, `() => false` | applying calls                                   |
-| `scripts`             | `{ execute?: boolean; merge?: boolean; mergeTags?: MergeTagRecognizer[] }` | `true`, `true`, `[]`   | all (`execute` applying only)                    |
-| `children`            | `boolean`                                                                  | `false`                | `morphElement`, `merge3`                         |
-| `hooks`               | see below                                                                  | no-ops                 | applying calls                                   |
-| `beforeApply`         | `(mergedDoc: Document) => void`                                            | none                   | applying calls                                   |
-| `fastPath`            | `boolean`                                                                  | `false`                | `mergeDocument`                                  |
-| `keepLiveOnly`        | `boolean`                                                                  | `false`                | `mergeDocument` with `local`                     |
+| Option                | Type                                                                                                        | Default                | Applies to                                       |
+| --------------------- | ----------------------------------------------------------------------------------------------------------- | ---------------------- | ------------------------------------------------ |
+| `live`                | `Document`                                                                                                  | required               | `mergeDocument`                                  |
+| `base`                | `string \| Document \| null`                                                                                | required               | `mergeDocument`; `morphElement` (also `Element`) |
+| `remote`              | `string \| Document`                                                                                        | required               | `mergeDocument`                                  |
+| `local`               | `{ root: Element; toLive: (n: Node) => Node \| null }`                                                      | live DOM               | `mergeDocument`                                  |
+| `identity`            | `{ base?, local?, remote?: IdentitySpec }`                                                                  | `data-id`, then `id`   | all                                              |
+| `ignore`              | `(el: Element) => boolean`                                                                                  | `() => false`          | all                                              |
+| `remoteWins`          | `(el: Element) => boolean`                                                                                  | `() => false`          | all                                              |
+| `ignoreAttribute`     | `(el: Element, name: string) => boolean`                                                                    | `() => false`          | all                                              |
+| `conflicts`           | `"remote" \| "local" \| "both"`                                                                             | `"remote"`             | all                                              |
+| `protectFocusedValue` | `boolean \| "subtree"`                                                                                      | `true`                 | applying calls                                   |
+| `restoreFocus`        | `boolean`                                                                                                   | `true`                 | applying calls                                   |
+| `formState`           | `"attribute" \| "property"`                                                                                 | `"attribute"`          | applying calls                                   |
+| `head`                | `{ awaitLoads?: boolean; preserve?: (el: Element) => boolean }`                                             | `false`, `() => false` | applying calls                                   |
+| `scripts`             | `{ execute?: boolean; merge?: boolean; mergeTags?: MergeTagRecognizer[] }`                                  | `true`, `true`, `[]`   | all (`execute` applying only)                    |
+| `children`            | `boolean`                                                                                                   | `false`                | `morphElement`, `merge3`                         |
+| `hooks`               | see below                                                                                                   | no-ops                 | applying calls                                   |
+| `beforeApply`         | `(mergedDoc: Document) => void`                                                                             | none                   | applying calls                                   |
+| `fastPath`            | `boolean`                                                                                                   | `false`                | `mergeDocument`                                  |
+| `keepLiveOnly`        | `boolean`                                                                                                   | `false`                | `mergeDocument` with `local`                     |
+| `lineage`             | `{ elements: ArrayLike<Element>; onResult: (result: ElementLineage, report: MergeReport \| null) => void }` | none                   | `mergeDocument`, `morphDocument`, `morphElement` |
 
 ### `base`
 
@@ -386,6 +388,52 @@ Limits (each takes the full merge):
   `sibling-live`);
 - an alignment that moves an ancestor of the branch (`chain-unpaired`).
 
+### `lineage`
+
+Applying calls accept `lineage: { elements, onResult }`. `elements` is an
+array-like collection of live elements. Repeated elements produce one entry in
+first-seen order. `merge3` rejects this option because it does not apply to a
+live document. Calls without the option have no `report.lineage` field.
+
+`onResult(result, report)` runs synchronously after the outer apply and script
+activation, before the returned promise waits for external resources. On
+success, `report.lineage` is the same result object. A differing-tag
+`morphElement` reports after its outer replacement and hooks, so targets name
+the final live elements.
+
+The result is `{ version: 1, root, status, entries }`. Each entry is
+`{ from, to, kind, complete }`. `from` is the caller's original Element object;
+`to` contains actual elements inside the final apply root. `retained` names
+`[from]`. `replaced` names one different element. `removed` has no targets and
+requires accounted removal with no surviving region inside the root. `unknown`
+has no targets and `complete: false`. Version 1 reserves `split` and `combined`
+but emits `unknown` when it cannot prove a complete single region.
+
+A complete relation accounts for the region through the merge and checks where
+its output landed. For example, an unchanged paragraph replaced by a heading in
+one unambiguous source interval can report `replaced`, even without ids. Equal
+text elsewhere is not a correspondence. Hook escapes, partial mappings, and
+uncertain split or combined content cannot certify a single target. Watched
+elements outside the apply root or inside template contents are reported as
+unknown. Ignored roots and the whole-element removal shortcut also report
+unknown.
+
+This metadata locates protection, not permission to undo. Consumers must keep
+their existing recovery validation. Unknown, removed, missing or incomplete
+lineage must not silently remove protection, and later external DOM changes
+invalidate a consumer's stored narrowing proof. The result describes this apply
+only; the producer keeps no historical graph.
+
+Malformed options or elements from another document throw before mutation and
+before the callback. After valid lineage tracking is initialized, any
+synchronous apply failure delivers one result with `status: "incomplete"`,
+unknown entries and a null report, then propagates the original error. This
+includes a hook that changes the page and throws before the inner apply starts.
+Invalid lineage options or watched elements fail before tracking is initialized
+and do not call back. If a successful callback itself throws, its error
+propagates without a second callback. If both application and its incomplete
+callback throw, the original application error wins.
+
 ## The report
 
 ```ts
@@ -398,6 +446,7 @@ type MergeReport = {
   moved: Element[];
   replaced: Element[];
   stats: MergeStats;
+  lineage?: ElementLineage;
 };
 ```
 
