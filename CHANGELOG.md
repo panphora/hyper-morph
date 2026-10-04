@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.4.0] - 2026-10-04
+
+### Added
+- Opt-in element lineage in live apply reports
+
+### Fixed
+- Lineage protection now survives callback moves and templates
+
+
+
 ## Unreleased
 
 ### Added
