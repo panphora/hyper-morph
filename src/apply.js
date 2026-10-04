@@ -26,6 +26,7 @@ const HTML_SPACE = /[\t\n\f\r ]+/;
  * @property {boolean} [restoreFocus]
  * @property {object} hooks
  * @property {boolean} [childrenOnly]
+ * @property {boolean} [trackInserted] - record inserted copies for lineage too
  */
 
 /**
@@ -49,7 +50,7 @@ export function apply(liveRoot, mergedRoot, result, o) {
   const heldBy = new Map(); // merged text node -> live text node holding its text
   // For the conflict report only: where an inserted copy (and each stand-in
   // kept inside one) landed, and the merged nodes a hook kept out of the DOM.
-  const track = result.conflicts.length > 0;
+  const track = result.conflicts.length > 0 || o.trackInserted === true;
   const insertedLive = new Map();
   const vetoed = new Set();
   const vetoedAttrs = new Map();

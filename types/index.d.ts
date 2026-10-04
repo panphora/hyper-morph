@@ -82,6 +82,23 @@ export interface CommonOptions {
   beforeApply?: (mergedDoc: Document) => void;
 }
 
+export interface LineageOptions {
+  elements: ArrayLike<Element>;
+  onResult: (result: ElementLineage, report: MergeReport | null) => void;
+}
+export interface ElementLineage {
+  version: 1;
+  root: Element;
+  status: "complete" | "incomplete";
+  entries: readonly ElementLineageEntry[];
+}
+export interface ElementLineageEntry {
+  from: Element;
+  to: readonly Element[];
+  kind: "retained" | "replaced" | "split" | "combined" | "removed" | "unknown";
+  complete: boolean;
+}
+
 export interface MergeDocumentOptions extends CommonOptions {
   live: Document;
   /** The document both sides started from; omitted, null or "" for two-way. */
@@ -93,9 +110,12 @@ export interface MergeDocumentOptions extends CommonOptions {
   fastPath?: boolean;
   /** With a captured local side, never remove an attribute or class token the live element has and the capture lacks (live-only state a snapshot hook stripped). If the merge itself sets that attribute, the merged value is written, and live-only class tokens are kept beside it. Tokens inside other attributes (style, aria-describedby) are not kept. Default false. */
   keepLiveOnly?: boolean;
+  lineage?: LineageOptions;
 }
 
-export type MorphDocumentOptions = CommonOptions;
+export type MorphDocumentOptions = CommonOptions & {
+  lineage?: LineageOptions;
+};
 
 export type ElementContent =
   | string
@@ -112,6 +132,7 @@ export interface MorphElementOptions extends CommonOptions {
   children?: boolean;
   /** Base for a three-way merge of this element. */
   base?: ElementContent;
+  lineage?: LineageOptions;
 }
 
 export type Applied =
@@ -331,6 +352,8 @@ export interface MergeReport {
   replaced: Node[];
   /** Per-apply counters: numbers only, never content. */
   stats: MergeStats;
+  /** Present only when `lineage` was requested; it locates protection and never authorizes a recovery write. */
+  lineage?: ElementLineage;
 }
 
 export interface Provenance {

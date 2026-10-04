@@ -20,6 +20,7 @@ import { apply } from "./apply.js";
 import { findScope } from "./fast-path.js";
 import { resolveLive, remapLive } from "./recovery.js";
 import { captureLocal } from "./recovery-local.js";
+import { startLineage, idleLineage, guardLineage } from "./lineage.js";
 import {
   collectBodyScriptSignatures,
   executeNewScripts,
@@ -59,6 +60,7 @@ const KNOWN = new Set([
   "beforeApply",
   "fastPath",
   "keepLiveOnly",
+  "lineage",
 ]);
 const noop = () => {};
 
@@ -96,6 +98,16 @@ function normalize(o, roots = []) {
     throw new TypeError(`fastPath must be a boolean`);
   if (o.keepLiveOnly !== undefined && typeof o.keepLiveOnly !== "boolean")
     throw new TypeError(`keepLiveOnly must be a boolean`);
+  const lineage = o.lineage;
+  if (
+    lineage !== undefined &&
+    (!lineage ||
+      typeof lineage !== "object" ||
+      typeof lineage.onResult !== "function" ||
+      !lineage.elements ||
+      typeof lineage.elements.length !== "number")
+  )
+    throw new TypeError(`lineage must be { elements, onResult }`);
   return {
     ignored: makeIgnore(o.ignore, roots),
     remoteWins: makeIgnore(o.remoteWins, roots),
@@ -118,6 +130,7 @@ function normalize(o, roots = []) {
     beforeApply: typeof o.beforeApply === "function" ? o.beforeApply : null,
     fastPath: o.fastPath === true,
     keepLiveOnly: o.keepLiveOnly === true,
+    lineage: lineage || null,
   };
 }
 
@@ -160,6 +173,10 @@ export function merge3(base, local, remote, options = {}) {
   const lRoot = rootOf(local),
     rRoot = rootOf(remote),
     bRoot = rootOf(base) || lRoot;
+  if (options.lineage !== undefined)
+    throw new TypeError(
+      "lineage needs a live apply: use mergeDocument, morphDocument or morphElement",
+    );
   const clean = Object.assign({}, options);
   delete clean.live;
   delete clean.base;
@@ -192,6 +209,7 @@ export function merge3(base, local, remote, options = {}) {
     stats,
   });
   delete result.recoveryLinks;
+  delete result.lineage;
   return result;
 }
 
@@ -214,8 +232,15 @@ function run({
     options,
     [liveRoot, baseRoot, localRoot, remoteRoot].filter(Boolean),
   );
-  if (o.ignored(liveRoot)) return { report: emptyReport(), loads: [] };
+  if (o.ignored(liveRoot)) {
+    const report = emptyReport();
+    const lineage = o.lineage ? idleLineage(o.lineage, liveRoot, report) : null;
+    return { report, loads: [], lineage };
+  }
   const doc = liveRoot.ownerDocument;
+  const lineage = o.lineage
+    ? startLineage(o.lineage, { liveRoot, localRoot, toLive })
+    : null;
   const before = o.scripts.execute
     ? collectBodyScriptSignatures(liveRoot, o.ignored, doc.baseURI)
     : null;
@@ -245,6 +270,7 @@ function run({
     localIsBase: !baseRoot,
     childrenOnly,
     skipUnchanged,
+    lineage: lineage ? { locals: lineage.locals } : null,
   };
   // The fast path: a clean tab's document merge (base and local one tree),
   // narrowed to the one branch the remote changed. It reads the same merge
@@ -309,6 +335,7 @@ function run({
   const prof = globalThis.__hyperMorphProfile;
   const tA = prof ? performance.now() : 0;
 
+  if (lineage) lineage.snapshot();
   const ap = apply(liveRoot, result.root, result, {
     toLive,
     localRoot,
@@ -321,6 +348,7 @@ function run({
     hooks: o.hooks,
     childrenOnly,
     keepLiveOnly: o.keepLiveOnly,
+    trackInserted: !!lineage,
   });
 
   if (prof) prof.apply = (prof.apply || 0) + (performance.now() - tA);
@@ -424,7 +452,8 @@ function run({
     replaced: ap.replaced,
     stats,
   };
-  return { report, loads };
+  if (lineage) report.lineage = lineage.finish(result.lineage, lookup);
+  return { report, loads, lineage };
 }
 
 const parseCaches = new WeakMap();
@@ -452,6 +481,16 @@ export function mergeDocument(options) {
   const live = o.live;
   if (!live || live.nodeType !== 9)
     throw new TypeError("live must be a Document");
+  return guardLineage(o, o.live.documentElement, (tracked) =>
+    mergeDocumentImpl(tracked),
+  );
+}
+
+function mergeDocumentImpl(options) {
+  const o = options || {};
+  const live = o.live;
+  if (!live || live.nodeType !== 9)
+    throw new TypeError("live must be a Document");
   // One parse cache per live document: a cache built for another document
   // would parse in that document's realm, which may be gone.
   let cache = parseCaches.get(live);
@@ -465,7 +504,7 @@ export function mergeDocument(options) {
   const localRoot = o.local ? o.local.root : live.documentElement;
   const toLive = o.local ? o.local.toLive : (n) => n;
   syncDoctype(live, remoteDoc);
-  const { report, loads } = run({
+  const { report, loads, lineage } = run({
     liveRoot: live.documentElement,
     baseRoot: baseDoc ? baseDoc.documentElement : null,
     localRoot,
@@ -476,6 +515,7 @@ export function mergeDocument(options) {
     childrenOnly: false,
     isDocument: true,
   });
+  lineage?.deliver(report);
   return Promise.all(loads).then(() => report);
 }
 
@@ -546,12 +586,22 @@ function contentOf(content, doc) {
 export function morphElement(oldEl, newContent, options = {}) {
   if (!oldEl || oldEl.nodeType !== 1)
     throw new TypeError("oldEl must be an Element");
+  return guardLineage(options, oldEl, (tracked) =>
+    morphElementImpl(oldEl, newContent, tracked),
+  );
+}
+
+function morphElementImpl(oldEl, newContent, options = {}) {
   const doc = oldEl.ownerDocument;
   const { base, ...rest } = options;
   const childrenOnly = !!rest.children;
   // An ignored root is left alone whole, as its subtree would be below it.
-  if (normalize(rest, [oldEl]).ignored(oldEl))
-    return Promise.resolve(emptyReport());
+  const top = normalize(rest, [oldEl]);
+  if (top.ignored(oldEl)) {
+    const report = emptyReport();
+    if (top.lineage) idleLineage(top.lineage, oldEl, report).deliver(report);
+    return Promise.resolve(report);
+  }
   const remoteC = contentOf(newContent, doc);
   const baseC = base != null ? contentOf(base, doc) : null;
   let remoteRoot,
@@ -567,11 +617,12 @@ export function morphElement(oldEl, newContent, options = {}) {
     if (!remoteRoot) {
       // Nothing to morph into: the element goes away.
       const o = normalize(rest);
+      const idle = o.lineage ? idleLineage(o.lineage, oldEl, {}) : null;
       if (o.hooks.beforeNodeRemoved(oldEl) !== false) {
         oldEl.remove();
         o.hooks.afterNodeRemoved(oldEl);
       }
-      return Promise.resolve({
+      const report = {
         applied: [{ kind: "remove", node: oldEl, parent: null }],
         decisions: [],
         conflicts: [],
@@ -580,15 +631,23 @@ export function morphElement(oldEl, newContent, options = {}) {
         moved: [],
         replaced: [oldEl],
         stats: emptyStats(),
-      });
+      };
+      if (idle) {
+        report.lineage = idle.result;
+        idle.deliver(report);
+      }
+      return Promise.resolve(report);
     }
     if (remoteRoot.tagName !== oldEl.tagName) {
       // A different element: merge the children into the old element first
       // so their live nodes survive, then move them into a fresh element of
       // the new tag and swap it in.
       const o = normalize(rest, [oldEl, remoteRoot]);
-      if (o.hooks.beforeNodeMorphed(oldEl, remoteRoot) === false)
-        return Promise.resolve(emptyReport());
+      if (o.hooks.beforeNodeMorphed(oldEl, remoteRoot) === false) {
+        const report = emptyReport();
+        if (o.lineage) idleLineage(o.lineage, oldEl, report).deliver(report);
+        return Promise.resolve(report);
+      }
       const inner = run({
         liveRoot: oldEl,
         baseRoot:
@@ -608,10 +667,18 @@ export function morphElement(oldEl, newContent, options = {}) {
         while (oldEl.firstChild) fresh.appendChild(oldEl.firstChild);
       if (o.hooks.beforeNodeAdded(fresh) === false) {
         remapLive(inner.report.conflicts, oldEl, oldEl);
+        if (inner.lineage) {
+          inner.report.lineage = inner.lineage.recheck();
+          inner.lineage.deliver(inner.report);
+        }
         return Promise.resolve(inner.report);
       }
       if (o.hooks.beforeNodeRemoved(oldEl) === false) {
         remapLive(inner.report.conflicts, oldEl, oldEl);
+        if (inner.lineage) {
+          inner.report.lineage = inner.lineage.recheck();
+          inner.lineage.deliver(inner.report);
+        }
         return Promise.resolve(inner.report);
       }
       oldEl.replaceWith(fresh);
@@ -624,10 +691,14 @@ export function morphElement(oldEl, newContent, options = {}) {
         { kind: "insert", node: fresh, parent: fresh.parentNode },
         { kind: "remove", node: oldEl, parent: fresh.parentNode },
       );
+      if (inner.lineage) {
+        inner.report.lineage = inner.lineage.remapRoot(oldEl, fresh);
+        inner.lineage.deliver(inner.report);
+      }
       return Promise.all(inner.loads).then(() => inner.report);
     }
   }
-  const { report, loads } = run({
+  const { report, loads, lineage } = run({
     liveRoot: oldEl,
     baseRoot,
     localRoot: oldEl,
@@ -638,6 +709,7 @@ export function morphElement(oldEl, newContent, options = {}) {
     childrenOnly,
     isDocument: false,
   });
+  lineage?.deliver(report);
   return Promise.all(loads).then(() => report);
 }
 

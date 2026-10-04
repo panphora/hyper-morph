@@ -24,7 +24,12 @@ import { createAnalyzer } from "./similarity.js";
 import { emptyStats } from "./stats.js";
 import { align } from "./align.js";
 import { merge3Text, diff } from "./text-merge.js";
-import { mergeInline, isInlineUnit, MARK_TAGS } from "./inline-merge.js";
+import {
+  mergeInline as mergeInlineCore,
+  isInlineUnit,
+  MARK_TAGS,
+} from "./inline-merge.js";
+import { createLineageRecorder, planLineage } from "./lineage.js";
 import { planNativeTransfers } from "./native-transfers.js";
 import { rejectedCertificateRetentions } from "./rejected-certificate.js";
 import { indexByIdentity, defaultIdentity, warnDuplicate } from "./identity.js";
@@ -281,6 +286,13 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
   const building = new Set(); // base elements whose output is under construction
   const inlineCache = new WeakMap(); // element -> its subtree is inline-only
   let sourceRetentions = null;
+  // Lineage evidence, recorded only when a caller watches elements.
+  const lin = o.lineage?.locals.length ? createLineageRecorder() : null;
+  const mergeInline = (opts) => {
+    const res = mergeInlineCore(opts);
+    if (res && lin) lin.consume(opts.local);
+    return res;
+  };
 
   const policy = o.conflicts || "remote";
   const localDecision = (d) => decisions.push(d);
@@ -318,6 +330,16 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     ? !sameChildren(kidsOf(html), kidsOf(rRoot))
     : !sameElement(html, rRoot);
   const recoveryLinks = recovery.finish(html);
+  const lineage = lin
+    ? planLineage({
+        locals: o.lineage.locals,
+        rec: lin,
+        root: html,
+        provenance,
+        segments,
+        ignored,
+      })
+    : null;
 
   return {
     doc: out,
@@ -335,6 +357,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     L,
     R,
     stats,
+    lineage,
   };
 
   // A block both sides inserted (an echo) whose copies sit under parents
@@ -1327,6 +1350,8 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     const inResult = new Set();
     const outputOfUnit = new Map(); // side/base unit -> output node
     const oInserted = new Set(); // output nodes that are O-side insertions
+    const gone = lin && [], // lineage: base units the remote side removed
+      fresh = lin && []; // lineage: remote elements inserted as plain copies
 
     // Inline segments: maximal runs of text, marks and atoms between block
     // units. A segment changed on either side merges as one flat sequence;
@@ -1630,6 +1655,10 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       if (!rk && !changed(bk, lk, L)) {
         resolved.add(bk);
         remoteDecision({ kind: "remove", source: "remote", base: bk });
+        if (lin) {
+          lin.remove(lk);
+          gone.push({ bk, lk });
+        }
         return null;
       }
       const resurrected = !lk || !rk;
@@ -1718,7 +1747,11 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         outputOfUnit.set(su, node);
         if (side === "local")
           localDecision({ kind: "insert", el: node, source: "local" });
-        else remoteDecision({ kind: "insert", el: node, source: "remote" });
+        else {
+          remoteDecision({ kind: "insert", el: node, source: "remote" });
+          if (lin && isEl(su) && !crossEcho.partner.has(su))
+            fresh.push({ su, node });
+        }
       }
       return node;
     };
@@ -1959,7 +1992,128 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       result.splice(afterBase(i), 0, node);
     }
 
+    if (lin && gone.length && fresh.length) proveRetags();
     return result;
+
+    // Lineage only: a base element the remote side removed and a remote
+    // element it inserted alone in the same gap, equal but for the tag, are
+    // one region. Records a link for the report and builds nothing.
+    function proveRetags() {
+      if (lRe || rRe) return;
+      const placed = new Set(result);
+      const anchor = (bk) =>
+        bk && bSet.has(bk) && placed.has(outputOfUnit.get(bk)) ? bk : null;
+      const gapsOf = (units, baseOf) => {
+        const gaps = [{ prev: null, units: [] }];
+        for (const u of units) {
+          const a = anchor(baseOf(u));
+          if (a) gaps.push({ prev: a, units: [] });
+          else gaps[gaps.length - 1].units.push(u);
+        }
+        return gaps;
+      };
+      const bGaps = gapsOf(bUnits, (u) => u);
+      const rGaps = gapsOf(Rv.units, Rv.baseOf);
+      const lGaps = Lv.asBase ? null : gapsOf(Lv.units, Lv.baseOf);
+      const sameAnchors = (gaps) =>
+        gaps.length === bGaps.length &&
+        gaps.every((g, i) => g.prev === bGaps[i].prev);
+      if (!sameAnchors(rGaps) || (lGaps && !sameAnchors(lGaps))) return;
+      const goneOf = new Map(gone.map((x) => [x.bk, x]));
+      const freshOf = new Map(fresh.map((x) => [x.su, x]));
+      const at = (a) => (a ? result.indexOf(outputOfUnit.get(a)) : -1);
+      for (let g = 0; g < bGaps.length; g++) {
+        if (bGaps[g].units.length !== 1 || rGaps[g].units.length !== 1)
+          continue;
+        const e = goneOf.get(bGaps[g].units[0]);
+        const f = freshOf.get(rGaps[g].units[0]);
+        if (!e || !f) continue;
+        if (
+          lGaps &&
+          (lGaps[g].units.length !== 1 || lGaps[g].units[0] !== e.lk)
+        )
+          continue;
+        const lo = at(bGaps[g].prev);
+        const hi = g + 1 < bGaps.length ? at(bGaps[g + 1].prev) : result.length;
+        if (hi - lo !== 2 || result[lo + 1] !== f.node) continue;
+        if (retagged(e.bk, e.lk, f.su)) lin.link(e.lk, f.node);
+      }
+    }
+
+    // Lineage only: the same proof for a gap the inline merge took whole
+    // (blocks separated by text runs, such as indented markup). The group is
+    // bounded by kept anchors; inside it one base element became one remote
+    // element at the same position and every text run is equal on all sides.
+    function groupRetag(bu, lu, ru, nodes) {
+      const only = (us) => {
+        const els = us.filter(isEl);
+        return els.length === 1 ? els[0] : null;
+      };
+      const E = only(bu),
+        lk = only(lu),
+        F = only(ru);
+      if (!E || !lk || !F) return;
+      const i = bu.indexOf(E);
+      if (lu.indexOf(lk) !== i || ru.indexOf(F) !== i) return;
+      if (bu.length !== lu.length || bu.length !== ru.length) return;
+      for (let j = 0; j < bu.length; j++)
+        if (
+          j !== i &&
+          (bu[j].value !== lu[j].value || bu[j].value !== ru[j].value)
+        )
+          return;
+      if ((Lv.asBase ? E : Lv.twin(E)) !== lk || Rv.twin(E) || R.reverse.get(F))
+        return;
+      if (lk !== E && changed(E, lk, L)) return;
+      const outEls = nodes.filter((n) => n.nodeType === 1);
+      if (outEls.length !== 1 || provenance.get(outEls[0])?.remote !== F)
+        return;
+      const text = (ns) =>
+        ns.map((n) => (isEl(n) ? "" : (n.value ?? n.nodeValue))).join("");
+      const at = nodes.indexOf(outEls[0]);
+      if (
+        text(nodes.slice(0, at)) !== text(bu.slice(0, i)) ||
+        text(nodes.slice(at + 1)) !== text(bu.slice(i + 1))
+      )
+        return;
+      if (retagged(E, lk, F)) lin.link(lk, outEls[0]);
+    }
+
+    // Same namespace, another tag, the same attributes and equal children,
+    // and no remote descendant paired with base content from elsewhere.
+    function retagged(bk, lk, su) {
+      if (!isEl(lk) || !isEl(su) || !isEl(bk)) return false;
+      if (lk.namespaceURI !== su.namespaceURI || lk.localName === su.localName)
+        return false;
+      for (const x of [lk, su])
+        if (
+          x.tagName === "TEMPLATE" ||
+          isHtmlScript(x) ||
+          x.querySelector("template")
+        )
+          return false;
+      if (o.remoteWins(bk) || o.remoteWins(su) || ignored(su)) return false;
+      if (lk.attributes.length !== su.attributes.length) return false;
+      for (const a of lk.attributes)
+        if (su.getAttributeNS(a.namespaceURI, a.localName) !== a.value)
+          return false;
+      const lc = lk.childNodes,
+        rc = su.childNodes;
+      if (lc.length !== rc.length) return false;
+      for (let i = 0; i < lc.length; i++)
+        if (!lc[i].isEqualNode(rc[i])) return false;
+      const stack = [[bk, su]];
+      while (stack.length) {
+        const [b, r] = stack.pop();
+        if (b.children.length !== r.children.length) return false;
+        for (let i = 0; i < r.children.length; i++) {
+          const twin = R.reverse.get(r.children[i]);
+          if (twin !== undefined && twin !== b.children[i]) return false;
+          stack.push([b.children[i], r.children[i]]);
+        }
+      }
+      return true;
+    }
 
     // The position after the output of the nearest base unit before index i.
     function afterBase(i) {
@@ -2386,6 +2540,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           }
           continue;
         }
+        if (lin) groupRetag(units, lu || units, ru || units, res.nodes);
         if (res.unitOutputs) {
           segOutputs ||= new Map();
           for (const unit of [...units, ...(lu || []), ...(ru || [])]) {
@@ -2404,6 +2559,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
             });
           continue;
         }
+        if (lin) groupRetag(units, lu || units, ru || units, res.nodes);
         const frag = out.createDocumentFragment();
         for (const n of res.nodes) frag.appendChild(n);
         for (const u of [...units, ...(lu || []), ...(ru || [])]) {
