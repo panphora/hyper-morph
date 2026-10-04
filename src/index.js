@@ -335,7 +335,6 @@ function run({
   const prof = globalThis.__hyperMorphProfile;
   const tA = prof ? performance.now() : 0;
 
-  if (lineage) lineage.snapshot();
   const ap = apply(liveRoot, result.root, result, {
     toLive,
     localRoot,

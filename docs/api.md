@@ -410,13 +410,17 @@ has no targets and `complete: false`. Version 1 reserves `split` and `combined`
 but emits `unknown` when it cannot prove a complete single region.
 
 A complete relation accounts for the region through the merge and checks where
-its output landed. For example, an unchanged paragraph replaced by a heading in
-one unambiguous source interval can report `replaced`, even without ids. Equal
-text elsewhere is not a correspondence. Hook escapes, partial mappings, and
-uncertain split or combined content cannot certify a single target. Watched
-elements outside the apply root or inside template contents are reported as
-unknown. Ignored roots and the whole-element removal shortcut also report
-unknown.
+its output landed. The region's original descendant identities are captured
+before any callback runs, so content an apply callback or hook later moves out
+of its region cannot be certified. For example, an unchanged paragraph replaced
+by a heading in one unambiguous source interval can report `replaced`, even
+without ids. Equal text elsewhere is not a correspondence. Hook escapes,
+partial mappings, and uncertain split or combined content cannot certify a
+single target. Watched elements outside the apply root or inside template
+contents are reported as unknown, and a watched region that contains a template
+is conservatively unknown in version 1, since template contents have no
+ownership relation the report can prove. Ignored roots and the whole-element
+removal shortcut also report unknown.
 
 This metadata locates protection, not permission to undo. Consumers must keep
 their existing recovery validation. Unknown, removed, missing or incomplete

@@ -25,6 +25,7 @@ async function run({
   remote,
   watch,
   hooks,
+  beforeApply,
   lineage = true,
 }) {
   const live = parse(doc(local));
@@ -35,6 +36,7 @@ async function run({
     scripts: { execute: false },
   };
   if (hooks) opts.hooks = hooks;
+  if (beforeApply) opts.beforeApply = beforeApply;
   let result = null,
     calls = 0;
   if (lineage)
@@ -304,6 +306,175 @@ test("hook escapes and vetoes downgrade to unknown", async () => {
     },
   });
   assert.equal(c.of(c.watched[0]).kind, "unknown");
+});
+
+test("review region evidence: a beforeApply child move cannot certify the wrapper", async () => {
+  const html =
+    "<section><p>Important content</p></section><aside>outside</aside><footer>old</footer>";
+  const remote = html.replace("old</footer>", "new</footer>");
+  for (const form of ["plain", "clean"]) {
+    let aside = null,
+      p = null,
+      called = false;
+    const r = await run({
+      form,
+      local: html,
+      remote,
+      watch: (l) => {
+        aside = l.querySelector("aside");
+        p = l.querySelector("p");
+        return [l.querySelector("section"), p];
+      },
+      beforeApply: () => {
+        called = true;
+        aside.append(p);
+      },
+    });
+    const [section] = r.watched;
+    assert.equal(called, true, form);
+    assert.equal(p.isConnected, true, form);
+    assert.equal(section.contains(p), false, form);
+    assert.deepEqual(
+      r.of(section),
+      { from: section, to: [], kind: "unknown", complete: false },
+      form,
+    );
+    const control = await run({
+      form,
+      local: html,
+      remote,
+      watch: (l) => [l.querySelector("section"), l.querySelector("p")],
+    });
+    const [kept] = control.watched;
+    assert.deepEqual(
+      control.of(kept),
+      { from: kept, to: [kept], kind: "retained", complete: true },
+      form,
+    );
+  }
+});
+
+test("review region evidence: an escape after a proven transfer leaves the target unknown", async () => {
+  const html = "<p>One fast fox.</p><p>Two wild dogs.</p><aside>Other.</aside>";
+  const retag =
+    "<p>One fast fox.</p><h3>Two wild dogs.</h3><aside>Other.</aside>";
+  const live = parse(doc(html));
+  const p2 = live.body.children[1];
+  let first = null;
+  await mergeDocument({
+    live,
+    base: parse(doc(html)),
+    remote: parse(doc(retag)),
+    scripts: { execute: false },
+    lineage: { elements: [p2], onResult: (r) => (first = r) },
+  });
+  const h3 = live.querySelector("h3");
+  assert.deepEqual(first.entries, [
+    { from: p2, to: [h3], kind: "replaced", complete: true },
+  ]);
+  const text = h3.firstChild;
+  const after = doc(live.body.innerHTML);
+  let second = null,
+    called = false;
+  await mergeDocument({
+    live,
+    base: parse(after),
+    remote: parse(after),
+    scripts: { execute: false },
+    beforeApply: () => {
+      called = true;
+      live.querySelector("aside").append(text);
+    },
+    lineage: { elements: [h3], onResult: (r) => (second = r) },
+  });
+  assert.equal(called, true);
+  assert.equal(text.parentNode, live.querySelector("aside"));
+  assert.equal(h3.contains(text), false);
+  assert.deepEqual(second.entries, [
+    { from: h3, to: [], kind: "unknown", complete: false },
+  ]);
+});
+
+test("review region evidence: a morphElement hook escape is not certified", async () => {
+  const live = parse(
+    doc('<div id="x"><p>A one.</p></div><aside>Other.</aside>'),
+  );
+  const old = live.getElementById("x");
+  const p = old.firstChild;
+  let called = false,
+    res = null;
+  await morphElement(old, '<section id="x"><p>A one.</p></section>', {
+    scripts: { execute: false },
+    hooks: {
+      beforeNodeMorphed: () => {
+        called = true;
+        live.querySelector("aside").append(p);
+      },
+    },
+    lineage: { elements: [old, p], onResult: (r) => (res = r) },
+  });
+  const section = live.querySelector("section");
+  assert.equal(called, true);
+  assert.equal(p.parentNode, live.querySelector("aside"));
+  assert.equal(section.contains(p), false);
+  assert.equal(res.root, section);
+  assert.deepEqual(res.entries, [
+    { from: old, to: [], kind: "unknown", complete: false },
+    { from: p, to: [], kind: "unknown", complete: false },
+  ]);
+
+  const two = parse(
+    doc('<div id="x"><p>A one.</p></div><aside>Other.</aside>'),
+  );
+  const div = two.getElementById("x");
+  const q = div.firstChild;
+  let moved = false,
+    same = null;
+  await morphElement(div, '<div id="x"><p>A one.</p></div>', {
+    scripts: { execute: false },
+    beforeApply: () => {
+      moved = true;
+      two.querySelector("aside").append(q);
+    },
+    lineage: { elements: [div, q], onResult: (r) => (same = r) },
+  });
+  assert.equal(moved, true);
+  assert.equal(q.parentNode, two.querySelector("aside"));
+  assert.equal(q.isConnected, true);
+  assert.equal(same.root, div);
+  assert.deepEqual(same.entries, [
+    { from: div, to: [], kind: "unknown", complete: false },
+    { from: q, to: [], kind: "unknown", complete: false },
+  ]);
+});
+
+test("review region evidence: a removed leaf still connected outside the root is unknown", async () => {
+  const live = parse(doc("<div><p></p></div><aside></aside>"));
+  const root = live.querySelector("div");
+  const watched = root.querySelector("p");
+  const aside = live.querySelector("aside");
+  let moved = false,
+    result = null;
+  await morphElement(root, "<div></div>", {
+    scripts: { execute: false },
+    hooks: {
+      beforeNodeRemoved(node) {
+        if (node === watched) {
+          moved = true;
+          aside.append(node);
+          return false;
+        }
+      },
+    },
+    lineage: { elements: [watched], onResult: (r) => (result = r) },
+  });
+  assert.equal(moved, true);
+  assert.equal(watched.parentNode, aside);
+  assert.equal(watched.isConnected, true);
+  assert.equal(root.childNodes.length, 0);
+  assert.deepEqual(result.entries, [
+    { from: watched, to: [], kind: "unknown", complete: false },
+  ]);
 });
 
 test("morphElement root swap reports the fresh element", async () => {
@@ -825,6 +996,112 @@ test("a nested template's contents: the watch is accepted and stays unknown", as
   assert.deepEqual(result.entries, [
     { from: p, to: [], kind: "unknown", complete: false },
   ]);
+});
+
+test("review region evidence: template content escaping an unchanged ancestor", async () => {
+  const html =
+    "<article>Other.</article><section><template><p>Protected words.</p></template></section>";
+  let escaped = null,
+    article = null,
+    called = false;
+  const r = await run({
+    form: "dirty",
+    base: html,
+    local: html,
+    remote: html + "<hr>",
+    watch: (l) => {
+      escaped = l.querySelector("template").content.firstChild;
+      article = l.querySelector("article");
+      return [
+        l.querySelector("section"),
+        l.querySelector("template"),
+        escaped,
+        article,
+      ];
+    },
+    hooks: {
+      afterNodeAdded: (n) => {
+        if (n.nodeType === 1 && n.tagName === "HR") {
+          called = true;
+          article.append(escaped);
+        }
+      },
+    },
+  });
+  const [section, template] = r.watched;
+  assert.equal(called, true);
+  assert.equal(escaped.parentNode, article);
+  assert.equal(section.contains(escaped), false);
+  assert.deepEqual(r.of(section), {
+    from: section,
+    to: [],
+    kind: "unknown",
+    complete: false,
+  });
+  assert.deepEqual(r.of(template), {
+    from: template,
+    to: [],
+    kind: "unknown",
+    complete: false,
+  });
+  assert.deepEqual(r.of(escaped), {
+    from: escaped,
+    to: [],
+    kind: "unknown",
+    complete: false,
+  });
+  assert.deepEqual(r.of(article), {
+    from: article,
+    to: [article],
+    kind: "retained",
+    complete: true,
+  });
+
+  const nested =
+    "<article>Other.</article><section><div><template><p>Deep words.</p></template></div></section>";
+  let inert = null,
+    holder = null;
+  const n = await run({
+    form: "dirty",
+    base: nested,
+    local: nested,
+    remote: nested + "<hr>",
+    watch: (l) => {
+      inert = l.querySelector("template").content.firstChild;
+      holder = l.querySelector("article");
+      return [
+        l.querySelector("section"),
+        l.querySelector("div"),
+        l.querySelector("template"),
+        inert,
+        holder,
+      ];
+    },
+    hooks: {
+      afterNodeAdded: (node) => {
+        if (node.nodeType === 1 && node.tagName === "HR") holder.append(inert);
+      },
+    },
+  });
+  const [outer, inner, nestedTemplate] = n.watched;
+  assert.equal(inert.parentNode, holder);
+  for (const [el, name] of [
+    [outer, "outer element"],
+    [inner, "inner element"],
+    [nestedTemplate, "nested template"],
+    [inert, "inert paragraph"],
+  ])
+    assert.deepEqual(
+      n.of(el),
+      { from: el, to: [], kind: "unknown", complete: false },
+      name,
+    );
+  assert.deepEqual(n.of(holder), {
+    from: holder,
+    to: [holder],
+    kind: "retained",
+    complete: true,
+  });
 });
 
 test("a foreign document's template element still throws before the callback", () => {

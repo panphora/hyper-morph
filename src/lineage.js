@@ -226,6 +226,31 @@ export function validateLineage(spec, doc) {
   return watched;
 }
 
+const initialEvidence = new WeakMap();
+
+function captureRegionEvidence(watched) {
+  const evidence = new Map();
+  for (const element of watched) {
+    const nodes = [];
+    let opaque = false;
+    (function walk(node) {
+      if (
+        node.nodeType === 1 &&
+        node.namespaceURI === "http://www.w3.org/1999/xhtml" &&
+        node.localName === "template"
+      ) {
+        opaque = true;
+      }
+      for (let child = node.firstChild; child; child = child.nextSibling) {
+        nodes.push(child);
+        if (child.nodeType === 1) walk(child);
+      }
+    })(element);
+    evidence.set(element, { nodes, opaque });
+  }
+  return evidence;
+}
+
 /**
  * The failure boundary every public apply call shares: once valid lineage is
  * requested and its watched list is frozen, any synchronous throw that has
@@ -250,6 +275,7 @@ export function guardLineage(options, root, invoke) {
     },
   };
   try {
+    initialEvidence.set(tracked.lineage, captureRegionEvidence(watched));
     return invoke(tracked);
   } catch (error) {
     if (!delivered) {
@@ -300,22 +326,9 @@ export function startLineage(spec, { liveRoot, localRoot, toLive }) {
     watched,
     root: liveRoot,
     locals: Array.from(new Set(localOf.values())),
-    before: null,
+    before: initialEvidence.get(spec) || captureRegionEvidence(watched),
     delivered: false,
     result: null,
-    snapshot() {
-      this.before = new Map();
-      for (const w of localOf.keys()) {
-        const nodes = [];
-        (function walk(n) {
-          for (let c = n.firstChild; c; c = c.nextSibling) {
-            nodes.push(c);
-            if (c.nodeType === 1) walk(c);
-          }
-        })(w);
-        this.before.set(w, nodes);
-      }
-    },
     finish(plans, resolve) {
       this.resolve = resolve;
       this.plans = plans;
@@ -358,21 +371,31 @@ function entryFor(w, Wl, plans, resolve, state) {
   const inRoot = (n) => !!n && (n === root || root.contains(n));
   const plan = Wl && plans ? plans.get(Wl) : null;
   if (!plan || plan.kind === "unknown") return unknown(w);
-  const before = state.before.get(w) || [];
+  const evidence = state.before.get(w);
+  if (!evidence || evidence.opaque) return unknown(w);
+  const before = evidence.nodes;
+  const survives = (node) =>
+    inRoot(node) ||
+    !!(
+      node &&
+      node.ownerDocument === root.ownerDocument &&
+      root.ownerDocument.documentElement?.contains(node)
+    );
   if (plan.kind === "untouched") {
     if (!inRoot(w)) return unknown(w);
-    for (const d of before) if (inRoot(d) && !w.contains(d)) return unknown(w);
+    for (const d of before)
+      if (survives(d) && !w.contains(d)) return unknown(w);
     return { from: w, to: [w], kind: "retained", complete: true };
   }
   if (plan.kind === "removed") {
-    if (inRoot(w) || before.some(inRoot)) return unknown(w);
+    if (survives(w) || before.some(survives)) return unknown(w);
     return { from: w, to: [], kind: "removed", complete: true };
   }
   const target = resolve(plan.output);
   if (!target || target.nodeType !== 1 || !inRoot(target)) return unknown(w);
-  if (target !== w && inRoot(w)) return unknown(w);
+  if (target !== w && survives(w)) return unknown(w);
   for (const d of before)
-    if (inRoot(d) && !target.contains(d)) return unknown(w);
+    if (survives(d) && !target.contains(d)) return unknown(w);
   for (const o of plan.owned) {
     const live = resolve(o);
     const nodes = Array.isArray(live) ? live : [live];
