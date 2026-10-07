@@ -10799,5 +10799,37 @@
       "classification": "certification improvement, bytes equal: the certified identical pair is emitted as an unchanged stand-in (as a Pass 0 identical subtree already is), so the reference's per-element adoption walk reports ids inside it that the candidate does not; the candidate's pairs are a strict subset of the reference's on the same live nodes, with bytes, node destinations, conflicts and decisions equal, and a caller-supplied map-spec identity still reports the reference's pairs",
       "digest": "48ce3bdafa70c0a9"
     }
+  },
+  "abe37ef92bd50cad1abadf0c8ac37e595d6eee0e": {
+    "1:981:pure": {
+      "fields": ["html", "decisions"],
+      "classification": "split group boundary correction: following local insertion stays after the complete split; decision node indices follow corrected output order",
+      "digest": "7eda201a9b0d703c"
+    },
+    "1:981:dirty": {
+      "fields": ["html", "nodeDestinations", "adoptedIdentities", "replaced"],
+      "classification": "split group boundary correction: following local insertion retains its live nodes after the complete split; destination and new split clone paths follow corrected output order",
+      "digest": "25262253fc38e82c"
+    },
+    "1:981:element": {
+      "fields": ["html", "nodeDestinations", "adoptedIdentities", "replaced"],
+      "classification": "split group boundary correction: following local insertion retains its live nodes after the complete split; destination and new split clone paths follow corrected output order",
+      "digest": "267b3633941e0de1"
+    },
+    "6:981:pure": {
+      "fields": ["html", "decisions"],
+      "classification": "split group boundary correction: following local insertion stays after the complete split; decision node indices follow corrected output order",
+      "digest": "7eda201a9b0d703c"
+    },
+    "6:981:dirty": {
+      "fields": ["html", "nodeDestinations", "adoptedIdentities", "replaced"],
+      "classification": "split group boundary correction: following local insertion retains its live nodes after the complete split; destination and new split clone paths follow corrected output order",
+      "digest": "25262253fc38e82c"
+    },
+    "6:981:element": {
+      "fields": ["html", "nodeDestinations", "adoptedIdentities", "replaced"],
+      "classification": "split group boundary correction: following local insertion retains its live nodes after the complete split; destination and new split clone paths follow corrected output order",
+      "digest": "267b3633941e0de1"
+    }
   }
 }

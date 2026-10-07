@@ -1360,6 +1360,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     const segUnits = new Set();
     const segFrags = [];
     let segOutputs = null;
+    const segmentTails = new Map();
     if (
       !Lv.asBase &&
       !Rv.asBase &&
@@ -1944,7 +1945,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       let insertAt = 0; // position in result for start-anchored nodes
       let pendingAfter = null;
       for (const su of P.units) {
-        const existing = outputOfUnit.get(su);
+        const existing = segmentTails.get(su) || outputOfUnit.get(su);
         if (existing && inResult.has(existing)) {
           anchor = existing;
           pendingAfter = null;
@@ -2551,6 +2552,12 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
             if (outputs.length)
               outputOfUnit.set(unit, outputs[outputs.length - 1]);
           }
+          const tail = res.nodes[res.nodes.length - 1];
+          if (tail)
+            for (const sideUnits of [lu || units, ru || units]) {
+              const last = sideUnits[sideUnits.length - 1];
+              if (last) segmentTails.set(last, tail);
+            }
           for (let i = 0; i < res.nodes.length; i++)
             segFrags.push({
               frag: res.nodes[i],
