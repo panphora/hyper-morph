@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.4.1] - 2026-10-07
+
+### Changed
+- Skip element lineage tracking when no lineage option is set
+
+### Fixed
+- Anchor split group boundaries correctly during merge
+
+
+
 ## [1.4.0] - 2026-10-04
 
 ### Added
