@@ -480,6 +480,7 @@ export function mergeDocument(options) {
   const live = o.live;
   if (!live || live.nodeType !== 9)
     throw new TypeError("live must be a Document");
+  if (o.lineage === undefined) return mergeDocumentImpl(o);
   return guardLineage(o, o.live.documentElement, (tracked) =>
     mergeDocumentImpl(tracked),
   );
@@ -585,6 +586,8 @@ function contentOf(content, doc) {
 export function morphElement(oldEl, newContent, options = {}) {
   if (!oldEl || oldEl.nodeType !== 1)
     throw new TypeError("oldEl must be an Element");
+  if (options.lineage === undefined)
+    return morphElementImpl(oldEl, newContent, options);
   return guardLineage(options, oldEl, (tracked) =>
     morphElementImpl(oldEl, newContent, tracked),
   );
