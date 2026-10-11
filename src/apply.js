@@ -908,6 +908,76 @@ export function apply(liveRoot, mergedRoot, result, o) {
     return !!active && active !== doc.body && el.contains(active);
   }
 
+  // In a three-way merge the merged value already holds what the local capture
+  // serialized. The only typing it can miss is a value that capture never saw:
+  // a control whose typed value never reached its text or value attribute.
+  function holdsUnmergedTyping(liveEl, p) {
+    const local =
+      p && p.local && p.local.nodeType === 1 && p.local !== liveEl
+        ? p.local
+        : null;
+    if (!local) return true;
+    const seen =
+      liveEl.tagName === "TEXTAREA"
+        ? local.textContent
+        : (local.getAttribute("value") ?? "");
+    return liveEl.value !== seen;
+  }
+
+  function protectsValue(liveEl, p) {
+    return (
+      !!o.protectFocusedValue &&
+      isFocused(liveEl) &&
+      holdsUnmergedTyping(liveEl, p)
+    );
+  }
+
+  // Where an offset lands after `before` becomes `after`: unchanged on the
+  // common prefix, shifted on the common suffix, at the end of the change inside it.
+  function mapOffset(before, after, offset) {
+    const max = Math.min(before.length, after.length);
+    let pre = 0;
+    while (pre < max && before[pre] === after[pre]) pre++;
+    if (offset <= pre) return offset;
+    let suf = 0;
+    while (
+      suf < max - pre &&
+      before[before.length - 1 - suf] === after[after.length - 1 - suf]
+    )
+      suf++;
+    if (offset >= before.length - suf)
+      return offset + after.length - before.length;
+    return after.length - suf;
+  }
+
+  function readSelection(el) {
+    try {
+      return el.selectionStart == null
+        ? null
+        : [el.selectionStart, el.selectionEnd, el.selectionDirection];
+    } catch {
+      return null;
+    }
+  }
+
+  function mapSelection(el, before, after, sel) {
+    try {
+      el.setSelectionRange(
+        mapOffset(before, after, sel[0]),
+        mapOffset(before, after, sel[1]),
+        sel[2] || "none",
+      );
+    } catch {}
+  }
+
+  // Set a focused field's value without throwing its caret to the end.
+  function setFocusedValue(liveEl, value) {
+    const before = liveEl.value;
+    const sel = readSelection(liveEl);
+    liveEl.value = value;
+    if (sel) mapSelection(liveEl, before, value, sel);
+  }
+
   /**
    * The original remote node, when the caller built it in memory and set a
    * live property that its attribute does not carry. Parsed content never
@@ -923,7 +993,7 @@ export function apply(liveRoot, mergedRoot, result, o) {
     const built = builtRemote(p);
     const src = o.formState === "property" && built ? built : mergedEl;
     if (tag === "INPUT") {
-      const protect = o.protectFocusedValue && isFocused(liveEl);
+      const protect = protectsValue(liveEl, p);
       const type = (liveEl.getAttribute("type") || "").toLowerCase();
       const textLike =
         type !== "file" && type !== "checkbox" && type !== "radio";
@@ -962,7 +1032,10 @@ export function apply(liveRoot, mergedRoot, result, o) {
                 after: a,
               });
             }
-            if (liveEl.value !== src.value) liveEl.value = src.value;
+            if (liveEl.value !== src.value) {
+              if (isFocused(liveEl)) setFocusedValue(liveEl, src.value);
+              else liveEl.value = src.value;
+            }
           }
         } else if (mergedEl.hasAttribute("value") || propertyValue != null) {
           const v =
@@ -974,7 +1047,10 @@ export function apply(liveRoot, mergedRoot, result, o) {
             beforeAttribute("value", liveEl, "update") !== false
           ) {
             liveEl.setAttribute("value", v);
-            if (liveEl.value !== v) liveEl.value = v;
+            if (liveEl.value !== v) {
+              if (isFocused(liveEl)) setFocusedValue(liveEl, v);
+              else liveEl.value = v;
+            }
             applied.push({
               kind: "attr",
               el: liveEl,
@@ -983,7 +1059,8 @@ export function apply(liveRoot, mergedRoot, result, o) {
               after: v,
             });
           } else if (liveEl.value !== v && liveEl.getAttribute("value") === v) {
-            liveEl.value = v;
+            if (isFocused(liveEl)) setFocusedValue(liveEl, v);
+            else liveEl.value = v;
           }
         } else if (liveEl.hasAttribute("value") || liveEl.value !== "") {
           if (beforeAttribute("value", liveEl, "remove") !== false) {
@@ -1018,7 +1095,7 @@ export function apply(liveRoot, mergedRoot, result, o) {
       // A focused checkbox or radio is mid-interaction as much as a focused
       // text input mid-typing: its checked state is the user's, not the
       // document's.
-      if (!protect) {
+      if (!(o.protectFocusedValue && isFocused(liveEl))) {
         syncBoolean(liveEl, src, "checked");
         if (
           o.formState === "property" &&
@@ -1057,15 +1134,18 @@ export function apply(liveRoot, mergedRoot, result, o) {
   }
 
   function syncTextarea(liveEl, mergedEl, p) {
-    // The focused textarea keeps both its text and its value: its text is
-    // its default value, and rewriting it under the caret is the edit the
-    // protection exists to prevent.
-    if (o.protectFocusedValue && isFocused(liveEl)) return;
+    // A focused textarea keeps its value only while it holds typing the merge
+    // did not see (see holdsUnmergedTyping).
+    if (protectsValue(liveEl, p)) return;
     if (beforeAttribute("value", liveEl, "update") === false) return;
     const built = builtRemote(p);
     const text = mergedEl.textContent;
     const value =
       built && built.value !== built.defaultValue ? built.value : text;
+    // Writing the text moves an untyped textarea's value too, so the caret is
+    // read before either write and mapped once both are done.
+    const caret = isFocused(liveEl) ? readSelection(liveEl) : null;
+    const before = liveEl.value;
     if (o.formState !== "property" && liveEl.textContent !== text) {
       applied.push({
         kind: "text",
@@ -1076,6 +1156,8 @@ export function apply(liveRoot, mergedRoot, result, o) {
       liveEl.textContent = text;
     }
     if (liveEl.value !== value) liveEl.value = value;
+    if (caret && liveEl.value !== before)
+      mapSelection(liveEl, before, liveEl.value, caret);
   }
 }
 
