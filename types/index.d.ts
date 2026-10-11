@@ -55,6 +55,8 @@ export interface CommonOptions {
   remoteWins?: (el: Element, isRoot: boolean) => boolean;
   /** Attributes left out of the merge and of every report. */
   ignoreAttribute?: (el: Element, name: string) => boolean;
+  /** The element merges, but its live children are never touched. Pass merge inputs in which it is empty. */
+  opaque?: (el: Element) => boolean;
   /** Resolution for overlapping edits. "both" is text only. Default "remote". */
   conflicts?: "remote" | "local" | "both";
   /** Keep the focused input's or textarea's value; "subtree" also leaves the focused element's children alone. Default true. */

@@ -47,6 +47,7 @@ const KNOWN = new Set([
   "local",
   "identity",
   "ignore",
+  "opaque",
   "remoteWins",
   "ignoreAttribute",
   "conflicts",
@@ -113,6 +114,7 @@ function normalize(o, roots = []) {
     remoteWins: makeIgnore(o.remoteWins, roots),
     ignoreAttribute:
       typeof o.ignoreAttribute === "function" ? o.ignoreAttribute : () => false,
+    opaque: typeof o.opaque === "function" ? o.opaque : () => false,
     conflicts,
     protectFocusedValue: protect === undefined ? true : protect,
     restoreFocus: o.restoreFocus !== false,
@@ -340,6 +342,7 @@ function run({
     localRoot,
     ignored: o.ignored,
     ignoreAttribute: o.ignoreAttribute,
+    opaque: o.opaque,
     formState: o.formState,
     protectFocusedValue: o.protectFocusedValue,
     restoreFocus: o.restoreFocus,

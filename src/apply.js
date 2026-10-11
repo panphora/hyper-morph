@@ -21,6 +21,7 @@ const HTML_SPACE = /[\t\n\f\r ]+/;
  * @property {(n: Node) => Node | null} toLive
  * @property {Element} [localRoot]
  * @property {(n: Node) => boolean} ignored
+ * @property {(el: Element) => boolean} [opaque]
  * @property {"attribute" | "property"} formState
  * @property {boolean | "subtree"} protectFocusedValue
  * @property {boolean} [restoreFocus]
@@ -362,8 +363,10 @@ export function apply(liveRoot, mergedRoot, result, o) {
       // it: identities (owed only when the caller supplied an identity of
       // its own) and form state, which lives in properties the comparison
       // never sees (a value set by script on a built node, property mode).
-      if (result.customIdentity && p.remote) adoptLockstep(liveEl, p.remote);
-      if (p.remote) syncFormStateDeep(liveEl, p.remote);
+      if (!(o.opaque && o.opaque(liveEl))) {
+        if (result.customIdentity && p.remote) adoptLockstep(liveEl, p.remote);
+        if (p.remote) syncFormStateDeep(liveEl, p.remote);
+      }
       return;
     }
     if (hooks.beforeNodeMorphed(liveEl, mergedEl) === false) {
@@ -401,9 +404,10 @@ export function apply(liveRoot, mergedRoot, result, o) {
       const mt =
         tag === "TEMPLATE" && mergedEl.content ? mergedEl.content : mergedEl;
       if (
-        o.protectFocusedValue === "subtree" &&
-        isFocused(liveEl) &&
-        liveEl !== doc.body
+        (o.opaque && o.opaque(liveEl)) ||
+        (o.protectFocusedValue === "subtree" &&
+          isFocused(liveEl) &&
+          liveEl !== doc.body)
       )
         claimSubtree(lt);
       else applyChildren(lt, mt);
@@ -635,6 +639,7 @@ export function apply(liveRoot, mergedRoot, result, o) {
       if (l.tagName !== r.tagName) return;
       if (l.tagName === "TEXTAREA") syncTextarea(l, r, { remote: r });
       else if (FORM_TAGS.has(l.tagName)) syncFormState(l, r, { remote: r });
+      if (o.opaque && o.opaque(l)) return;
       const lk = mergedChildren(l),
         rk = mergedChildren(r);
       if (lk.length !== rk.length) return;
@@ -645,6 +650,7 @@ export function apply(liveRoot, mergedRoot, result, o) {
 
   /** Walk a live subtree and its identical remote twin, adopting remote ids. */
   function adoptLockstep(liveEl, remoteEl) {
+    if (o.opaque && o.opaque(liveEl)) return;
     const lk = mergedChildren(liveEl),
       rk = mergedChildren(remoteEl);
     if (lk.length !== rk.length) return;

@@ -124,6 +124,7 @@ an object.
 | `ignoreAttribute`     | `(el: Element, name: string) => boolean`                                                                    | `() => false`          | all                                              |
 | `conflicts`           | `"remote" \| "local" \| "both"`                                                                             | `"remote"`             | all                                              |
 | `protectFocusedValue` | `boolean \| "subtree"`                                                                                      | `true`                 | applying calls                                   |
+| `opaque`              | `(el: Element) => boolean`                                                                                  | none                   | applying calls                                   |
 | `restoreFocus`        | `boolean`                                                                                                   | `true`                 | applying calls                                   |
 | `formState`           | `"attribute" \| "property"`                                                                                 | `"attribute"`          | applying calls                                   |
 | `head`                | `{ awaitLoads?: boolean; preserve?: (el: Element) => boolean }`                                             | `false`, `() => false` | applying calls                                   |
@@ -249,6 +250,13 @@ still sync), for an editor whose content the page manages itself; `<body>`
 is never treated as focused. `checked`, `selected` and `disabled` are not
 protected. A protected value is not reported as a conflict unless the
 merged value differs from the live value.
+
+### `opaque`
+
+The element merges like any other: paired, moved, inserted, removed, its
+attributes merged. Its live children are never touched. Pass merge inputs in
+which opaque elements are empty, as ClayJS does for `clay="freeze"`; apply
+never reads their children either way.
 
 ### `restoreFocus`
 
