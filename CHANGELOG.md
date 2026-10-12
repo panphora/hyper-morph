@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.5.0] - 2026-10-12
+
+### Added
+- `opaque` option that merges an element's own attributes but leaves its live children untouched
+
+### Fixed
+- A focused field now takes merged text unless it holds typing the merge missed
+
+
+
 ## [1.4.1] - 2026-10-07
 
 ### Changed
