@@ -899,7 +899,8 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       const keyAttr =
         (r && r.getAttribute("merge-key")) || b.getAttribute("merge-key");
       // Two-way mode has no separate base: a JSON merge then keeps local-only
-      // keys rather than letting remote overwrite the whole tag.
+      // keys rather than letting remote overwrite the whole tag, and a key only
+      // the remote changed is not a conflict.
       const {
         text,
         warnings,
@@ -912,7 +913,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       });
       for (const w of warnings)
         console.warn(`[hyper-morph] merge "${found.raw}": ${w}`);
-      for (const c of jsonConflicts)
+      for (const c of o.localIsBase ? [] : jsonConflicts)
         conflict({
           kind: "json",
           node: el,

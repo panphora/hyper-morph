@@ -1,5 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { parse, doc } from "./lib/dom.js";
+import { morphDocument } from "../../src/index.js";
 import { mergeBodies } from "./lib/merge.js";
 
 // deepEqual compares nodes by structure, so a detached clone would pass.
@@ -198,6 +200,19 @@ test("T-M7 JSON merge script three-way; executable script whole-value", () => {
   assert.ok(res.mergedScripts.has(scripts[0]));
   assert.equal(scripts[1].textContent, "f(3)");
   assert.equal(kinds(res, "text").length, 1);
+});
+
+test("T-M7b a two-way morph of a mergeable JSON script reports no conflict", async () => {
+  const tag = (json) =>
+    `<script type="application/json" merge="g">${json}</script>`;
+  const live = parse(doc(tag('{"score":1}')));
+  const report = await morphDocument(live, doc(tag('{"score":2}')), {
+    scripts: { execute: false },
+  });
+  assert.deepEqual(JSON.parse(live.querySelector("script").textContent), {
+    score: 2,
+  });
+  assert.equal(kinds(report, "json").length, 0);
 });
 
 test("T-M8 head: title change is a text change; stylesheet replaced; duplicate preloads kept", () => {
