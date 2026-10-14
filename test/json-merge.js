@@ -216,13 +216,13 @@ describe("mergeJson: three-way JSON merge", function () {
       ).should.deep.equal(remote);
     });
 
-    it("rejects a key with non-primitive values", function () {
+    it("rejects a key with non-primitive values and merges by position", function () {
       const remote = [{ id: { deep: 2 } }];
       mergeJson(
         [{ id: { deep: 1 } }],
         [{ id: { deep: 1 }, extra: 1 }],
         remote,
-      ).should.deep.equal(remote);
+      ).should.deep.equal([{ id: { deep: 2 }, extra: 1 }]);
     });
 
     it("rejects a key missing on some elements", function () {
@@ -234,20 +234,21 @@ describe("mergeJson: three-way JSON merge", function () {
       ).should.deep.equal(remote);
     });
 
-    it("falls back to remote for unkeyed object arrays when both sides changed", function () {
+    it("merges unkeyed object arrays of equal length by position", function () {
       const remote = [{ title: "B" }];
       mergeJson(
         [{ title: "A" }],
         [{ title: "A", enabled: true }],
         remote,
-      ).should.deep.equal(remote);
+      ).should.deep.equal([{ title: "B", enabled: true }]);
     });
 
-    it("falls back to remote for mixed arrays", function () {
+    it("merges mixed arrays of equal length by position", function () {
       const remote = ["x", { id: 2 }];
-      mergeJson(["x", { id: 1 }], ["y", { id: 1 }], remote).should.deep.equal(
-        remote,
-      );
+      mergeJson(["x", { id: 1 }], ["y", { id: 1 }], remote).should.deep.equal([
+        "y",
+        { id: 2 },
+      ]);
     });
 
     it("falls back to remote for primitive arrays with duplicate values", function () {
@@ -285,16 +286,218 @@ describe("mergeJson: three-way JSON merge", function () {
       ]);
     });
   });
+
+  describe("positional arrays", function () {
+    it("merges a 2D grid where each side changed a different cell", function () {
+      mergeJson(
+        {
+          g: [
+            [0, 0],
+            [0, 0],
+          ],
+        },
+        {
+          g: [
+            [1, 0],
+            [0, 0],
+          ],
+        },
+        {
+          g: [
+            [0, 0],
+            [0, 2],
+          ],
+        },
+      ).should.deep.equal({
+        g: [
+          [1, 0],
+          [0, 2],
+        ],
+      });
+    });
+
+    it("merges primitive arrays with repeated values by position", function () {
+      mergeJson([0, 0, 0], [5, 0, 0], [0, 0, 7]).should.deep.equal([5, 0, 7]);
+    });
+
+    it("falls back to remote when lengths differ", function () {
+      mergeJson([0, 0], [0, 0, 1], [2, 0]).should.deep.equal([2, 0]);
+    });
+
+    it("falls back to remote without a base", function () {
+      mergeJson(undefined, [[1]], [[2]]).should.deep.equal([[2]]);
+    });
+
+    it("keeps a row's shape when its values are unique", function () {
+      mergeJson([0, 1], [5, 1], [0, 7]).should.deep.equal([5, 7]);
+    });
+
+    it("still merges unique primitives as a set when lengths differ", function () {
+      mergeJson(["a", "b"], ["a", "b", "c"], ["a"]).should.deep.equal([
+        "a",
+        "c",
+      ]);
+    });
+  });
+
+  describe("conflicts", function () {
+    const collect = (base, local, remote, options = {}) => {
+      const out = [];
+      const value = mergeJson(base, local, remote, {
+        ...options,
+        onConflict: (c) => out.push(c),
+      });
+      return { value, conflicts: out };
+    };
+
+    it("reports nothing when the sides touched different keys", function () {
+      collect(
+        { a: 1, b: 1 },
+        { a: 2, b: 1 },
+        { a: 1, b: 2 },
+      ).conflicts.should.deep.equal([]);
+    });
+
+    it("reports a same-key conflict with its path", function () {
+      collect(
+        { o: { t: "a" } },
+        { o: { t: "L" } },
+        { o: { t: "R" } },
+      ).conflicts.should.deep.equal([
+        { path: "$.o.t", base: "a", local: "L", remote: "R", resolved: "R" },
+      ]);
+    });
+
+    it("reports a local edit lost to a remote delete", function () {
+      collect({ a: 1 }, { a: 2 }, {}).conflicts.should.deep.equal([
+        {
+          path: "$.a",
+          base: 1,
+          local: 2,
+          remote: undefined,
+          resolved: undefined,
+        },
+      ]);
+    });
+
+    it("reports a local delete overridden by a remote edit", function () {
+      collect({ a: 1 }, {}, { a: 2 }).conflicts.should.deep.equal([
+        { path: "$.a", base: 1, local: undefined, remote: 2, resolved: 2 },
+      ]);
+    });
+
+    it("uses keyed and positional segments in paths", function () {
+      const { conflicts } = collect(
+        { p: [{ id: "a", x: 0 }], g: [[0]] },
+        { p: [{ id: "a", x: 1 }], g: [[1]] },
+        { p: [{ id: "a", x: 2 }], g: [[2]] },
+      );
+      conflicts
+        .map((c) => c.path)
+        .should.deep.equal(['$.p[id="a"].x', "$.g[0][0]"]);
+    });
+
+    it("reports an array that fell back to remote wholesale", function () {
+      collect([1, 1], [1, 1, 2], [3]).conflicts.should.have.length(1);
+    });
+
+    it("quotes keys that are not identifiers", function () {
+      collect(
+        { "a b": 1 },
+        { "a b": 2 },
+        { "a b": 3 },
+      ).conflicts[0].path.should.equal('$["a b"]');
+    });
+  });
+
+  describe("per-path identity keys", function () {
+    it("uses path:field for the array at that path only", function () {
+      const base = {
+        players: [{ uid: "u1", hp: 10 }],
+        items: [{ sku: "s1", n: 1 }],
+      };
+      const local = {
+        players: [{ uid: "u1", hp: 5 }],
+        items: [
+          { sku: "s1", n: 1 },
+          { sku: "s2", n: 1 },
+        ],
+      };
+      const remote = {
+        players: [
+          { uid: "u2", hp: 10 },
+          { uid: "u1", hp: 10 },
+        ],
+        items: [{ sku: "s1", n: 3 }],
+      };
+      mergeJson(base, local, remote, {
+        keyCandidates: ["players:uid", "items:sku"],
+      }).should.deep.equal({
+        players: [
+          { uid: "u2", hp: 10 },
+          { uid: "u1", hp: 5 },
+        ],
+        items: [
+          { sku: "s1", n: 3 },
+          { sku: "s2", n: 1 },
+        ],
+      });
+    });
+
+    it("skips array levels in the path", function () {
+      const base = { teams: [{ id: 1, members: [{ m: "a", s: 0 }] }] };
+      const local = { teams: [{ id: 1, members: [{ m: "a", s: 1 }] }] };
+      const remote = {
+        teams: [
+          {
+            id: 1,
+            members: [
+              { m: "b", s: 0 },
+              { m: "a", s: 0 },
+            ],
+          },
+        ],
+      };
+      mergeJson(base, local, remote, {
+        keyCandidates: ["teams.members:m"],
+      }).should.deep.equal({
+        teams: [
+          {
+            id: 1,
+            members: [
+              { m: "b", s: 0 },
+              { m: "a", s: 1 },
+            ],
+          },
+        ],
+      });
+    });
+
+    it("supports a root array with :field", function () {
+      mergeJson(
+        [{ k: "a", v: 0 }],
+        [{ k: "a", v: 1 }],
+        [
+          { k: "b", v: 0 },
+          { k: "a", v: 0 },
+        ],
+        { keyCandidates: [":k"] },
+      ).should.deep.equal([
+        { k: "b", v: 0 },
+        { k: "a", v: 1 },
+      ]);
+    });
+  });
 });
 
 describe("mergeScriptText: text-level merge with degradation", function () {
-  it("serializes a genuine merge as 2-space JSON", function () {
+  it("serializes a genuine merge compactly when remote is single-line", function () {
     const { text, warnings } = mergeScriptText(
       '{"a": 1, "b": 1}',
       '{"a": 2, "b": 1}',
       '{"a": 1, "b": 2}',
     );
-    text.should.equal('{\n  "a": 2,\n  "b": 2\n}');
+    text.should.equal('{"a":2,"b":2}');
     warnings.should.deep.equal([]);
   });
 
@@ -390,5 +593,53 @@ describe("mergeScriptText: text-level merge with degradation", function () {
       { k9: "a", v: 2 },
       { k9: "b", v: 1 },
     ]);
+  });
+  it("keeps remote's indentation and surrounding whitespace", function () {
+    const remote = '\n    {\n        "a": 1,\n        "b": 2\n    }\n  ';
+    const { text } = mergeScriptText(
+      '\n    {\n        "a": 1,\n        "b": 1\n    }\n  ',
+      '\n    {\n        "a": 9,\n        "b": 1\n    }\n  ',
+      remote,
+    );
+    text.should.equal('\n    {\n        "a": 9,\n        "b": 2\n    }\n  ');
+  });
+
+  it("keeps tab indentation", function () {
+    const { text } = mergeScriptText(
+      '{\n\t"a": 1,\n\t"b": 1\n}',
+      '{\n\t"a": 2,\n\t"b": 1\n}',
+      '{\n\t"a": 1,\n\t"b": 2\n}',
+    );
+    text.should.equal('{\n\t"a": 2,\n\t"b": 2\n}');
+  });
+
+  it("escapes < in a genuinely merged text", function () {
+    const { text } = mergeScriptText(
+      '{"a": "", "b": ""}',
+      '{"a": "</script><b>", "b": ""}',
+      '{"a": "", "b": "x"}',
+    );
+    text.should.equal('{"a":"\\u003c/script>\\u003cb>","b":"x"}');
+    JSON.parse(text).a.should.equal("</script><b>");
+  });
+
+  it("returns conflicts", function () {
+    const { conflicts } = mergeScriptText('{"a": 1}', '{"a": 2}', '{"a": 3}');
+    conflicts.should.deep.equal([
+      { path: "$.a", base: 1, local: 2, remote: 3, resolved: 3 },
+    ]);
+  });
+
+  it("returns empty conflicts on the verbatim and degraded paths", function () {
+    mergeScriptText(
+      '{"a": 1}',
+      '{"a": 1}',
+      '{"a": 2}',
+    ).conflicts.should.deep.equal([]);
+    mergeScriptText(
+      '{"a": 1}',
+      "{oops",
+      '{"a": 2}',
+    ).conflicts.should.deep.equal([]);
   });
 });
