@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.6.0] - 2026-10-14
+
+### Added
+- JSON merge supports positional arrays, conflict reports, per-path keys, and preserves original formatting
+- JSON merge conflicts are recorded in `report.conflicts` with kind `json`
+
+### Changed
+- JSON merge conflict paths now start at the first key instead of a `$` root
+
+### Fixed
+- A two-way morph no longer reports JSON conflicts
+
+
+
 ## [Unreleased]
 
 ### Added
