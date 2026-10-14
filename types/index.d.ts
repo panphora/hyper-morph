@@ -305,6 +305,19 @@ export type Conflict =
       detail: StructureDetail;
       base?: Element;
       recovery: ConflictRecovery;
+    }
+  | {
+      kind: "json";
+      /** The live <script> element. */
+      node: Element | null;
+      /** The script's merge name. */
+      name: string;
+      /** e.g. players[id="a"].x or grid[0][1]; "" is the whole value. */
+      path: string;
+      base: any;
+      local: any;
+      remote: any;
+      resolved: any;
     };
 
 /** Why a fastPath call took the full merge. */
@@ -472,9 +485,28 @@ export function tieredIdentity(tiers: IdOf[]): (el: Element) => string | null;
 
 // JSON merge
 
+export interface JsonConflict {
+  /** e.g. players[id="a"].x or grid[0][1]; "" is the whole value. */
+  path: string;
+  /** undefined when absent */
+  base: any;
+  /** undefined when local deleted it */
+  local: any;
+  /** undefined when remote deleted it */
+  remote: any;
+  /** the value kept; undefined when deleted */
+  resolved: any;
+}
+
 export interface JsonMergeOptions {
-  /** Field names tried, in order, as the identity key of object-element arrays. */
+  /**
+   * Field names tried, in order, as the identity key of object-element
+   * arrays. A `path:field` entry applies only to the array at that
+   * object-key path (`:field` for a root array).
+   */
   keyCandidates?: string[];
+  /** Called once per genuine conflict. */
+  onConflict?: (conflict: JsonConflict) => void;
   /** Parser for mergeScriptText; must throw on invalid input. */
   parse?: (text: string) => any;
 }
@@ -490,7 +522,7 @@ export function mergeScriptText(
   localText: string,
   remoteText: string,
   options?: JsonMergeOptions,
-): { text: string; warnings: string[] };
+): { text: string; warnings: string[]; conflicts: JsonConflict[] };
 export function parseJsonRelaxed(text: string): any;
 export function parseRulesRelaxed(text: string): any;
 

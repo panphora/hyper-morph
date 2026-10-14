@@ -542,6 +542,16 @@ type Conflict =
       detail: StructureDetail;
       base?: Element;
       recovery: ConflictRecovery;
+    }
+  | {
+      kind: "json";
+      node: Element | null; // the live <script> element
+      name: string; // the script's merge name
+      path: string; // e.g. players[id="a"].x or grid[0][1]; "" is the whole value
+      base: any; // undefined when absent
+      local: any; // undefined when local deleted it
+      remote: any; // undefined when remote deleted it
+      resolved: any; // the value kept; undefined when deleted
     };
 type StructureDetail =
   | "both-reordered" // both sides reordered the same children; the order side won
@@ -563,7 +573,7 @@ offsets of the resolved region in the segment's merged text, where a `<br>`,
 whole (a code-like element, a comment) has no `range`, and its `node` is the
 live text node, the live comment, or `null`.
 
-Every conflict also carries `recovery`, the data a consumer needs to show the
+Every conflict except `json` also carries `recovery`, the data a consumer needs to show the
 clash, undo the merge's choice, or redo the local edit later. It is built only
 when a conflict was recorded, from the input trees the merge read, and the
 live side is filled after apply:
@@ -967,18 +977,29 @@ hunk rules over the flattened sequence; it is not exported.
 
 ```ts
 mergeJson(base: any | undefined, local: any, remote: any, options?): any;
-mergeScriptText(baseText: string | null | undefined, localText: string, remoteText: string, options?): { text: string; warnings: string[] };
+mergeScriptText(baseText: string | null | undefined, localText: string, remoteText: string, options?): { text: string; warnings: string[]; conflicts: JsonConflict[] };
 parseJsonRelaxed(text: string): any; // JSON plus unquoted keys, single quotes, trailing commas, comments
 parseRulesRelaxed(text: string): any; // the hypercms rules-tag dialect
 ```
 
 Objects merge per key; different keys both survive; same-key conflicts
 resolve remote-wins. Arrays merge by identity (a keyed field for object
-elements, the value for primitives) and resolve remote-wins wholesale when
-no identity is usable. `mergeScriptText` keeps whichever sides parse:
+elements, the value for primitives). Arrays without a usable identity, and
+primitive arrays, merge position by position when all three versions have
+the same length, and otherwise resolve remote-wins wholesale. `merge-key`
+(and the `keyCandidates` option) takes field names tried for every array,
+or `path:field` entries such as `players:uid` that apply to the array at
+that object-key path only (array levels are skipped; `:field` is a root
+array). Every genuine conflict, including an edit lost to a delete and an
+array replaced wholesale, is returned as `{ path, base, local, remote,
+resolved }` and, inside a document merge, recorded in `report.conflicts`
+as a `json` conflict. `mergeScriptText` keeps whichever sides parse:
 invalid local or remote text yields the remote text, an invalid or absent
-base yields a two-way merge, and the output is serialized so that a receiver
-converges byte-identically with a sender whenever the merge equals one side.
+base yields a two-way merge, and when the merge equals one side its text
+is kept byte for byte. A genuine merge is serialized in the remote text's
+style (compact when it is one line, otherwise its indentation and
+surrounding whitespace), with every `<` written as `\u003c` so the text
+can never close its script element.
 
 ## Parse cache
 

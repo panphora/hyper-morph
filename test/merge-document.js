@@ -274,4 +274,46 @@ describe("mergeDocument / morphDocument / morphElement", function () {
     console.log(`perf clean-tab morph median ms: ${times[2].toFixed(1)}`);
     times[2].should.be.below(80);
   });
+
+  it("reports a JSON same-key conflict as kind json with its path", async function () {
+    const tag = (json) =>
+      `<script type="application/json" merge="game">${json}</script>`;
+    const base = page(tag('{"players":{"alice":{"x":1}},"t":0}'));
+    const live = parseHTML(page(tag('{"players":{"alice":{"x":5}},"t":0}')));
+    const report = await HyperMorph.mergeDocument({
+      live,
+      base,
+      remote: page(tag('{"players":{"alice":{"x":9}},"t":1}')),
+    });
+    const script = live.querySelector("script");
+    JSON.parse(script.textContent).should.deep.equal({
+      players: { alice: { x: 9 } },
+      t: 1,
+    });
+    const json = report.conflicts.filter((c) => c.kind === "json");
+    json.length.should.equal(1);
+    json[0].node.should.equal(script);
+    json[0].name.should.equal("game");
+    json[0].path.should.equal("players.alice.x");
+    json[0].base.should.equal(1);
+    json[0].local.should.equal(5);
+    json[0].remote.should.equal(9);
+    json[0].resolved.should.equal(9);
+  });
+
+  it("reports no JSON conflict when the sides changed different keys", async function () {
+    const tag = (json) =>
+      `<script type="application/json" merge="game">${json}</script>`;
+    const live = parseHTML(page(tag('{"a":2,"b":1}')));
+    const report = await HyperMorph.mergeDocument({
+      live,
+      base: page(tag('{"a":1,"b":1}')),
+      remote: page(tag('{"a":1,"b":2}')),
+    });
+    JSON.parse(live.querySelector("script").textContent).should.deep.equal({
+      a: 2,
+      b: 2,
+    });
+    report.conflicts.filter((c) => c.kind === "json").length.should.equal(0);
+  });
 });

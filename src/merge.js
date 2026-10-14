@@ -900,19 +900,29 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         (r && r.getAttribute("merge-key")) || b.getAttribute("merge-key");
       // Two-way mode has no separate base: a JSON merge then keeps local-only
       // keys rather than letting remote overwrite the whole tag.
-      const { text, warnings } = mergeScriptText(
-        o.localIsBase ? undefined : bt,
-        lt,
-        rt,
-        {
-          parse: found.recognizer.parse,
-          keyCandidates: keyAttr
-            ? keyAttr.split(/[\s,]+/).filter(Boolean)
-            : undefined,
-        },
-      );
+      const {
+        text,
+        warnings,
+        conflicts: jsonConflicts,
+      } = mergeScriptText(o.localIsBase ? undefined : bt, lt, rt, {
+        parse: found.recognizer.parse,
+        keyCandidates: keyAttr
+          ? keyAttr.split(/[\s,]+/).filter(Boolean)
+          : undefined,
+      });
       for (const w of warnings)
         console.warn(`[hyper-morph] merge "${found.raw}": ${w}`);
+      for (const c of jsonConflicts)
+        conflict({
+          kind: "json",
+          node: el,
+          name: found.raw,
+          path: c.path,
+          base: c.base,
+          local: c.local,
+          remote: c.remote,
+          resolved: c.resolved,
+        });
       el.textContent = text;
       mergedScripts.add(el);
       if (text !== rt)

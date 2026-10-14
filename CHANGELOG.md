@@ -1,34 +1,47 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Same-length JSON arrays without identity, and primitive arrays, merge position by position
+- JSON merge conflicts are returned by `mergeScriptText` and recorded in `report.conflicts` as `kind: "json"`
+- `merge-key` accepts `path:field` entries for a key per array
+
+### Fixed
+
+- A merged JSON script escapes `<`, so a value containing `</script>` cannot end the element
+- A merged JSON script keeps the incoming text's formatting instead of 2-space JSON
+
 ## [1.5.0] - 2026-10-12
 
 ### Added
+
 - `opaque` option that merges an element's own attributes but leaves its live children untouched
 
 ### Fixed
+
 - A focused field now takes merged text unless it holds typing the merge missed
-
-
 
 ## [1.4.1] - 2026-10-07
 
 ### Changed
+
 - Skip element lineage tracking when no lineage option is set
 
 ### Fixed
+
 - Anchor split group boundaries correctly during merge
-
-
 
 ## [1.4.0] - 2026-10-04
 
 ### Added
+
 - Opt-in element lineage in live apply reports
 
 ### Fixed
+
 - Lineage protection now survives callback moves and templates
-
-
 
 ## Unreleased
 
