@@ -364,14 +364,14 @@ describe("mergeJson: three-way JSON merge", function () {
         { o: { t: "L" } },
         { o: { t: "R" } },
       ).conflicts.should.deep.equal([
-        { path: "$.o.t", base: "a", local: "L", remote: "R", resolved: "R" },
+        { path: "o.t", base: "a", local: "L", remote: "R", resolved: "R" },
       ]);
     });
 
     it("reports a local edit lost to a remote delete", function () {
       collect({ a: 1 }, { a: 2 }, {}).conflicts.should.deep.equal([
         {
-          path: "$.a",
+          path: "a",
           base: 1,
           local: 2,
           remote: undefined,
@@ -382,7 +382,7 @@ describe("mergeJson: three-way JSON merge", function () {
 
     it("reports a local delete overridden by a remote edit", function () {
       collect({ a: 1 }, {}, { a: 2 }).conflicts.should.deep.equal([
-        { path: "$.a", base: 1, local: undefined, remote: 2, resolved: 2 },
+        { path: "a", base: 1, local: undefined, remote: 2, resolved: 2 },
       ]);
     });
 
@@ -394,7 +394,7 @@ describe("mergeJson: three-way JSON merge", function () {
       );
       conflicts
         .map((c) => c.path)
-        .should.deep.equal(['$.p[id="a"].x', "$.g[0][0]"]);
+        .should.deep.equal(['p[id="a"].x', "g[0][0]"]);
     });
 
     it("reports an array that fell back to remote wholesale", function () {
@@ -406,7 +406,7 @@ describe("mergeJson: three-way JSON merge", function () {
         { "a b": 1 },
         { "a b": 2 },
         { "a b": 3 },
-      ).conflicts[0].path.should.equal('$["a b"]');
+      ).conflicts[0].path.should.equal('["a b"]');
     });
   });
 
@@ -626,7 +626,7 @@ describe("mergeScriptText: text-level merge with degradation", function () {
   it("returns conflicts", function () {
     const { conflicts } = mergeScriptText('{"a": 1}', '{"a": 2}', '{"a": 3}');
     conflicts.should.deep.equal([
-      { path: "$.a", base: 1, local: 2, remote: 3, resolved: 3 },
+      { path: "a", base: 1, local: 2, remote: 3, resolved: 3 },
     ]);
   });
 

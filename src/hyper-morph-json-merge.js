@@ -32,8 +32,8 @@ const DEFAULT_KEY_CANDIDATES = [
 
 /**
  * @typedef {object} JsonConflict
- * @property {string} path - JSONPath-like location, e.g. `$.players[id="a"].x`
- *   or `$.grid[0][1]`; `$` is the root.
+ * @property {string} path - location, e.g. `players[id="a"].x` or
+ *   `grid[0][1]`; the empty string is the root.
  * @property {any} base - undefined when absent
  * @property {any} local - undefined when absent (deleted)
  * @property {any} remote - undefined when absent (deleted)
@@ -95,9 +95,8 @@ const IDENT = /^[A-Za-z_$][\w$]*$/;
  * @returns {string}
  */
 function keySegment(path, key) {
-  return IDENT.test(key)
-    ? path + "." + key
-    : path + "[" + JSON.stringify(key) + "]";
+  if (!IDENT.test(key)) return path + "[" + JSON.stringify(key) + "]";
+  return path === "" ? key : path + "." + key;
 }
 
 /**
@@ -469,7 +468,7 @@ function mergeJson(base, local, remote, options = {}) {
     local,
     remote,
     resolveOptions(options),
-    "$",
+    "",
     "",
   );
 }
