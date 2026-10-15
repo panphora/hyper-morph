@@ -53,8 +53,8 @@ export interface CommonOptions {
   ignore?: (el: Element, isRoot: boolean) => boolean;
   /** Regions where local edits do not count; remote lands unchanged. */
   remoteWins?: (el: Element, isRoot: boolean) => boolean;
-  /** Attributes left out of the merge and of every report. */
-  ignoreAttribute?: (el: Element, name: string) => boolean;
+  /** Attributes left out of the merge and of every report. While attributes are applied, `merged` is the element the live one is becoming. */
+  ignoreAttribute?: (el: Element, name: string, merged?: Element) => boolean;
   /** The element merges, but its live children are never touched. Pass merge inputs in which it is empty. */
   opaque?: (el: Element) => boolean;
   /** Resolution for overlapping edits. "both" is text only. Default "remote". */

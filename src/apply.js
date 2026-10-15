@@ -812,11 +812,14 @@ export function apply(liveRoot, mergedRoot, result, o) {
     return (cur || "").split(HTML_SPACE).filter((t) => t && !had.has(t));
   }
 
+  // ignoreAttribute also gets the merged element: a predicate that depends on
+  // another attribute (a marker) reads it as it will be after this update, not
+  // halfway through it.
   function syncAttributes(liveEl, mergedEl, local) {
     for (const attr of Array.from(mergedEl.attributes)) {
       if (
         isFormStateAttr(liveEl, attr.name) ||
-        o.ignoreAttribute(liveEl, attr.name)
+        o.ignoreAttribute(liveEl, attr.name, mergedEl)
       )
         continue;
       const cur = attrOf(liveEl, attr);
@@ -849,7 +852,7 @@ export function apply(liveRoot, mergedRoot, result, o) {
     for (const attr of Array.from(liveEl.attributes)) {
       if (
         isFormStateAttr(liveEl, attr.name) ||
-        o.ignoreAttribute(liveEl, attr.name)
+        o.ignoreAttribute(liveEl, attr.name, mergedEl)
       )
         continue;
       const has = attr.namespaceURI

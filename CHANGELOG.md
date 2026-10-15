@@ -22,6 +22,10 @@
 - JSON merge conflicts are returned by `mergeScriptText` and recorded in `report.conflicts` as `kind: "json"`
 - `merge-key` accepts `path:field` entries for a key per array
 
+### Changed
+
+- `ignoreAttribute` gets the merged element as a third argument while attributes are applied, so a predicate that depends on a marker attribute reads the final state
+
 ### Fixed
 
 - A merged JSON script escapes `<`, so a value containing `</script>` cannot end the element

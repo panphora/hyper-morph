@@ -121,7 +121,7 @@ an object.
 | `identity`            | `{ base?, local?, remote?: IdentitySpec }`                                                                  | `data-id`, then `id`   | all                                              |
 | `ignore`              | `(el: Element) => boolean`                                                                                  | `() => false`          | all                                              |
 | `remoteWins`          | `(el: Element) => boolean`                                                                                  | `() => false`          | all                                              |
-| `ignoreAttribute`     | `(el: Element, name: string) => boolean`                                                                    | `() => false`          | all                                              |
+| `ignoreAttribute`     | `(el: Element, name: string, merged?: Element) => boolean`                                                  | `() => false`          | all                                              |
 | `conflicts`           | `"remote" \| "local" \| "both"`                                                                             | `"remote"`             | all                                              |
 | `protectFocusedValue` | `boolean \| "subtree"`                                                                                      | `true`                 | applying calls                                   |
 | `opaque`              | `(el: Element) => boolean`                                                                                  | none                   | applying calls                                   |
@@ -223,6 +223,13 @@ Attributes the merge does not compare, does not write, and does not report.
 The predicate is called with the element of whichever side is being read
 and the attribute name. Class and style are whole attributes for this
 purpose.
+
+While the result is applied to the live element, a third argument gives
+the merged element: what the live element is becoming. A predicate that
+depends on another attribute, such as a marker that protects a sibling
+attribute, reads that marker from the merged element, so a frame that
+adds or removes the marker together with the attribute it protects is
+judged by the final state rather than by attribute order.
 
 ### `conflicts`
 

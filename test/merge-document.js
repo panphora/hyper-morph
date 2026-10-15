@@ -192,6 +192,66 @@ describe("mergeDocument / morphDocument / morphElement", function () {
     report.decisions.length.should.equal(0);
   });
 
+  describe("ignoreAttribute with a marker that protects another attribute", function () {
+    const marked = (el, n, merged) =>
+      n === "open" && (merged || el).hasAttribute("data-k");
+    const opts = { ignoreAttribute: marked };
+
+    it("the remote drops the marker: the live open state follows the remote", async function () {
+      const live = parseHTML(
+        page('<details open data-k="1"><summary>s</summary></details>'),
+      );
+      await HyperMorph.morphDocument(
+        live,
+        page("<details><summary>s</summary></details>"),
+        opts,
+      );
+      const d = live.querySelector("details");
+      d.hasAttribute("data-k").should.equal(false);
+      d.hasAttribute("open").should.equal(false);
+    });
+
+    it("the remote drops the marker and sets open: open lands", async function () {
+      const live = parseHTML(
+        page('<details data-k="1"><summary>s</summary></details>'),
+      );
+      await HyperMorph.morphDocument(
+        live,
+        page("<details open><summary>s</summary></details>"),
+        opts,
+      );
+      const d = live.querySelector("details");
+      d.hasAttribute("data-k").should.equal(false);
+      d.hasAttribute("open").should.equal(true);
+    });
+
+    it("the remote adds the marker: the live open state is kept", async function () {
+      const live = parseHTML(
+        page("<details open><summary>s</summary></details>"),
+      );
+      await HyperMorph.morphDocument(
+        live,
+        page('<details data-k="1"><summary>s</summary></details>'),
+        opts,
+      );
+      const d = live.querySelector("details");
+      d.hasAttribute("data-k").should.equal(true);
+      d.hasAttribute("open").should.equal(true);
+    });
+
+    it("both sides marked: the live open state is kept", async function () {
+      const live = parseHTML(
+        page('<details open data-k="1"><summary>s</summary></details>'),
+      );
+      await HyperMorph.morphDocument(
+        live,
+        page('<details data-k="1"><summary>s</summary></details>'),
+        opts,
+      );
+      live.querySelector("details").hasAttribute("open").should.equal(true);
+    });
+  });
+
   it("scripts inserted by a merge run exactly once, after apply", async function () {
     window.__mm = 0;
     const wa = getWorkArea();
