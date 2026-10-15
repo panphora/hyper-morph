@@ -11,6 +11,7 @@
 
 ### Fixed
 - `ignoreAttribute` also covers `checked`, `disabled` and `selected` on form controls, which were written without asking it
+- With `keepLiveOnly`, an attribute the local capture lacks because `ignoreAttribute` covered it there is no longer kept as live-only state
 
 
 

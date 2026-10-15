@@ -881,7 +881,14 @@ export function apply(liveRoot, mergedRoot, result, o) {
           continue;
         }
       }
-      if (local && attrOf(local, attr) === null) continue;
+      // Missing from the capture because ignoreAttribute covered it there is
+      // not live-only: that name was tab-local, and the merged element now decides.
+      if (
+        local &&
+        attrOf(local, attr) === null &&
+        !o.ignoreAttribute(local, attr.name)
+      )
+        continue;
       if (hooks.beforeAttributeUpdated(attr.name, liveEl, "remove") === false) {
         if (track) attrVeto(mergedEl, attr.name);
         continue;

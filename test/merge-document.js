@@ -261,6 +261,60 @@ describe("mergeDocument / morphDocument / morphElement", function () {
       live.querySelector("input").disabled.should.equal(true);
       live.querySelector("p").textContent.should.equal("b");
     });
+
+    it("keepLiveOnly: an ignored name missing from the capture follows the merged element", async function () {
+      const live = parseHTML(
+        page('<details data-k="1" open><summary>s</summary></details>'),
+      );
+      const root = live.documentElement.cloneNode(true);
+      const toLive = new Map();
+      const pair = (c, l) => {
+        toLive.set(c, l);
+        for (let i = 0; i < c.childNodes.length; i++)
+          pair(c.childNodes[i], l.childNodes[i]);
+      };
+      pair(root, live.documentElement);
+      root.querySelector("details").removeAttribute("open");
+      const html = "<!DOCTYPE html>" + root.outerHTML;
+      await HyperMorph.mergeDocument({
+        live,
+        base: html,
+        local: { root, toLive: (n) => toLive.get(n) || null },
+        remote: html.replace(' data-k="1"', ""),
+        keepLiveOnly: true,
+        ignoreAttribute: marked,
+      });
+      const d = live.querySelector("details");
+      d.hasAttribute("data-k").should.equal(false);
+      d.hasAttribute("open").should.equal(false);
+    });
+
+    it("keepLiveOnly: a name missing from the capture and never ignored stays live-only", async function () {
+      const live = parseHTML(
+        page('<details data-x="1"><summary>s</summary></details>'),
+      );
+      const root = live.documentElement.cloneNode(true);
+      const toLive = new Map();
+      const pair = (c, l) => {
+        toLive.set(c, l);
+        for (let i = 0; i < c.childNodes.length; i++)
+          pair(c.childNodes[i], l.childNodes[i]);
+      };
+      pair(root, live.documentElement);
+      root.querySelector("details").removeAttribute("data-x");
+      const html = "<!DOCTYPE html>" + root.outerHTML;
+      await HyperMorph.mergeDocument({
+        live,
+        base: html,
+        local: { root, toLive: (n) => toLive.get(n) || null },
+        remote: html.replace("<summary>s</summary>", "<summary>t</summary>"),
+        keepLiveOnly: true,
+        ignoreAttribute: marked,
+      });
+      const d = live.querySelector("details");
+      d.getAttribute("data-x").should.equal("1");
+      d.querySelector("summary").textContent.should.equal("t");
+    });
   });
 
   it("scripts inserted by a merge run exactly once, after apply", async function () {
