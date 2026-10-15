@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.2] - 2026-10-15
+
+### Fixed
+- Boolean form state now respects ignoreAttribute
+
+
+
 ## [Unreleased]
 
 ### Fixed
