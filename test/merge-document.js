@@ -250,6 +250,17 @@ describe("mergeDocument / morphDocument / morphElement", function () {
       );
       live.querySelector("details").hasAttribute("open").should.equal(true);
     });
+
+    it("a marked boolean form attribute is left alone", async function () {
+      const live = parseHTML(page('<input data-k="1" disabled><p>a</p>'));
+      await HyperMorph.morphDocument(live, page('<input data-k="1"><p>b</p>'), {
+        ignoreAttribute: (el, n, merged) =>
+          n === "disabled" && (merged || el).hasAttribute("data-k"),
+      });
+      live.querySelector("input").hasAttribute("disabled").should.equal(true);
+      live.querySelector("input").disabled.should.equal(true);
+      live.querySelector("p").textContent.should.equal("b");
+    });
   });
 
   it("scripts inserted by a merge run exactly once, after apply", async function () {

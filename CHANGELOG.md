@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- `ignoreAttribute` also covers `checked`, `disabled` and `selected` on form controls, which were written without asking it
+
+
+
 ## [1.6.1] - 2026-10-15
 
 ### Changed

@@ -1121,6 +1121,7 @@ export function apply(liveRoot, mergedRoot, result, o) {
   }
 
   function syncBoolean(liveEl, src, name) {
+    if (o.ignoreAttribute(liveEl, name, src)) return;
     const want =
       o.formState === "property" ? !!src[name] : src.hasAttribute(name);
     if (o.formState !== "property") {
