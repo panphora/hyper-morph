@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.1] - 2026-10-15
+
+### Changed
+- The `ignoreAttribute` callback now receives the merged element while attributes are being applied
+
+
+
 ## [1.6.0] - 2026-10-14
 
 ### Added
