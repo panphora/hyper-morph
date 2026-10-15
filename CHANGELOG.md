@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.3] - 2026-10-15
+
+### Fixed
+- keepLiveOnly no longer treats an ignored attribute name that is missing from the capture as live-only
+
+
+
 ## [1.6.2] - 2026-10-15
 
 ### Fixed
