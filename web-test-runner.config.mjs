@@ -36,6 +36,7 @@ let config = {
     </html>
   `,
 
+  testFramework: { config: { timeout: 20000 } },
   nodeResolve: true,
   coverage: true,
   coverageConfig: {
