@@ -1265,6 +1265,80 @@ test("HF2 a peer that re-keyed an element replaces it instead of merging into it
   assert.equal(kinds(edited.res, "edit-beats-delete").length, 1);
 });
 
+test("P6b two people editing different paragraphs of one textarea keep both", () => {
+  const base = `<textarea id="t">first paragraph\n\nsecond paragraph</textarea>`;
+  const { html, res } = mergeBodies(
+    base,
+    `<textarea id="t">first paragraph, mine\n\nsecond paragraph</textarea>`,
+    `<textarea id="t">first paragraph\n\nsecond paragraph, theirs</textarea>`,
+  );
+  assert.equal(
+    html,
+    `<textarea id="t">first paragraph, mine\n\nsecond paragraph, theirs</textarea>`,
+  );
+  assert.equal(res.conflicts.length, 0);
+  assert.equal(res.localDiverged, true);
+});
+
+test("P6b a textarea meeting the same word on both sides conflicts, the policy's side wins", () => {
+  const base = `<textarea id="t">the lazy dog</textarea>`,
+    local = `<textarea id="t">the LAZY dog</textarea>`,
+    remote = `<textarea id="t">the sleepy dog</textarea>`;
+  const { html, res } = mergeBodies(base, local, remote);
+  assert.equal(html, `<textarea id="t">the sleepy dog</textarea>`);
+  const clashes = kinds(res, "text");
+  assert.equal(clashes.length, 1);
+  assert.deepEqual(
+    {
+      base: clashes[0].base,
+      local: clashes[0].local,
+      remote: clashes[0].remote,
+      resolved: clashes[0].resolved,
+    },
+    { base: "lazy", local: "LAZY", remote: "sleepy", resolved: "sleepy" },
+  );
+  const localPolicy = mergeBodies(base, local, remote, { conflicts: "local" });
+  assert.equal(localPolicy.html, `<textarea id="t">the LAZY dog</textarea>`);
+  assert.equal(localPolicy.res.conflicts.length, 1);
+});
+
+test("P6b a textarea changed on one side, or emptied on one, takes that side whole", () => {
+  const base = `<textarea id="t">alpha beta gamma</textarea>`;
+  const fromRemote = mergeBodies(
+    base,
+    base,
+    `<textarea id="t">alpha BETA gamma</textarea>`,
+  );
+  assert.equal(fromRemote.html, `<textarea id="t">alpha BETA gamma</textarea>`);
+  assert.equal(fromRemote.res.conflicts.length, 0);
+  const fromLocal = mergeBodies(
+    base,
+    `<textarea id="t">alpha BETA gamma</textarea>`,
+    base,
+  );
+  assert.equal(fromLocal.html, `<textarea id="t">alpha BETA gamma</textarea>`);
+  assert.equal(fromLocal.res.conflicts.length, 0);
+  const emptyLocal = mergeBodies(base, `<textarea id="t"></textarea>`, base);
+  assert.equal(emptyLocal.html, `<textarea id="t"></textarea>`);
+  assert.equal(emptyLocal.res.conflicts.length, 0);
+  const emptyRemote = mergeBodies(base, base, `<textarea id="t"></textarea>`);
+  assert.equal(emptyRemote.html, `<textarea id="t"></textarea>`);
+  assert.equal(emptyRemote.res.conflicts.length, 0);
+});
+
+test("P6b a textarea keeps CRLF and astral characters while merging", () => {
+  const { html, res } = mergeBodies(
+    `<textarea id="t">line one\r\n\u{1f600} emoji\r\nline three</textarea>`,
+    `<textarea id="t">line one\r\n\u{1f600} emoji, mine\r\nline three</textarea>`,
+    `<textarea id="t">line one\r\n\u{1f600} emoji\r\nline three, theirs</textarea>`,
+  );
+  assert.equal(
+    html,
+    `<textarea id="t">line one\n\u{1f600} emoji, mine\nline three, theirs</textarea>`,
+  );
+  assert.equal(res.conflicts.length, 0);
+});
+
 test("HF2 a merge tag whose key changed still pairs with its slot: one script, the new key", () => {
   const { res } = mergeBodies(
     `<div><script type="application/json" merge="one">{"a": 1}</script><p>x</p></div>`,

@@ -855,13 +855,17 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     if (isHtmlScript(b)) {
       mergeScriptElement(b, asBase ? b : l, r, el);
     } else if (tag === "TEXTAREA") {
-      el.textContent = wholeText(
-        b.textContent,
-        (asBase ? b : l) ? (asBase ? b : l).textContent : b.textContent,
-        r ? r.textContent : b.textContent,
-        el,
-        "text",
-      );
+      const lb = asBase ? b : l;
+      const bt = b.textContent,
+        lt = lb ? lb.textContent : bt,
+        rt = r ? r.textContent : bt;
+      const bRun = textareaRun(b);
+      if (bRun && lt !== bt && rt !== bt) {
+        const node = mergeRun(bRun, textareaRun(lb), textareaRun(r), asBase);
+        if (node) el.appendChild(node);
+      } else {
+        el.textContent = wholeText(bt, lt, rt, el, "text");
+      }
     } else if (!incoming?.render(b, el)) {
       const kids = mergeChildren(b, l, r, asBase, el);
       const target = tag === "TEMPLATE" && el.content ? el.content : el;
@@ -870,6 +874,12 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     building.delete(b);
     destinations?.produced(b, el);
     return el;
+  }
+
+  function textareaRun(el) {
+    if (!el) return null;
+    const first = unitsOf(el)[0];
+    return first && !isEl(first) && first.kind === "text" ? first : null;
   }
 
   function wholeText(bv, lv, rv, node, kind) {

@@ -277,7 +277,7 @@ test("a clash across a local paragraph split: scope crosses the block, breaks co
   ]);
 });
 
-test("T3: a textarea merged whole", async () => {
+test("T3: a textarea meeting the same word on both sides", async () => {
   const m = await merge(
     `<textarea id="t">old</textarea>`,
     `<textarea id="t">mine</textarea>`,
@@ -285,7 +285,7 @@ test("T3: a textarea merged whole", async () => {
   );
   assert.equal(m.body, `<textarea id="t">theirs</textarea>`);
   const r = m.rv[0];
-  assert.equal(r.key, "text:b:[1,0]:0:3:0");
+  assert.equal(r.key, "text:b:[1,0,0]:run:0:3:0");
   assert.equal(r.text.encoding, "plain");
   const whole = (text) => ({
     text,
@@ -298,12 +298,10 @@ test("T3: a textarea merged whole", async () => {
   assert.deepEqual(side(r.text.local), whole("mine"));
   assert.deepEqual(side(r.text.remote), whole("theirs"));
   assert.deepEqual(side(r.text.merged), whole("theirs"));
-  assert.deepEqual(liveSpan(r.text.liveSpan), [
-    m.text("textarea"),
-    0,
-    m.text("textarea"),
-    6,
-  ]);
+  assert.equal(r.localLost, true);
+  assert.equal(r.applied, false);
+  assert.equal(r.unavailable, "missing-output");
+  assert.deepEqual(liveSpan(r.text.liveSpan), null);
 });
 
 test("T4: a comment, legacy node filled with the live comment", async () => {
@@ -1500,7 +1498,7 @@ test("the live route with stand-ins: the scope reaches into the kept live subtre
 });
 
 // localLost by emitter: whole-value emitters compare resolved with local;
-// the inline emitters follow the policy.
+// the inline emitters, a textarea's text among them, follow the policy.
 
 test("policy both: whole-value emitters lose the local value, inline keeps it", async () => {
   const both = { options: { conflicts: "both" } };
@@ -1510,9 +1508,9 @@ test("policy both: whole-value emitters lose the local value, inline keeps it", 
     `<textarea id="t">theirs</textarea>`,
     both,
   );
-  assert.equal(t.report.conflicts[0].resolved, "theirs");
-  assert.equal(t.rv[0].text.merged.text, "theirs");
-  assert.equal(t.rv[0].localLost, true);
+  assert.equal(t.report.conflicts[0].resolved, "minetheirs");
+  assert.equal(t.rv[0].text.merged.text, "minetheirs");
+  assert.equal(t.rv[0].localLost, false);
   const c = await merge(
     `<div id="d"><!--old--></div>`,
     `<div id="d"><!--mine--></div>`,
