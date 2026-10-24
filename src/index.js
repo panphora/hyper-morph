@@ -50,6 +50,7 @@ const KNOWN = new Set([
   "opaque",
   "remoteWins",
   "ignoreAttribute",
+  "attributeMerge",
   "conflicts",
   "protectFocusedValue",
   "restoreFocus",
@@ -99,6 +100,8 @@ function normalize(o, roots = []) {
     throw new TypeError(`fastPath must be a boolean`);
   if (o.keepLiveOnly !== undefined && typeof o.keepLiveOnly !== "boolean")
     throw new TypeError(`keepLiveOnly must be a boolean`);
+  if (o.attributeMerge !== undefined && typeof o.attributeMerge !== "function")
+    throw new TypeError(`attributeMerge must be a function`);
   const lineage = o.lineage;
   if (
     lineage !== undefined &&
@@ -114,6 +117,8 @@ function normalize(o, roots = []) {
     remoteWins: makeIgnore(o.remoteWins, roots),
     ignoreAttribute:
       typeof o.ignoreAttribute === "function" ? o.ignoreAttribute : () => false,
+    attributeMerge:
+      typeof o.attributeMerge === "function" ? o.attributeMerge : () => null,
     opaque: typeof o.opaque === "function" ? o.opaque : () => false,
     conflicts,
     protectFocusedValue: protect === undefined ? true : protect,
@@ -202,6 +207,7 @@ export function merge3(base, local, remote, options = {}) {
     ignored: o.ignored,
     remoteWins: o.remoteWins,
     ignoreAttribute: o.ignoreAttribute,
+    attributeMerge: o.attributeMerge,
     conflicts: o.conflicts,
     mergeTags: o.scripts.merge === false ? null : o.scripts.mergeTags,
     baseURI:
@@ -266,6 +272,7 @@ function run({
     ignored: o.ignored,
     remoteWins: o.remoteWins,
     ignoreAttribute: o.ignoreAttribute,
+    attributeMerge: o.attributeMerge,
     conflicts: o.conflicts,
     mergeTags: o.scripts.merge === false ? null : o.scripts.mergeTags,
     baseURI: doc.baseURI,

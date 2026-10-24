@@ -119,6 +119,7 @@ export function structuralKey(mergeTags, baseURI) {
  * @param {(n: Node) => boolean} o.ignored
  * @param {(el: Element) => boolean} o.remoteWins
  * @param {(el: Element, name: string) => boolean} o.ignoreAttribute
+ * @param {(el: Element, name: string) => ("tokens" | "max" | null)} [o.attributeMerge] - how a shared attribute merges when both sides changed it: "tokens" merges it as a three-way set, "max" takes the larger number; nothing keeps today's conflict
  * @param {"remote" | "local" | "both"} o.conflicts
  * @param {Array} o.mergeTags
  * @param {string} o.baseURI
@@ -962,7 +963,9 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         v = lv;
         localDecision({ kind: "attr", el, name, source: "local" });
       } else {
-        v = mergeTokenAttr(name, bv, lv, rv);
+        v =
+          mergeTokenAttr(name, bv, lv, rv) ??
+          mergeDeclared(name, [b, l, r], bv, lv, rv);
         if (v === undefined) {
           v = policy === "local" ? lv : rv;
           conflict(
@@ -986,6 +989,42 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         else el.setAttribute(name, v);
       }
     }
+  }
+
+  function mergeDeclared(name, els, bv, lv, rv) {
+    const declared = o.attributeMerge;
+    if (typeof declared !== "function") return undefined;
+    const kinds = els.filter(Boolean).map((x) => declared(x, name));
+    if (!kinds.length || kinds.some((k) => k !== kinds[0])) return undefined;
+    if (kinds[0] === "tokens") return mergeTokenSet(bv, lv, rv);
+    if (kinds[0] === "max") {
+      const a = Number(lv),
+        c = Number(rv);
+      return Number.isFinite(a) && Number.isFinite(c) && lv !== "" && rv !== ""
+        ? String(Math.max(a, c))
+        : undefined;
+    }
+    return undefined;
+  }
+
+  function mergeTokenSet(bv, lv, rv) {
+    const split = (s) => [...new Set((s || "").split(/\s+/).filter(Boolean))];
+    const base = split(bv),
+      inBase = new Set(base),
+      L = new Set(split(lv)),
+      R = new Set(split(rv));
+    const present = (t) =>
+      L.has(t) === R.has(t)
+        ? L.has(t)
+        : L.has(t) === inBase.has(t)
+          ? R.has(t)
+          : L.has(t);
+    const kept = base.filter(present);
+    const added = [...new Set([...L, ...R])]
+      .filter((t) => !inBase.has(t) && present(t))
+      .sort();
+    const out = [...kept, ...added];
+    return out.length ? out.join(" ") : null;
   }
 
   function mergeTokenAttr(name, bv, lv, rv) {

@@ -55,6 +55,11 @@ export interface CommonOptions {
   remoteWins?: (el: Element, isRoot: boolean) => boolean;
   /** Attributes left out of the merge and of every report. While attributes are applied, `merged` is the element the live one is becoming. */
   ignoreAttribute?: (el: Element, name: string, merged?: Element) => boolean;
+  /** How a shared attribute merges when both sides changed it: "tokens" merges it as a three-way set of whitespace-separated tokens, "max" takes the larger of two numbers. Nothing keeps today's conflict. */
+  attributeMerge?: (
+    el: Element,
+    name: string,
+  ) => "tokens" | "max" | null | undefined;
   /** The element merges, but its live children are never touched. Pass merge inputs in which it is empty. */
   opaque?: (el: Element) => boolean;
   /** Resolution for overlapping edits. "both" is text only. Default "remote". */

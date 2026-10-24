@@ -122,6 +122,7 @@ an object.
 | `ignore`              | `(el: Element) => boolean`                                                                                  | `() => false`          | all                                              |
 | `remoteWins`          | `(el: Element) => boolean`                                                                                  | `() => false`          | all                                              |
 | `ignoreAttribute`     | `(el: Element, name: string, merged?: Element) => boolean`                                                  | `() => false`          | all                                              |
+| `attributeMerge`      | `(el: Element, name: string) => "tokens" \| "max" \| null`                                                  | `() => null`           | all                                              |
 | `conflicts`           | `"remote" \| "local" \| "both"`                                                                             | `"remote"`             | all                                              |
 | `protectFocusedValue` | `boolean \| "subtree"`                                                                                      | `true`                 | applying calls                                   |
 | `opaque`              | `(el: Element) => boolean`                                                                                  | none                   | applying calls                                   |
@@ -230,6 +231,26 @@ depends on another attribute, such as a marker that protects a sibling
 attribute, reads that marker from the merged element, so a frame that
 adds or removes the marker together with the attribute it protects is
 judged by the final state rather than by attribute order.
+
+### `attributeMerge`
+
+How an attribute merges when both sides changed it to different values.
+The predicate gets the element of whichever side is being read and the
+attribute name, and answers `"tokens"`, `"max"` or nothing. It is consulted
+only in that case, only for attributes that are not `class` or `style`, and
+only when base, local and remote all answer the same thing.
+
+- `"tokens"`: the attribute is a whitespace-separated token set, merged the
+  way `class` already is, one token at a time. Tokens kept from base stay in
+  base order, added tokens follow in sorted order, and a merge that keeps no
+  token removes the attribute.
+- `"max"`: the attribute is a counter. When both values are finite numbers
+  the larger one wins. Anything else falls back to today's conflict.
+
+A declared merge records the attribute decision and no conflict.
+`merge-tokens="data-labels data-members"` and `merge-max="data-next-card"`
+on an ancestor in the authored page are how ClayJS supplies this predicate
+from attributes; hyper-morph itself only calls the option.
 
 ### `conflicts`
 
@@ -390,7 +411,7 @@ Limits (each takes the full merge):
 - one changed branch below `<body>`: a change directly in `<body>`, two
   changed regions, or any change in `<head>` (`root-level`, `not-in-body`);
 - attributes of the root element, except those `ignoreAttribute` leaves out
-  (`root-attrs`);
+  or a declared `attributeMerge` reconciles on both sides (`root-attrs`);
 - an identity outside the branch that differs between base and remote,
   including a sender whose synthetic ids do not match this tab's
   (`outside-id-changed`, or `root-level` when `<body>`'s own id differs);

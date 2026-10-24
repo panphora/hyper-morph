@@ -30,14 +30,22 @@ export const steps = { compared: 0 };
 const FORM_TAGS = new Set(["INPUT", "SELECT", "OPTION", "TEXTAREA"]);
 
 /** Equal attributes, leaving out the ones the caller ignores. */
-function sameAttrs(x, y, ignoreAttribute) {
+function sameAttrs(x, y, ignoreAttribute, attributeMerge) {
+  // An attribute both sides have and a declared merge reconciles is not a
+  // difference the scope has to stop at.
+  const declared = (el, name) =>
+    y.getAttribute(name) !== null &&
+    typeof attributeMerge === "function" &&
+    !!attributeMerge(el, name);
   let n = 0;
   for (const a of x.attributes) {
     if (ignoreAttribute(x, a.name)) continue;
     n++;
-    if (y.getAttribute(a.name) !== a.value) return false;
+    if (y.getAttribute(a.name) !== a.value && !declared(x, a.name))
+      return false;
   }
-  for (const a of y.attributes) if (!ignoreAttribute(y, a.name)) n--;
+  for (const a of y.attributes)
+    if (!ignoreAttribute(y, a.name) && !declared(y, a.name)) n--;
   return n === 0;
 }
 
@@ -144,7 +152,7 @@ export function findScope({
     remoteRoot.getElementsByTagName("template").length
   )
     return { bail: "script-or-template" };
-  if (!sameAttrs(baseRoot, remoteRoot, o.ignoreAttribute))
+  if (!sameAttrs(baseRoot, remoteRoot, o.ignoreAttribute, o.attributeMerge))
     return { bail: "root-attrs" };
   const { ignored, remoteWins } = o;
   const keyOf = structuralKey(
