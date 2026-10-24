@@ -1170,7 +1170,9 @@ export function apply(liveRoot, mergedRoot, result, o) {
         before: liveEl.textContent,
         after: text,
       });
-      liveEl.textContent = text;
+      const only = liveEl.firstChild;
+      if (only && only.nodeType === 3 && !only.nextSibling) only.data = text;
+      else liveEl.textContent = text;
     }
     if (liveEl.value !== value) liveEl.value = value;
     if (caret && liveEl.value !== before)

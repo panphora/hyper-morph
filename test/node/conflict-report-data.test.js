@@ -299,9 +299,14 @@ test("T3: a textarea meeting the same word on both sides", async () => {
   assert.deepEqual(side(r.text.remote), whole("theirs"));
   assert.deepEqual(side(r.text.merged), whole("theirs"));
   assert.equal(r.localLost, true);
-  assert.equal(r.applied, false);
-  assert.equal(r.unavailable, "missing-output");
-  assert.deepEqual(liveSpan(r.text.liveSpan), null);
+  assert.equal(r.applied, true);
+  assert.equal(r.unavailable, null);
+  const text = m.text("#t");
+  assert.deepEqual(liveSpan(r.text.liveSpan), [text, 0, text, 6]);
+  assert.equal(
+    text.data.slice(r.text.liveSpan.startOffset, r.text.liveSpan.endOffset),
+    r.text.merged.text,
+  );
 });
 
 test("T4: a comment, legacy node filled with the live comment", async () => {

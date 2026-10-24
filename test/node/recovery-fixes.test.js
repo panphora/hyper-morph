@@ -446,13 +446,9 @@ for (const tag of ["input", "textarea"]) {
     assert.equal(live.querySelector("#t").value, "mine");
     assert.equal(recoveries.length, 1);
     const rv = recoveries[0];
-    // A whole-value write the veto keeps is a preserved local operation; a
-    // textarea now clashes on its text run, whose output the kept value write
-    // leaves with no live endpoint.
-    const want =
-      tag === "input"
-        ? { applied: false, unavailable: "hook-veto", localLost: false }
-        : { applied: false, unavailable: "missing-output", localLost: true };
+    // A whole-value write the veto keeps is a preserved local operation, and a
+    // text clash inside the textarea sees the same veto.
+    const want = { applied: false, unavailable: "hook-veto", localLost: false };
     assert.equal(rv.applied, want.applied);
     assert.equal(rv.unavailable, want.unavailable);
     assert.equal(rv.localLost, want.localLost);

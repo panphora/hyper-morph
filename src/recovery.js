@@ -1317,10 +1317,17 @@ export function resolveLive(conflicts, links, o) {
     if (rv.structure && applied) applied = provesStructure(rv);
     if (rv.attribute && applied)
       applied = liveAttr(lv, rv.attribute, c.resolved);
+    const textareaOf = (n) =>
+      n?.tagName === "TEXTAREA"
+        ? n
+        : n?.parentNode?.tagName === "TEXTAREA"
+          ? n.parentNode
+          : null;
     const attrVeto =
-      (!!rv.attribute || (!!rv.text && lv?.tagName === "TEXTAREA")) &&
+      (!!rv.attribute ||
+        (!!rv.text && !!(textareaOf(lv) || textareaOf(anchor)))) &&
       !!vetoedAttrs &&
-      [anchor, lv].some((n) =>
+      [anchor, lv, textareaOf(lv), textareaOf(anchor)].some((n) =>
         vetoedAttrs
           .get(n)
           ?.has(rv.attribute ? rv.attribute.qualifiedName : "value"),
