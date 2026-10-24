@@ -209,6 +209,47 @@ test("both sides reorder different children: one child moved by both still confl
   assert.equal(kinds(res, "both-reordered").length, 1);
 });
 
+const gapOf = (keys, sep) =>
+  `<ul>${keys.map((k) => `<li>${k}</li>`).join(sep)}</ul>`;
+const whitespaceNodes = (doc) =>
+  [...doc.body.querySelector("ul").childNodes].filter((n) => n.nodeType === 3);
+
+test("both sides reorder different children: a newline between the items is no child", () => {
+  const { html, res } = mergeBodies(
+    gapOf(["b", "f", "q", "m"], "\n"),
+    gapOf(["f", "q", "b", "m"], "\n"),
+    gapOf(["m", "b", "f", "q"], "\n"),
+  );
+  assert.deepEqual(itemsOf(html), ["m", "f", "q", "b"]);
+  assert.equal(res.conflicts.length, 0);
+  const gaps = whitespaceNodes(res.doc);
+  assert.equal(gaps.length, 3);
+  gaps.forEach((n) => assert.equal(n.nodeValue, "\n"));
+});
+
+test("both sides reorder different children: indented newlines between the items are no children", () => {
+  const { html, res } = mergeBodies(
+    gapOf(["b", "f", "q", "m"], "\n  "),
+    gapOf(["f", "q", "b", "m"], "\n  "),
+    gapOf(["m", "b", "f", "q"], "\n  "),
+  );
+  assert.deepEqual(itemsOf(html), ["m", "f", "q", "b"]);
+  assert.equal(res.conflicts.length, 0);
+  const gaps = whitespaceNodes(res.doc);
+  assert.equal(gaps.length, 3);
+  gaps.forEach((n) => assert.equal(n.nodeValue, "\n  "));
+});
+
+test("both sides reorder different children: the same child moved by both conflicts through the whitespace", () => {
+  const { html, res } = mergeBodies(
+    gapOf(["a", "b", "c", "d", "e"], "\n"),
+    gapOf(["b", "c", "d", "e", "a"], "\n"),
+    gapOf(["b", "c", "a", "d", "e"], "\n"),
+  );
+  assert.deepEqual(itemsOf(html), ["b", "c", "a", "d", "e"]);
+  assert.equal(kinds(res, "both-reordered").length, 1);
+});
+
 test("both sides reorder different children: a one-position ambiguity resolves without a notice", () => {
   const { html, res } = mergeBodies(
     ulOf(["a", "b", "c", "d"]),

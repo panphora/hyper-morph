@@ -1405,6 +1405,10 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     const bPos = new Map();
     for (let i = 0; i < bUnits.length; i++) bPos.set(bUnits[i], i);
 
+    // Whitespace between children is layout, not state: the disjoint-reorder
+    // path orders content only and puts the gaps back afterwards.
+    const isGap = (u) => !isEl(u) && u.kind === "text" && !u.value.trim();
+
     // Output list with bookkeeping for anchors.
     const result = [];
     const inResult = new Set();
@@ -1435,13 +1439,13 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           moveInto(unit, null, null);
       }
     }
-    mergeSegments();
-
     // Kept children on each side, in that side's order, as base units.
+    // Whitespace between children is layout, never a child that moved, so it
+    // takes no part in the order either side is read as.
     const keptUnits = (V) => {
       const kept = [];
       for (const su of V.units) {
-        if (segUnits.has(su)) continue;
+        if (segUnits.has(su) || isGap(su)) continue;
         const bk = V.baseOf(su);
         if (bk && bSet.has(bk)) kept.push(bk);
       }
@@ -1449,18 +1453,31 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     };
     const keptOrder = (V) => keptUnits(V).map((bk) => bPos.get(bk));
     const mono = (xs) => xs.every((x, i) => i === 0 || x >= xs[i - 1]);
-    const lRe = !Lv.asBase && !mono(keptOrder(Lv)),
-      rRe = !Rv.asBase && !mono(keptOrder(Rv));
-    const settled =
-      lRe && rRe
-        ? settledOrder(
-            bUnits.filter((u) => !segUnits.has(u)),
-            bPos,
-            keptUnits(Lv),
-            keptUnits(Rv),
-          )
-        : null;
-    if (lRe && rRe && !settled)
+    const reorderOf = () => {
+      const lRe = !Lv.asBase && !mono(keptOrder(Lv)),
+        rRe = !Rv.asBase && !mono(keptOrder(Rv));
+      return {
+        lRe,
+        rRe,
+        settled:
+          lRe && rRe
+            ? settledOrder(
+                bUnits.filter((u) => !segUnits.has(u) && !isGap(u)),
+                bPos,
+                keptUnits(Lv),
+                keptUnits(Rv),
+              )
+            : null,
+      };
+    };
+    // Whitespace between children is layout in a parent both sides reorder:
+    // it forms no inline segment there, so a segment never takes the order of
+    // the children apart.
+    const early = reorderOf();
+    mergeSegments(early.lRe && early.rRe);
+    const { lRe, rRe, settled } = reorderOf();
+    const bothReordered = lRe && rRe;
+    if (bothReordered && !settled)
       conflict(
         {
           kind: "structure",
@@ -1488,7 +1505,16 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
             otherA: R,
             otherSide: "remote",
           };
-    if (settled) O.V = interleave(O.V, settled);
+    let sideGaps = null;
+    if (bothReordered) {
+      sideGaps = gapRunsOf(O.V.units);
+      if (settled) O.V = interleave(O.V, settled);
+      // The gaps are put back at the end: no walk may emit them, so a moved
+      // child is never anchored to whitespace.
+      for (const u of bUnits) if (isGap(u)) resolved.add(u);
+      for (const V of [Lv, Rv])
+        for (const u of V.units) if (isGap(u)) resolved.add(u);
+    }
     if (lRe)
       localDecision({
         kind: "move",
@@ -2064,7 +2090,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     }
 
     if (lin && gone.length && fresh.length) proveRetags();
-    return result;
+    return bothReordered ? withGaps(result) : result;
 
     // Lineage only: a base element the remote side removed and a remote
     // element it inserted alone in the same gap, equal but for the tag, are
@@ -2186,6 +2212,62 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       return true;
     }
 
+    // The whitespace runs of a list, one list per gap between its content.
+    function gapRunsOf(units) {
+      const runs = [[]];
+      for (const u of units) {
+        if (isGap(u)) runs[runs.length - 1].push(u);
+        else runs.push([]);
+      }
+      return runs;
+    }
+
+    // The settled order dropped the gaps: one goes back into each gap
+    // between children, the base's text for that gap, or the kept side's
+    // where the base has none.
+    function withGaps(nodes) {
+      const baseRuns = gapRunsOf(bUnits);
+      const out = [];
+      let gap = 0;
+      for (const node of nodes) {
+        const text = gapNode(baseRuns[gap], sideGaps[gap]);
+        if (text) out.push(text);
+        out.push(node);
+        gap++;
+      }
+      const tail = gapNode(baseRuns[gap], sideGaps[gap]);
+      if (tail) out.push(tail);
+      return out;
+    }
+
+    function gapNode(base, side) {
+      const fromBase = !!base && base.length > 0;
+      const runs = fromBase ? base : side || [];
+      const value = runs.map((r) => r.value).join("");
+      if (value === "") return null;
+      const node = out.createTextNode(value);
+      const nodesOf = (list) => {
+        const all = [];
+        for (const r of list || []) all.push(...r.nodes);
+        return all.length ? all : null;
+      };
+      provenance.set(
+        node,
+        fromBase
+          ? {
+              base: nodesOf(base),
+              local: nodesOf(base.map((r) => (Lv.asBase ? null : Lv.twin(r)))),
+              remote: nodesOf(base.map((r) => (Rv.asBase ? null : Rv.twin(r)))),
+            }
+          : {
+              base: null,
+              local: O.side === "local" ? nodesOf(runs) : null,
+              remote: O.side === "remote" ? nodesOf(runs) : null,
+            },
+      );
+      return node;
+    }
+
     // The position after the output of the nearest base unit before index i.
     function afterBase(i) {
       for (let j = i - 1; j >= 0; j--) {
@@ -2198,7 +2280,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       return 0;
     }
 
-    function mergeSegments() {
+    function mergeSegments(gapsAreLayout) {
       if (
         (Lv.asBase || L.identical.has(b)) &&
         (Rv.asBase || R.identical.has(b))
@@ -2472,6 +2554,11 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       const hasPins = (nodes) => nodes.some((n) => isEl(n) && ignored(n));
       for (const g of groups) {
         const units = bUnits.slice(g.lo, g.hi + 1);
+        // Whitespace between children is layout, not content: in a parent
+        // both sides reorder, a group holding nothing else would only take
+        // the order of the children apart.
+        if (gapsAreLayout && !units.some((u) => isInline(u) && !isGap(u)))
+          continue;
         let groupCertificates = null;
         if (certPlan)
           for (const unit of units) {
