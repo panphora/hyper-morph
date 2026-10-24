@@ -586,10 +586,10 @@ test("F4: a rewritten participant order cannot claim the planned reorder", async
   const { recoveries } = await merge(
     wrap(["a", "b", "c"]),
     wrap(["b", "a", "c"]),
-    wrap(["a", "c", "b"]),
+    wrap(["c", "b", "a"]),
     {
       beforeApply: (d) =>
-        d.querySelector("#s").appendChild(d.querySelector("#a")),
+        d.querySelector("#s").appendChild(d.querySelector("#c")),
     },
   );
   assert.equal(recoveries.length, 1);

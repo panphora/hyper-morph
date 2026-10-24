@@ -147,12 +147,12 @@ describe("fix round: keepLiveOnly, reorder whitespace, remote twin", function ()
     };
   }
 
-  it("both-reordered: only a whitespace text node in a different place is not a loss", async function () {
-    const local = `<div id="s"><p id="a">A</p><p id="c">C</p><p id="b">B</p>\n</div>`;
+  it("both-reordered: a whitespace text node in a different place lands with the remote order", async function () {
+    const remote = `<div id="s"><p id="c">C</p><p id="b">B</p>\n<p id="a">A</p>\n</div>`;
     const m = await merge(
       `<div id="s"><p id="a">A</p><p id="b">B</p><p id="c">C</p>\n</div>`,
-      local,
-      `<div id="s"><p id="a">A</p><p id="c">C</p>\n<p id="b">B</p>\n</div>`,
+      `<div id="s"><p id="a">A</p><p id="c">C</p><p id="b">B</p>\n</div>`,
+      remote,
     );
     m.kinds.should.deep.equal(["structure:both-reordered"]);
     const r = m.rv[0];
@@ -162,9 +162,11 @@ describe("fix round: keepLiveOnly, reorder whitespace, remote twin", function ()
       "b:[1,0,2]",
       "b:[1,0,1]",
     ]);
-    keys(elements(s.mergedOrder)).should.deep.equal(
-      keys(elements(s.localOrder)),
-    );
+    keys(elements(s.mergedOrder)).should.deep.equal([
+      "b:[1,0,2]",
+      "b:[1,0,1]",
+      "b:[1,0,0]",
+    ]);
     keys(s.localOrder).should.not.deep.equal(keys(s.mergedOrder));
     keys(s.localOrder)
       .filter((k) => k.endsWith(":run"))
@@ -172,19 +174,19 @@ describe("fix round: keepLiveOnly, reorder whitespace, remote twin", function ()
     [...m.el("#s").children]
       .map((x) => x.id)
       .should.deep.equal(
-        [...parseHTML(doc(local)).querySelector("#s").children].map(
+        [...parseHTML(doc(remote)).querySelector("#s").children].map(
           (x) => x.id,
         ),
       );
-    r.localLost.should.equal(false);
+    r.localLost.should.equal(true);
   });
 
   it("both-reordered: a non-breaking-space run that moved is still a loss", async function () {
-    const local = `<div id="s"><p id="a">A</p><p id="c">C</p><p id="b">B</p>\u00a0</div>`;
+    const remote = `<div id="s"><p id="c">C</p><p id="b">B</p>\u00a0<p id="a">A</p>\u00a0</div>`;
     const m = await merge(
       `<div id="s"><p id="a">A</p><p id="b">B</p><p id="c">C</p>\u00a0</div>`,
-      local,
-      `<div id="s"><p id="a">A</p><p id="c">C</p>\u00a0<p id="b">B</p>\u00a0</div>`,
+      `<div id="s"><p id="a">A</p><p id="c">C</p><p id="b">B</p>\u00a0</div>`,
+      remote,
     );
     m.kinds.should.include("structure:both-reordered");
     const r = m.rv[0];
@@ -194,9 +196,11 @@ describe("fix round: keepLiveOnly, reorder whitespace, remote twin", function ()
       "b:[1,0,2]",
       "b:[1,0,1]",
     ]);
-    keys(elements(s.mergedOrder)).should.deep.equal(
-      keys(elements(s.localOrder)),
-    );
+    keys(elements(s.mergedOrder)).should.deep.equal([
+      "b:[1,0,2]",
+      "b:[1,0,1]",
+      "b:[1,0,0]",
+    ]);
     keys(s.localOrder).should.not.deep.equal(keys(s.mergedOrder));
     keys(s.localOrder)
       .filter((k) => k.endsWith(":run"))
@@ -204,7 +208,7 @@ describe("fix round: keepLiveOnly, reorder whitespace, remote twin", function ()
     [...m.el("#s").children]
       .map((x) => x.id)
       .should.deep.equal(
-        [...parseHTML(doc(local)).querySelector("#s").children].map(
+        [...parseHTML(doc(remote)).querySelector("#s").children].map(
           (x) => x.id,
         ),
       );
@@ -215,7 +219,7 @@ describe("fix round: keepLiveOnly, reorder whitespace, remote twin", function ()
     const m = await merge(
       `<div id="s"><p id="a">A</p><p id="b">B</p><p id="c">C</p>\n</div>`,
       `<div id="s"><p id="b">B</p><p id="a">A</p><p id="c">C</p>\n</div>`,
-      `<div id="s"><p id="a">A</p><p id="c">C</p><p id="b">B</p>\n</div>`,
+      `<div id="s"><p id="c">C</p><p id="b">B</p><p id="a">A</p>\n</div>`,
     );
     m.kinds.should.deep.equal(["structure:both-reordered"]);
     const r = m.rv[0];
@@ -226,9 +230,9 @@ describe("fix round: keepLiveOnly, reorder whitespace, remote twin", function ()
       "b:[1,0,2]",
     ]);
     keys(elements(s.mergedOrder)).should.deep.equal([
-      "b:[1,0,0]",
       "b:[1,0,2]",
       "b:[1,0,1]",
+      "b:[1,0,0]",
     ]);
     r.localLost.should.equal(true);
   });

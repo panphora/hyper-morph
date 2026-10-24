@@ -133,14 +133,151 @@ test("T-M1 both insert the same element: one copy", () => {
   assert.equal(html, `<ul><li>a</li><li>b</li></ul>`);
 });
 
-test("T-M2 both reorder differently: remote order, conflict", () => {
+test("T-M2 both reorder differently: both moves land, no conflict", () => {
   const { html, res } = mergeBodies(
     `<ul><li>a</li><li>b</li><li>c</li></ul>`,
     `<ul><li>b</li><li>a</li><li>c</li></ul>`,
     `<ul><li>c</li><li>a</li><li>b</li></ul>`,
   );
-  assert.equal(html, `<ul><li>c</li><li>a</li><li>b</li></ul>`);
+  assert.equal(html, `<ul><li>b</li><li>c</li><li>a</li></ul>`);
+  assert.equal(kinds(res, "both-reordered").length, 0);
+});
+
+const ulOf = (keys) => `<ul>${keys.map((k) => `<li>${k}</li>`).join("")}</ul>`;
+const itemsOf = (html) =>
+  [...html.matchAll(/<li>([^<]*)<\/li>/g)].map((m) => m[1]);
+const longestIncreasingRun = (pos) => {
+  const tails = [];
+  const tailIdx = [];
+  const prev = new Array(pos.length).fill(-1);
+  for (let i = 0; i < pos.length; i++) {
+    let lo = 0,
+      hi = tails.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (tails[mid] < pos[i]) lo = mid + 1;
+      else hi = mid;
+    }
+    tails[lo] = pos[i];
+    tailIdx[lo] = i;
+    prev[i] = lo > 0 ? tailIdx[lo - 1] : -1;
+  }
+  const keep = new Set();
+  for (
+    let i = tailIdx[tails.length - 1];
+    i !== undefined && i >= 0;
+    i = prev[i]
+  )
+    keep.add(i);
+  return keep;
+};
+const movedSet = (base, order) => {
+  const bPos = new Map(base.map((k, i) => [k, i]));
+  const keep = longestIncreasingRun(order.map((k) => bPos.get(k)));
+  return new Set(order.filter((_, i) => !keep.has(i)));
+};
+
+test("both sides reorder different children: the worked example keeps both moves", () => {
+  const base = ["a", "b", "c", "d", "e"];
+  const local = ["b", "c", "a", "d", "e"];
+  const remote = ["e", "a", "b", "c", "d"];
+  const one = mergeBodies(ulOf(base), ulOf(local), ulOf(remote));
+  assert.deepEqual(itemsOf(one.html), ["e", "b", "c", "a", "d"]);
+  assert.equal(one.res.conflicts.length, 0);
+  const two = mergeBodies(ulOf(base), ulOf(remote), ulOf(local));
+  assert.deepEqual(itemsOf(two.html), ["e", "b", "c", "a", "d"]);
+  assert.equal(two.res.conflicts.length, 0);
+});
+
+test("both sides reorder different children: several moves per side", () => {
+  const { html, res } = mergeBodies(
+    ulOf(["a", "b", "c", "d", "e"]),
+    ulOf(["e", "b", "c", "a", "d"]),
+    ulOf(["a", "d", "b", "c", "e"]),
+  );
+  assert.deepEqual(itemsOf(html), ["d", "e", "b", "c", "a"]);
+  assert.equal(res.conflicts.length, 0);
+});
+
+test("both sides reorder different children: one child moved by both still conflicts", () => {
+  const { html, res } = mergeBodies(
+    ulOf(["a", "b", "c", "d", "e"]),
+    ulOf(["b", "c", "d", "e", "a"]),
+    ulOf(["b", "c", "a", "d", "e"]),
+  );
+  assert.deepEqual(itemsOf(html), ["b", "c", "a", "d", "e"]);
   assert.equal(kinds(res, "both-reordered").length, 1);
+});
+
+test("both sides reorder different children: a one-position ambiguity resolves without a notice", () => {
+  const { html, res } = mergeBodies(
+    ulOf(["a", "b", "c", "d"]),
+    ulOf(["b", "c", "d", "a"]),
+    ulOf(["b", "a", "c", "d"]),
+  );
+  assert.deepEqual(itemsOf(html), ["b", "c", "d", "a"]);
+  assert.equal(res.conflicts.length, 0);
+});
+
+test("both sides reorder different children: random reorders keep both moves", () => {
+  let seed = 11;
+  const rand = (n) => {
+    seed = (seed * 16807) % 2147483647;
+    return seed % n;
+  };
+  const moveOne = (list) => {
+    const l = [...list];
+    const [x] = l.splice(rand(l.length), 1);
+    l.splice(rand(l.length + 1), 0, x);
+    return l;
+  };
+  let disjoint = 0,
+    same = 0;
+  for (let t = 0; t < 2000; t++) {
+    const n = 3 + rand(10);
+    const base = Array.from({ length: n }, (_, i) => `k${i}`);
+    let l = base,
+      r = base;
+    for (let m = 1 + rand(3); m > 0; m--) l = moveOne(l);
+    for (let m = 1 + rand(3); m > 0; m--) r = moveOne(r);
+    const localMoved = movedSet(base, l),
+      remoteMoved = movedSet(base, r);
+    const one = mergeBodies(ulOf(base), ulOf(l), ulOf(r));
+    const two = mergeBodies(ulOf(base), ulOf(r), ulOf(l));
+    if ([...localMoved].some((k) => remoteMoved.has(k))) {
+      same++;
+      assert.ok(
+        kinds(one.res, "both-reordered").length >= 1,
+        "same-child conflict",
+      );
+      continue;
+    }
+    disjoint++;
+    const out = itemsOf(one.html);
+    assert.deepEqual(itemsOf(two.html), out, "symmetric");
+    assert.equal(new Set(out).size, n, "every child once");
+    assert.equal(out.length, n, "every child once");
+    const stable = base.filter(
+      (k) => !localMoved.has(k) && !remoteMoved.has(k),
+    );
+    assert.deepEqual(
+      out.filter((k) => stable.includes(k)),
+      stable,
+      "stable children keep base order",
+    );
+    assert.deepEqual(
+      out.filter((k) => localMoved.has(k)),
+      l.filter((k) => localMoved.has(k)),
+      "local moves keep local order",
+    );
+    assert.deepEqual(
+      out.filter((k) => remoteMoved.has(k)),
+      r.filter((k) => remoteMoved.has(k)),
+      "remote moves keep remote order",
+    );
+    assert.equal(one.res.conflicts.length, 0, "no conflict");
+  }
+  assert.ok(disjoint > 0 && same > 0);
 });
 
 test("T-M3 class tokens merge", () => {
@@ -941,12 +1078,12 @@ test("H14 localDiverged is true exactly when the output differs from remote", ()
       false,
     ],
     [
-      "both reordered, remote order landed",
+      "both reordered, different children, both moves landed",
       `<ul><li>a</li><li>b</li><li>c</li></ul>`,
       `<ul><li>c</li><li>a</li><li>b</li></ul>`,
       `<ul><li>b</li><li>c</li><li>a</li></ul>`,
-      `<ul><li>b</li><li>c</li><li>a</li></ul>`,
-      false,
+      `<ul><li>c</li><li>b</li><li>a</li></ul>`,
+      true,
     ],
     [
       "a local edit remote already carries, beside a remote edit",

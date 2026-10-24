@@ -1402,7 +1402,16 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     const mono = (xs) => xs.every((x, i) => i === 0 || x >= xs[i - 1]);
     const lRe = !Lv.asBase && !mono(keptOrder(Lv)),
       rRe = !Rv.asBase && !mono(keptOrder(Rv));
-    if (lRe && rRe)
+    const settled =
+      lRe && rRe
+        ? settledOrder(
+            bUnits.filter((u) => !segUnits.has(u)),
+            bPos,
+            keptUnits(Lv),
+            keptUnits(Rv),
+          )
+        : null;
+    if (lRe && rRe && !settled)
       conflict(
         {
           kind: "structure",
@@ -1430,6 +1439,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
             otherA: R,
             otherSide: "remote",
           };
+    if (settled) O.V = interleave(O.V, settled);
     if (lRe)
       localDecision({
         kind: "move",
@@ -2805,5 +2815,94 @@ function identityAlignment() {
     moved: new Set(),
     identical: { has: () => true },
     pairIdenticalChildren: () => {},
+  };
+}
+
+function longestIncreasingRun(pos) {
+  const tails = [];
+  const tailIdx = [];
+  const prev = new Array(pos.length).fill(-1);
+  for (let i = 0; i < pos.length; i++) {
+    let lo = 0,
+      hi = tails.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (tails[mid] < pos[i]) lo = mid + 1;
+      else hi = mid;
+    }
+    tails[lo] = pos[i];
+    tailIdx[lo] = i;
+    prev[i] = lo > 0 ? tailIdx[lo - 1] : -1;
+  }
+  const keep = new Set();
+  for (
+    let i = tailIdx[tails.length - 1];
+    i !== undefined && i >= 0;
+    i = prev[i]
+  )
+    keep.add(i);
+  return keep;
+}
+
+function settledOrder(base, bPos, localUnits, remoteUnits) {
+  const movedUnits = (units) => {
+    const keep = longestIncreasingRun(units.map((bk) => bPos.get(bk)));
+    return new Set(units.filter((_, i) => !keep.has(i)));
+  };
+  const localMoved = movedUnits(localUnits);
+  const remoteMoved = movedUnits(remoteUnits);
+  for (const bk of localMoved) if (remoteMoved.has(bk)) return null;
+  const stable = base.filter(
+    (bk) => !localMoved.has(bk) && !remoteMoved.has(bk),
+  );
+  const isStable = new Set(stable);
+  const groups = (units, moved) => {
+    const at = new Map();
+    let anchor = null;
+    for (const bk of units) {
+      if (isStable.has(bk)) {
+        anchor = bk;
+        continue;
+      }
+      if (!moved.has(bk)) continue;
+      if (!at.has(anchor)) at.set(anchor, []);
+      at.get(anchor).push(bk);
+    }
+    return at;
+  };
+  const sides = [
+    groups(remoteUnits, remoteMoved),
+    groups(localUnits, localMoved),
+  ];
+  const placedAt = (anchor) =>
+    sides
+      .map((at) => at.get(anchor))
+      .filter(Boolean)
+      .sort((x, y) => bPos.get(x[0]) - bPos.get(y[0]))
+      .flat();
+  const out = placedAt(null);
+  for (const bk of stable) out.push(bk, ...placedAt(bk));
+  return new Map(out.map((bk, i) => [bk, i]));
+}
+
+function interleave(V, settledPos) {
+  const lead = [];
+  const after = new Map();
+  let prev = null;
+  for (const su of V.units) {
+    const bk = V.baseOf(su);
+    if (bk && settledPos.has(bk)) {
+      prev = su;
+      after.set(su, []);
+      continue;
+    }
+    (prev ? after.get(prev) : lead).push(su);
+  }
+  const kept = [...after.keys()].sort(
+    (x, y) => settledPos.get(V.baseOf(x)) - settledPos.get(V.baseOf(y)),
+  );
+  return {
+    ...V,
+    units: [...lead, ...kept.flatMap((su) => [su, ...after.get(su)])],
   };
 }
