@@ -2248,7 +2248,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       const node = out.createTextNode(value);
       const nodesOf = (list) => {
         const all = [];
-        for (const r of list || []) all.push(...r.nodes);
+        for (const r of list || []) if (r) all.push(...r.nodes);
         return all.length ? all : null;
       };
       provenance.set(

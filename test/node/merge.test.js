@@ -240,6 +240,34 @@ test("both sides reorder different children: indented newlines between the items
   gaps.forEach((n) => assert.equal(n.nodeValue, "\n  "));
 });
 
+// A browser drag moves the element and leaves the whitespace where it was.
+const dragBase = (keys) =>
+  `<ul>\n${keys.map((k) => `<li>${k}</li>`).join("\n")}\n</ul>`;
+const draggedList = (keys, move) => {
+  const d = parse(doc(dragBase(keys)));
+  const ul = d.body.querySelector("ul");
+  const item = (k) => [...ul.children].find((e) => e.textContent === k);
+  move(ul, item);
+  return ul.outerHTML;
+};
+
+test("both sides reorder different children: a drag that leaves gaps without twins does not throw", () => {
+  const keys = ["b", "f", "q", "m"];
+  const { html, res } = mergeBodies(
+    dragBase(keys),
+    draggedList(keys, (ul, item) => ul.insertBefore(item("m"), ul.firstChild)),
+    draggedList(keys, (ul, item) =>
+      ul.insertBefore(item("b"), item("q").nextSibling),
+    ),
+  );
+  assert.deepEqual(itemsOf(html), ["m", "f", "q", "b"]);
+  assert.equal(res.conflicts.length, 0);
+  for (const n of whitespaceNodes(res.doc)) {
+    assert.notEqual(n.previousSibling?.nodeType, 3, "one gap text per gap");
+    assert.notEqual(n.nextSibling?.nodeType, 3, "one gap text per gap");
+  }
+});
+
 test("both sides reorder different children: the same child moved by both conflicts through the whitespace", () => {
   const { html, res } = mergeBodies(
     gapOf(["a", "b", "c", "d", "e"], "\n"),
