@@ -37,6 +37,18 @@ function buildIdentityVendor() {
   return header + outputFiles[0].text.trim() + "\n";
 }
 
+function buildJsonVendor() {
+  const { outputFiles } = esbuild.buildSync({
+    entryPoints: [path.join(rootDir, "src", "hyper-morph-json-parse.js")],
+    bundle: true,
+    minify: true,
+    format: "esm",
+    write: false,
+  });
+  const header = `/* hyper-morph json (src/hyper-morph-json-parse.js), version ${version}. Generated; do not edit. */\n`;
+  return header + outputFiles[0].text.trim() + "\n";
+}
+
 const DESTINATIONS = [
   {
     client: "clayjs",
@@ -47,6 +59,11 @@ const DESTINATIONS = [
     client: "clayjs",
     path: "clayjs/src/vendor/hyper-morph-identity.vendor.js",
     build: buildIdentityVendor,
+  },
+  {
+    client: "clayjs",
+    path: "clayjs/src/vendor/hyper-morph-json.vendor.js",
+    build: buildJsonVendor,
   },
 ];
 
