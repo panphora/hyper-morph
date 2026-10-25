@@ -3046,10 +3046,11 @@ function runLengths(seq) {
 
 // Base indices a side may have moved: those outside at least one longest run of
 // base order. A child inside every longest run certainly stayed where it was.
-function possiblyMoved(seq) {
+export function possiblyMoved(seq) {
   const f = runLengths(seq);
   const g = runLengths(seq.map((v) => -v).reverse()).reverse();
-  const longest = Math.max(0, ...f);
+  let longest = 0;
+  for (let i = 0; i < f.length; i++) if (f[i] > longest) longest = f[i];
   const atLength = new Map();
   for (let i = 0; i < seq.length; i++) {
     if (f[i] + g[i] - 1 === longest)

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { parse, doc } from "./lib/dom.js";
 import { morphDocument } from "../../src/index.js";
 import { mergeBodies } from "./lib/merge.js";
+import { possiblyMoved } from "../../src/merge.js";
 
 // deepEqual compares nodes by structure, so a detached clone would pass.
 const sameNodes = (got, want) => {
@@ -177,42 +178,41 @@ const movedSet = (base, order) => {
   return new Set(order.filter((_, i) => !keep.has(i)));
 };
 
-function runLengths(seq) {
-  const tails = [];
-  const out = new Array(seq.length);
-  for (let i = 0; i < seq.length; i++) {
-    let lo = 0,
-      hi = tails.length;
-    while (lo < hi) {
-      const m = (lo + hi) >> 1;
-      if (tails[m] < seq[i]) lo = m + 1;
-      else hi = m;
+// A child outside at least one longest run of base order may have moved. Every
+// longest run is enumerated by brute force, so the oracle shares no code with
+// the merge's own reading.
+const longestRuns = (pos) => {
+  let best = 0;
+  let runs = [];
+  const walk = (from, run) => {
+    if (run.length >= best) {
+      if (run.length > best) {
+        best = run.length;
+        runs = [];
+      }
+      runs.push([...run]);
     }
-    tails[lo] = seq[i];
-    out[i] = lo + 1;
-  }
-  return out;
-}
-// A child outside at least one longest run of base order may have moved.
-const possiblyMoved = (seq) => {
-  const f = runLengths(seq);
-  const g = runLengths(seq.map((v) => -v).reverse()).reverse();
-  const longest = Math.max(0, ...f);
-  const atLength = new Map();
-  for (let i = 0; i < seq.length; i++)
-    if (f[i] + g[i] - 1 === longest)
-      atLength.set(f[i], (atLength.get(f[i]) || 0) + 1);
-  const moved = new Set();
-  for (let i = 0; i < seq.length; i++) {
-    const inSome = f[i] + g[i] - 1 === longest;
-    if (!inSome || atLength.get(f[i]) > 1) moved.add(seq[i]);
-  }
-  return moved;
+    for (let i = from; i < pos.length; i++) {
+      if (run.length && pos[i] <= run[run.length - 1]) continue;
+      run.push(pos[i]);
+      walk(i + 1, run);
+      run.pop();
+    }
+  };
+  walk(0, []);
+  return runs;
 };
 const mayHaveMoved = (base, order) => {
   const bPos = new Map(base.map((k, i) => [k, i]));
-  const moved = possiblyMoved(order.map((k) => bPos.get(k)));
-  return new Set([...moved].map((i) => base[i]));
+  const pos = order.map((k) => bPos.get(k));
+  const runs = longestRuns(pos);
+  const moved = new Set();
+  for (const run of runs) {
+    const inRun = new Set(run);
+    for (let i = 0; i < pos.length; i++)
+      if (!inRun.has(pos[i])) moved.add(order[i]);
+  }
+  return moved;
 };
 
 test("both sides reorder different children: the worked example keeps both moves", () => {
@@ -291,24 +291,20 @@ test("both sides insert at one anchor: the new children land in one order in bot
   assert.deepEqual(keys(two.html), keys(one.html));
 });
 
-test("both sides reorder different children: a sibling the other side dropped conflicts", () => {
+test("both sides reorder different children: a sibling the other side dropped is no anchor", () => {
   const base = ["a", "b", "c", "d", "e"];
-  const local = ["a", "d", "c", "e"];
-  const remote = ["a", "c", "b", "d", "e"];
+  const local = ["c", "a", "d", "b", "e"];
+  const remote = ["e", "b", "c", "d"];
   for (const { html, res } of [
     mergeBodies(ulOf(base), ulOf(local), ulOf(remote)),
     mergeBodies(ulOf(base), ulOf(remote), ulOf(local)),
   ]) {
-    assert.equal(kinds(res, "both-reordered").length, 1);
-    const out = itemsOf(html);
-    for (const k of ["a", "c", "d", "e"])
-      assert.ok(out.includes(k), `${k} kept`);
-    assert.equal(new Set(out).size, out.length, "every child once");
     assert.deepEqual(
-      out.filter((k) => k === "a" || k === "e"),
-      ["a", "e"],
-      "untouched children keep base order",
+      itemsOf(html),
+      ["c", "d", "e", "b"],
+      "same order in both tabs",
     );
+    assert.equal(res.conflicts.length, 0);
   }
 });
 
@@ -489,6 +485,13 @@ test("both sides reorder different children: random reorders keep both moves", (
     assert.equal(one.res.conflicts.length, 0, "no conflict");
   }
   assert.ok(disjoint > 0 && same > 0 && ambiguous > 0);
+});
+
+test("possiblyMoved reads a huge sequence without throwing", () => {
+  const n = 200000;
+  const seq = Array.from({ length: n }, (_, i) => i);
+  assert.equal(possiblyMoved(seq).size, 0);
+  assert.deepEqual([...possiblyMoved([...seq.slice(1), 0])], [0]);
 });
 
 test("T-M3 class tokens merge", () => {
