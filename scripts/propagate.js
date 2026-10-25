@@ -8,6 +8,8 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
+import * as esbuild from "esbuild";
+
 import { buildVendor } from "./vendor-format.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -15,9 +17,24 @@ const rootDir = path.join(__dirname, "..");
 const workspace = path.join(rootDir, "..");
 
 const distFile = path.join(rootDir, "dist", "hyper-morph.min.js");
+const version = JSON.parse(
+  fs.readFileSync(path.join(rootDir, "package.json"), "utf8"),
+).version;
 
 function buildCurrentVendor() {
   return buildVendor(fs.readFileSync(distFile, "utf8"));
+}
+
+function buildIdentityVendor() {
+  const { outputFiles } = esbuild.buildSync({
+    entryPoints: [path.join(rootDir, "src", "identity.js")],
+    bundle: true,
+    minify: true,
+    format: "esm",
+    write: false,
+  });
+  const header = `/* hyper-morph identity (src/identity.js), version ${version}. Generated; do not edit. */\n`;
+  return header + outputFiles[0].text.trim() + "\n";
 }
 
 const DESTINATIONS = [
@@ -25,6 +42,11 @@ const DESTINATIONS = [
     client: "clayjs",
     path: "clayjs/src/vendor/hyper-morph.vendor.js",
     build: buildCurrentVendor,
+  },
+  {
+    client: "clayjs",
+    path: "clayjs/src/vendor/hyper-morph-identity.vendor.js",
+    build: buildIdentityVendor,
   },
 ];
 

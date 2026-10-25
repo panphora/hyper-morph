@@ -48,6 +48,10 @@
       "types": "./types/json-parse.d.ts",
       "default": "./src/hyper-morph-json-parse.js"
     },
+    "./identity": {
+      "types": "./types/identity.d.ts",
+      "default": "./src/identity.js"
+    },
     "./splice": {
       "types": "./types/splice.d.ts",
       "default": "./src/legacy-splice.js"
