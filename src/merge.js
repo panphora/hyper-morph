@@ -3098,16 +3098,34 @@ function settledOrder(base, bPos, localUnits, remoteUnits) {
     }
     return at;
   };
+  // A side is ambiguous when more children may have moved than its reading
+  // moves, so its group could sit elsewhere: put the other side's group first
+  // and the drop lands where it was made. Both or neither: base order.
+  const ambiguousSide = (units, moved) =>
+    possiblyMoved(units.map((bk) => bPos.get(bk))).size > moved.size;
   const sides = [
-    groups(remoteUnits, remoteMoved),
-    groups(localUnits, localMoved),
+    {
+      at: groups(remoteUnits, remoteMoved),
+      ambiguous: ambiguousSide(remoteUnits, remoteMoved),
+    },
+    {
+      at: groups(localUnits, localMoved),
+      ambiguous: ambiguousSide(localUnits, localMoved),
+    },
   ];
   const placedAt = (anchor) =>
     sides
-      .map((at) => at.get(anchor))
+      .map((side) => {
+        const group = side.at.get(anchor);
+        return group ? { group, ambiguous: side.ambiguous } : null;
+      })
       .filter(Boolean)
-      .sort((x, y) => bPos.get(x[0]) - bPos.get(y[0]))
-      .flat();
+      .sort(
+        (x, y) =>
+          x.ambiguous - y.ambiguous ||
+          bPos.get(x.group[0]) - bPos.get(y.group[0]),
+      )
+      .flatMap((x) => x.group);
   const out = placedAt(null);
   for (const bk of stable) out.push(bk, ...placedAt(bk));
   return new Map(out.map((bk, i) => [bk, i]));

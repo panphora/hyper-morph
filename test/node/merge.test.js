@@ -140,7 +140,7 @@ test("T-M2 both reorder differently: both moves land, no conflict", () => {
     `<ul><li>b</li><li>a</li><li>c</li></ul>`,
     `<ul><li>c</li><li>a</li><li>b</li></ul>`,
   );
-  assert.equal(html, `<ul><li>b</li><li>c</li><li>a</li></ul>`);
+  assert.equal(html, `<ul><li>c</li><li>b</li><li>a</li></ul>`);
   assert.equal(kinds(res, "both-reordered").length, 0);
 });
 
@@ -227,6 +227,76 @@ test("both sides reorder different children: the worked example keeps both moves
   assert.equal(two.res.conflicts.length, 0);
 });
 
+test("both sides reorder different children: an ambiguous swap yields the anchor to a drag", () => {
+  const base = ["a", "b", "c", "d", "e"];
+  const local = ["b", "a", "c", "d", "e"];
+  const remote = ["e", "a", "b", "c", "d"];
+  for (const { html, res } of [
+    mergeBodies(ulOf(base), ulOf(local), ulOf(remote)),
+    mergeBodies(ulOf(base), ulOf(remote), ulOf(local)),
+  ]) {
+    assert.deepEqual(
+      itemsOf(html),
+      ["e", "b", "a", "c", "d"],
+      "the drag to the top lands first in both tabs",
+    );
+    assert.equal(res.conflicts.length, 0);
+  }
+});
+
+const keyedPage = (keys) =>
+  `<!DOCTYPE html><html><head></head><body><ol>\n${keys
+    .map((k) => `<li data-id="${k}">${k}</li>`)
+    .join("\n")}\n</ol></body></html>`;
+
+test("both sides reorder different children: an ambiguous swap and a drag through a keyed list", async () => {
+  const { JSDOM } = await import("jsdom");
+  const { mergeDocument } = await import("../../src/index.js");
+  const authored = (el) => el.getAttribute("data-id");
+  const base = ["a", "b", "c", "d", "e"];
+  const local = ["b", "a", "c", "d", "e"];
+  const remote = ["e", "a", "b", "c", "d"];
+  const run = async (liveItems, remoteItems) => {
+    const live = new JSDOM(keyedPage(liveItems)).window.document;
+    const report = await mergeDocument({
+      live,
+      base: keyedPage(base),
+      remote: keyedPage(remoteItems),
+      identity: { base: authored, local: authored, remote: authored },
+      scripts: { execute: false },
+    });
+    return {
+      keys: [...live.querySelectorAll("ol > li")].map((li) =>
+        li.getAttribute("data-id"),
+      ),
+      report,
+    };
+  };
+  const one = await run(local, remote);
+  const two = await run(remote, local);
+  assert.deepEqual(one.keys, ["e", "b", "a", "c", "d"]);
+  assert.deepEqual(two.keys, one.keys);
+  assert.equal(one.report.conflicts.length, 0);
+  assert.equal(two.report.conflicts.length, 0);
+});
+
+test("both sides reorder different children: a drag past a swap lands right after the anchor", () => {
+  const base = ["a", "b", "c", "d", "e"];
+  const local = ["a", "b", "d", "c", "e"];
+  const remote = ["a", "b", "e", "c", "d"];
+  for (const { html, res } of [
+    mergeBodies(ulOf(base), ulOf(local), ulOf(remote)),
+    mergeBodies(ulOf(base), ulOf(remote), ulOf(local)),
+  ]) {
+    assert.deepEqual(
+      itemsOf(html),
+      ["a", "b", "e", "d", "c"],
+      "remote's e lands right after b",
+    );
+    assert.equal(res.conflicts.length, 0);
+  }
+});
+
 test("both sides reorder different children: several moves per side", () => {
   const { html, res } = mergeBodies(
     ulOf(["a", "b", "c", "d", "e"]),
@@ -301,7 +371,7 @@ test("both sides reorder different children: a sibling the other side dropped is
   ]) {
     assert.deepEqual(
       itemsOf(html),
-      ["c", "d", "e", "b"],
+      ["e", "c", "d", "b"],
       "same order in both tabs",
     );
     assert.equal(res.conflicts.length, 0);
