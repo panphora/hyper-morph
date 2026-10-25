@@ -502,6 +502,30 @@ test("E5 the live-side bails fire before anything is applied, and the full path 
   }
 });
 
+test("H5 an equal declared attribute on the root does not bail the fast path", async () => {
+  const page = (theme, text) =>
+    `<!DOCTYPE html><html data-theme="${theme}"><head><title>x</title></head><body><main><p>${text}</p></main></body></html>`;
+  const run = async (fastPath) => {
+    const base = parse(doc(page("dark", "one"))),
+      live = parse(doc(page("dark", "one"))),
+      remote = parse(doc(page("dark", "one changed")));
+    const lock = lockstepMap(base.documentElement, live.documentElement);
+    const report = await E.mergeDocument({
+      live,
+      base,
+      local: { root: base.documentElement, toLive: (n) => lock.get(n) || null },
+      remote,
+      fastPath,
+      attributeMerge: (el, name) => (name === "data-theme" ? "tokens" : null),
+    });
+    return { html: live.documentElement.outerHTML, report };
+  };
+  const off = await run(false);
+  const on = await run(true);
+  assert.equal(on.html, off.html);
+  assert.equal(outcome(on.report.stats), "taken");
+});
+
 test("E5 every bail has a fixture that fires it", async () => {
   const fired = new Set(Object.keys(BAILS));
   for (const row of Object.values(EXPECT))

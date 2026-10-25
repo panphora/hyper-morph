@@ -48,6 +48,13 @@ import {
 
 const isEl = (u) => !!u && u.nodeType === 1;
 
+// Children two sides inserted at one anchor have no base order between them:
+// they go by a key both tabs compute the same way.
+const insertKey = (u) => {
+  if (isEl(u)) return u.getAttribute("data-id") || u.textContent || "";
+  return u.value !== undefined ? u.value : u.nodeValue || "";
+};
+
 const TEXT_BLOCK_TAGS = new Set(
   "P H1 H2 H3 H4 H5 H6 DIV LI DD DT BLOCKQUOTE FIGCAPTION SUMMARY ADDRESS".split(
     " ",
@@ -1407,7 +1414,8 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
 
     // Whitespace between children is layout, not state: the disjoint-reorder
     // path orders content only and puts the gaps back afterwards.
-    const isGap = (u) => !isEl(u) && u.kind === "text" && !u.value.trim();
+    const isGap = (u) =>
+      !isEl(u) && u.kind === "text" && !/[^\t\n\f\r ]/.test(u.value);
 
     // Output list with bookkeeping for anchors.
     const result = [];
@@ -1442,10 +1450,10 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     // Kept children on each side, in that side's order, as base units.
     // Whitespace between children is layout, never a child that moved, so it
     // takes no part in the order either side is read as.
-    const keptUnits = (V) => {
+    const keptUnits = (V, withGaps = false) => {
       const kept = [];
       for (const su of V.units) {
-        if (segUnits.has(su) || isGap(su)) continue;
+        if (segUnits.has(su) || (!withGaps && isGap(su))) continue;
         const bk = V.baseOf(su);
         if (bk && bSet.has(bk)) kept.push(bk);
       }
@@ -1456,19 +1464,25 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
     const reorderOf = () => {
       const lRe = !Lv.asBase && !mono(keptOrder(Lv)),
         rRe = !Rv.asBase && !mono(keptOrder(Rv));
-      return {
-        lRe,
-        rRe,
-        settled:
-          lRe && rRe
-            ? settledOrder(
-                bUnits.filter((u) => !segUnits.has(u) && !isGap(u)),
-                bPos,
-                keptUnits(Lv),
-                keptUnits(Rv),
-              )
-            : null,
-      };
+      let settled = null;
+      if (lRe && rRe) {
+        const lKept = keptUnits(Lv),
+          rKept = keptUnits(Rv);
+        settled = settledOrder(
+          bUnits.filter((u) => !segUnits.has(u) && !isGap(u)),
+          bPos,
+          lKept,
+          rKept,
+        );
+        // Readings that share a child either tab may have moved settle
+        // nothing: the merge keeps today's conflict rather than pick one.
+        if (settled) {
+          const lMay = possiblyMoved(lKept.map((bk) => bPos.get(bk))),
+            rMay = possiblyMoved(rKept.map((bk) => bPos.get(bk)));
+          for (const pos of lMay) if (rMay.has(pos)) settled = null;
+        }
+      }
+      return { lRe, rRe, settled };
     };
     // Whitespace between children is layout in a parent both sides reorder:
     // it forms no inline segment there, so a segment never takes the order of
@@ -1485,7 +1499,7 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
           detail: "both-reordered",
           base: b,
         },
-        { subject: b, lKept: keptUnits(Lv), rKept: keptUnits(Rv) },
+        { subject: b, lKept: keptUnits(Lv, true), rKept: keptUnits(Rv, true) },
       );
     const O =
       rRe || !lRe
@@ -1506,8 +1520,10 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
             otherSide: "remote",
           };
     let sideGaps = null;
+    let sideOrder = null;
     if (bothReordered) {
       sideGaps = gapRunsOf(O.V.units);
+      sideOrder = O.V.units;
       if (settled) O.V = interleave(O.V, settled);
       // The gaps are put back at the end: no walk may emit them, so a moved
       // child is never anchored to whitespace.
@@ -2065,15 +2081,31 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
         }
         const node = emitSideUnit(su, P, pA, pSide);
         if (!node) continue;
-        let pos;
-        if (pendingAfter) pos = result.indexOf(pendingAfter) + 1;
-        else if (anchor) {
-          pos = result.indexOf(anchor) + 1;
-          if (pSide === "remote")
-            while (pos < result.length && oInserted.has(result[pos])) pos++;
-        } else pos = insertAt++;
+        const isNew = !P.baseOf(su) && !segUnits.has(su);
+        const start = !anchor && !pendingAfter;
+        let pos = pendingAfter
+          ? result.indexOf(pendingAfter) + 1
+          : anchor
+            ? result.indexOf(anchor) + 1
+            : insertAt;
+        if (isNew && isEl(node)) {
+          // A new element at one anchor orders with the ones already there by
+          // key, so neither tab's own order decides.
+          const key = insertKey(node);
+          while (
+            pos < result.length &&
+            oInserted.has(result[pos]) &&
+            isEl(result[pos]) &&
+            insertKey(result[pos]) < key
+          )
+            pos++;
+        } else if (anchor && !pendingAfter && pSide === "remote") {
+          while (pos < result.length && oInserted.has(result[pos])) pos++;
+        }
         result.splice(pos, 0, node);
         inResult.add(node);
+        if (isNew) oInserted.add(node);
+        if (start) insertAt = pos + 1;
         pendingAfter = node;
       }
     }
@@ -2222,21 +2254,36 @@ export function merge3(baseDoc, localDoc, remoteDoc, o) {
       return runs;
     }
 
-    // The settled order dropped the gaps: one goes back into each gap
-    // between children, the base's text for that gap, or the kept side's
+    // The settled order dropped the gaps: each goes back after the child it
+    // followed, by identity, the base's text for that gap or the kept side's
     // where the base has none.
     function withGaps(nodes) {
       const baseRuns = gapRunsOf(bUnits);
-      const out = [];
-      let gap = 0;
-      for (const node of nodes) {
-        const text = gapNode(baseRuns[gap], sideGaps[gap]);
-        if (text) out.push(text);
-        out.push(node);
-        gap++;
+      const after = (units, runs) => {
+        const at = new Map();
+        const content = units.filter((u) => !isGap(u));
+        for (let i = 0; i < content.length; i++)
+          at.set(content[i], runs[i + 1]);
+        return at;
+      };
+      const baseAfter = after(bUnits, baseRuns);
+      const sideAfter = after(sideOrder, sideGaps);
+      const gapOf = new Map();
+      for (const [unit, node] of outputOfUnit) {
+        if (!node || gapOf.has(node)) continue;
+        const base = baseAfter.get(unit),
+          side = sideAfter.get(unit);
+        if (base || side) gapOf.set(node, [base, side]);
       }
-      const tail = gapNode(baseRuns[gap], sideGaps[gap]);
-      if (tail) out.push(tail);
+      const out = [];
+      const lead = gapNode(baseRuns[0], sideGaps[0]);
+      if (lead) out.push(lead);
+      for (const node of nodes) {
+        out.push(node);
+        const pair = gapOf.get(node);
+        const text = pair ? gapNode(pair[0], pair[1]) : null;
+        if (text) out.push(text);
+      }
       return out;
     }
 
@@ -2980,6 +3027,42 @@ function longestIncreasingRun(pos) {
   return keep;
 }
 
+function runLengths(seq) {
+  const tails = [];
+  const out = new Array(seq.length);
+  for (let i = 0; i < seq.length; i++) {
+    let lo = 0,
+      hi = tails.length;
+    while (lo < hi) {
+      const m = (lo + hi) >> 1;
+      if (tails[m] < seq[i]) lo = m + 1;
+      else hi = m;
+    }
+    tails[lo] = seq[i];
+    out[i] = lo + 1;
+  }
+  return out;
+}
+
+// Base indices a side may have moved: those outside at least one longest run of
+// base order. A child inside every longest run certainly stayed where it was.
+function possiblyMoved(seq) {
+  const f = runLengths(seq);
+  const g = runLengths(seq.map((v) => -v).reverse()).reverse();
+  const longest = Math.max(0, ...f);
+  const atLength = new Map();
+  for (let i = 0; i < seq.length; i++) {
+    if (f[i] + g[i] - 1 === longest)
+      atLength.set(f[i], (atLength.get(f[i]) || 0) + 1);
+  }
+  const moved = new Set();
+  for (let i = 0; i < seq.length; i++) {
+    const inSome = f[i] + g[i] - 1 === longest;
+    if (!inSome || atLength.get(f[i]) > 1) moved.add(seq[i]);
+  }
+  return moved;
+}
+
 function settledOrder(base, bPos, localUnits, remoteUnits) {
   const movedUnits = (units) => {
     const keep = longestIncreasingRun(units.map((bk) => bPos.get(bk)));
@@ -2988,8 +3071,16 @@ function settledOrder(base, bPos, localUnits, remoteUnits) {
   const localMoved = movedUnits(localUnits);
   const remoteMoved = movedUnits(remoteUnits);
   for (const bk of localMoved) if (remoteMoved.has(bk)) return null;
+  // A child only one side kept is no anchor: the other side deleted it or
+  // moved it to another parent, so its base place says nothing.
+  const localKept = new Set(localUnits),
+    remoteKept = new Set(remoteUnits);
   const stable = base.filter(
-    (bk) => !localMoved.has(bk) && !remoteMoved.has(bk),
+    (bk) =>
+      localKept.has(bk) &&
+      remoteKept.has(bk) &&
+      !localMoved.has(bk) &&
+      !remoteMoved.has(bk),
   );
   const isStable = new Set(stable);
   const groups = (units, moved) => {
@@ -3037,8 +3128,32 @@ function interleave(V, settledPos) {
   const kept = [...after.keys()].sort(
     (x, y) => settledPos.get(V.baseOf(x)) - settledPos.get(V.baseOf(y)),
   );
+  const byKey = (list) => {
+    const sorted = [];
+    let run = [];
+    const flush = () => {
+      if (run.length)
+        sorted.push(
+          ...run.sort((x, y) => (insertKey(x) < insertKey(y) ? -1 : 1)),
+        );
+      run = [];
+    };
+    for (const su of list) {
+      if (V.baseOf(su)) {
+        flush();
+        sorted.push(su);
+        continue;
+      }
+      run.push(su);
+    }
+    flush();
+    return sorted;
+  };
   return {
     ...V,
-    units: [...lead, ...kept.flatMap((su) => [su, ...after.get(su)])],
+    units: [
+      ...byKey(lead),
+      ...kept.flatMap((su) => [su, ...byKey(after.get(su))]),
+    ],
   };
 }

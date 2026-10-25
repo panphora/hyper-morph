@@ -177,6 +177,44 @@ const movedSet = (base, order) => {
   return new Set(order.filter((_, i) => !keep.has(i)));
 };
 
+function runLengths(seq) {
+  const tails = [];
+  const out = new Array(seq.length);
+  for (let i = 0; i < seq.length; i++) {
+    let lo = 0,
+      hi = tails.length;
+    while (lo < hi) {
+      const m = (lo + hi) >> 1;
+      if (tails[m] < seq[i]) lo = m + 1;
+      else hi = m;
+    }
+    tails[lo] = seq[i];
+    out[i] = lo + 1;
+  }
+  return out;
+}
+// A child outside at least one longest run of base order may have moved.
+const possiblyMoved = (seq) => {
+  const f = runLengths(seq);
+  const g = runLengths(seq.map((v) => -v).reverse()).reverse();
+  const longest = Math.max(0, ...f);
+  const atLength = new Map();
+  for (let i = 0; i < seq.length; i++)
+    if (f[i] + g[i] - 1 === longest)
+      atLength.set(f[i], (atLength.get(f[i]) || 0) + 1);
+  const moved = new Set();
+  for (let i = 0; i < seq.length; i++) {
+    const inSome = f[i] + g[i] - 1 === longest;
+    if (!inSome || atLength.get(f[i]) > 1) moved.add(seq[i]);
+  }
+  return moved;
+};
+const mayHaveMoved = (base, order) => {
+  const bPos = new Map(base.map((k, i) => [k, i]));
+  const moved = possiblyMoved(order.map((k) => bPos.get(k)));
+  return new Set([...moved].map((i) => base[i]));
+};
+
 test("both sides reorder different children: the worked example keeps both moves", () => {
   const base = ["a", "b", "c", "d", "e"];
   const local = ["b", "c", "a", "d", "e"];
@@ -207,6 +245,84 @@ test("both sides reorder different children: one child moved by both still confl
   );
   assert.deepEqual(itemsOf(html), ["b", "c", "a", "d", "e"]);
   assert.equal(kinds(res, "both-reordered").length, 1);
+});
+
+test("both sides reorder different children: two adjacent swaps of one pair conflict", () => {
+  const { html, res } = mergeBodies(
+    ulOf(["a", "b", "c", "d"]),
+    ulOf(["a", "c", "b", "d"]),
+    ulOf(["b", "a", "c", "d"]),
+  );
+  assert.equal(kinds(res, "both-reordered").length, 1);
+  assert.deepEqual([...itemsOf(html)].sort(), ["a", "b", "c", "d"]);
+});
+
+test("both sides reorder different children: a child to the end against a child swapped past it conflicts", () => {
+  const { html, res } = mergeBodies(
+    ulOf(["a", "b", "c", "d"]),
+    ulOf(["a", "c", "d", "b"]),
+    ulOf(["a", "c", "b", "d"]),
+  );
+  assert.equal(kinds(res, "both-reordered").length, 1);
+  assert.deepEqual([...itemsOf(html)].sort(), ["a", "b", "c", "d"]);
+});
+
+test("both sides reorder different children: one card down one against the same card to the top conflicts", () => {
+  const { html, res } = mergeBodies(
+    ulOf(["a", "b", "c", "d", "e"]),
+    ulOf(["a", "b", "d", "c", "e"]),
+    ulOf(["c", "a", "b", "d", "e"]),
+  );
+  assert.equal(kinds(res, "both-reordered").length, 1);
+  assert.deepEqual([...itemsOf(html)].sort(), ["a", "b", "c", "d", "e"]);
+});
+
+test("both sides insert at one anchor: the new children land in one order in both tabs", () => {
+  const keys = (html) =>
+    [...html.matchAll(/data-id="([^"]*)"/g)].map((m) => m[1]);
+  const withIds = (list) =>
+    `<ul>${list.map((k) => `<li data-id="${k}">${k}</li>`).join("")}</ul>`;
+  const base = ["a", "b", "c", "d", "e"];
+  const local = ["x", "e", "a", "b", "c", "d"];
+  const remote = ["y", "d", "a", "b", "c", "e"];
+  const one = mergeBodies(withIds(base), withIds(local), withIds(remote));
+  const two = mergeBodies(withIds(base), withIds(remote), withIds(local));
+  assert.deepEqual(keys(one.html), ["x", "y", "d", "e", "a", "b", "c"]);
+  assert.deepEqual(keys(two.html), keys(one.html));
+});
+
+test("both sides reorder different children: a sibling the other side dropped conflicts", () => {
+  const base = ["a", "b", "c", "d", "e"];
+  const local = ["a", "d", "c", "e"];
+  const remote = ["a", "c", "b", "d", "e"];
+  for (const { html, res } of [
+    mergeBodies(ulOf(base), ulOf(local), ulOf(remote)),
+    mergeBodies(ulOf(base), ulOf(remote), ulOf(local)),
+  ]) {
+    assert.equal(kinds(res, "both-reordered").length, 1);
+    const out = itemsOf(html);
+    for (const k of ["a", "c", "d", "e"])
+      assert.ok(out.includes(k), `${k} kept`);
+    assert.equal(new Set(out).size, out.length, "every child once");
+    assert.deepEqual(
+      out.filter((k) => k === "a" || k === "e"),
+      ["a", "e"],
+      "untouched children keep base order",
+    );
+  }
+});
+
+test("both sides reorder different children: a resurrected sibling lands in the same place in both tabs", () => {
+  const base = ["a", "b", "c", "d"];
+  const local = ["c", "b", "d"];
+  const remote = ["a edited", "d", "b", "c"];
+  const one = mergeBodies(ulOf(base), ulOf(local), ulOf(remote));
+  const two = mergeBodies(ulOf(base), ulOf(remote), ulOf(local));
+  assert.deepEqual(
+    itemsOf(one.html),
+    itemsOf(two.html),
+    "same order in both tabs",
+  );
 });
 
 const gapOf = (keys, sep) =>
@@ -251,6 +367,21 @@ const draggedList = (keys, move) => {
   return ul.outerHTML;
 };
 
+test("both sides reorder different children: both tabs put the whitespace in the same places", () => {
+  const base = `<ul>\n<li>a</li>\n<li>b</li>\n<li>c</li>\n<li>d</li></ul>`;
+  const local = `<ul>\n<li>b</li>\n<li>c</li>\n<li>d</li><li>a</li></ul>`;
+  const remote = `<ul><li>d</li><li>a</li>\n<li>b</li>\n<li>c</li>\n</ul>`;
+  const layout = (html) =>
+    [...parse(doc(html)).body.querySelector("ul").childNodes]
+      .map((n) => (n.nodeType === 3 ? n.nodeValue : n.textContent))
+      .join("|");
+  const one = mergeBodies(base, local, remote);
+  const two = mergeBodies(base, remote, local);
+  assert.deepEqual(itemsOf(one.html), ["d", "b", "c", "a"]);
+  assert.deepEqual(itemsOf(two.html), ["d", "b", "c", "a"]);
+  assert.equal(layout(one.html), layout(two.html));
+});
+
 test("both sides reorder different children: a drag that leaves gaps without twins does not throw", () => {
   const keys = ["b", "f", "q", "m"];
   const { html, res } = mergeBodies(
@@ -278,14 +409,14 @@ test("both sides reorder different children: the same child moved by both confli
   assert.equal(kinds(res, "both-reordered").length, 1);
 });
 
-test("both sides reorder different children: a one-position ambiguity resolves without a notice", () => {
+test("both sides reorder different children: a one-position ambiguity conflicts", () => {
   const { html, res } = mergeBodies(
     ulOf(["a", "b", "c", "d"]),
     ulOf(["b", "c", "d", "a"]),
     ulOf(["b", "a", "c", "d"]),
   );
-  assert.deepEqual(itemsOf(html), ["b", "c", "d", "a"]);
-  assert.equal(res.conflicts.length, 0);
+  assert.equal(kinds(res, "both-reordered").length, 1);
+  assert.deepEqual([...itemsOf(html)].sort(), ["a", "b", "c", "d"]);
 });
 
 test("both sides reorder different children: random reorders keep both moves", () => {
@@ -301,7 +432,8 @@ test("both sides reorder different children: random reorders keep both moves", (
     return l;
   };
   let disjoint = 0,
-    same = 0;
+    same = 0,
+    ambiguous = 0;
   for (let t = 0; t < 2000; t++) {
     const n = 3 + rand(10);
     const base = Array.from({ length: n }, (_, i) => `k${i}`);
@@ -318,6 +450,16 @@ test("both sides reorder different children: random reorders keep both moves", (
       assert.ok(
         kinds(one.res, "both-reordered").length >= 1,
         "same-child conflict",
+      );
+      continue;
+    }
+    const localMay = mayHaveMoved(base, l),
+      remoteMay = mayHaveMoved(base, r);
+    if ([...localMay].some((k) => remoteMay.has(k))) {
+      ambiguous++;
+      assert.ok(
+        kinds(one.res, "both-reordered").length >= 1,
+        "possibly-moved child conflict",
       );
       continue;
     }
@@ -346,7 +488,7 @@ test("both sides reorder different children: random reorders keep both moves", (
     );
     assert.equal(one.res.conflicts.length, 0, "no conflict");
   }
-  assert.ok(disjoint > 0 && same > 0);
+  assert.ok(disjoint > 0 && same > 0 && ambiguous > 0);
 });
 
 test("T-M3 class tokens merge", () => {

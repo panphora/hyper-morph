@@ -39,10 +39,9 @@ function sameAttrs(x, y, ignoreAttribute, attributeMerge) {
     !!attributeMerge(el, name);
   let n = 0;
   for (const a of x.attributes) {
-    if (ignoreAttribute(x, a.name)) continue;
+    if (ignoreAttribute(x, a.name) || declared(x, a.name)) continue;
     n++;
-    if (y.getAttribute(a.name) !== a.value && !declared(x, a.name))
-      return false;
+    if (y.getAttribute(a.name) !== a.value) return false;
   }
   for (const a of y.attributes)
     if (!ignoreAttribute(y, a.name) && !declared(y, a.name)) n--;
