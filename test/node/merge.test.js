@@ -378,6 +378,23 @@ test("both sides reorder different children: a sibling the other side dropped is
   }
 });
 
+test("both sides reorder different children: a sibling only one tab kept is no anchor", () => {
+  const base = ["a", "b", "c", "d"];
+  const local = ["a", "c", "b"];
+  const remote = ["c", "d", "a"];
+  for (const { html, res } of [
+    mergeBodies(ulOf(base), ulOf(local), ulOf(remote)),
+    mergeBodies(ulOf(base), ulOf(remote), ulOf(local)),
+  ]) {
+    assert.deepEqual(
+      itemsOf(html),
+      ["a", "c"],
+      "the children both tabs kept stay in base order",
+    );
+    assert.equal(res.conflicts.length, 0);
+  }
+});
+
 test("both sides reorder different children: a resurrected sibling lands in the same place in both tabs", () => {
   const base = ["a", "b", "c", "d"];
   const local = ["c", "b", "d"];
@@ -473,6 +490,27 @@ test("both sides reorder different children: the same child moved by both confli
   );
   assert.deepEqual(itemsOf(html), ["b", "c", "a", "d", "e"]);
   assert.equal(kinds(res, "both-reordered").length, 1);
+});
+
+test("a text child of only a nbsp is content, not layout whitespace", () => {
+  const base = ["a", "b", "c", "d"];
+  const remote = ["b", "c", "d"];
+  const want = `<ul><li>b</li>&nbsp;<li>c</li>&nbsp;<li>d</li></ul>`;
+  for (const { html, res } of [
+    mergeBodies(
+      gapOf(base, "\u00a0"),
+      gapOf(base, "\u00a0"),
+      gapOf(remote, "\u00a0"),
+    ),
+    mergeBodies(
+      gapOf(base, "\u00a0"),
+      gapOf(remote, "\u00a0"),
+      gapOf(base, "\u00a0"),
+    ),
+  ]) {
+    assert.equal(html, want, "the nbsp gaps stay between the children");
+    assert.equal(res.conflicts.length, 0);
+  }
 });
 
 test("both sides reorder different children: a one-position ambiguity conflicts", () => {
