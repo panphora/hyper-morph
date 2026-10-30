@@ -16,11 +16,25 @@
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-30
+
+### Added
+- A new `attributeMerge` declaration tells the merge which attributes combine as word sets (labels) or by the larger number (counters), so both sides' changes land without a conflict. Declared attributes merge the same way on the fast path.
+- The identity store is available as its own export, and the merge engine can load lazily.
+
+### Changed
+- When both sides change a textarea's text, it merges word by word: different paragraphs both land, and only edits to the same words conflict.
+- When both sides reorder different children of the same parent, both reorders land, with each side's moved children in that side's order and the rest in base order. Only a child both sides moved is still reported as a both-reordered conflict.
+- Reorders ignore whitespace between children, so both moves land and each gap keeps one gap text.
+- When both sides insert at the same anchor, the group from the side whose intent is clear goes first, so a dragged item lands where it was dropped.
+
 ### Fixed
-- `ignoreAttribute` also covers `checked`, `disabled` and `selected` on form controls, which were written without asking it
-- With `keepLiveOnly`, an attribute the local capture lacks because `ignoreAttribute` covered it there is no longer kept as live-only state
-
-
+- `ignoreAttribute` also covers `checked`, `disabled` and `selected` on form controls, which were written without asking it.
+- With `keepLiveOnly`, an attribute the local capture lacks because `ignoreAttribute` covered it there is no longer kept as live-only state.
+- A textarea conflict keeps the textarea's live text node and reports like any other text clash.
+- A whitespace gap with no twin no longer throws in the reorder merge, so a drag in the browser merges cleanly.
+- A sibling that one side dropped is no longer treated as an anchor when placing inserts.
+- Merging very large lists of children no longer overflows the stack.
 
 ## [1.6.1] - 2026-10-15
 
